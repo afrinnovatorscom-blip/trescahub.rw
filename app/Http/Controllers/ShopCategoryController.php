@@ -11,6 +11,7 @@ class ShopCategoryController extends Controller
 {
     public function index()
     {
+        $this->authorizeCatalog('products.view');
         $categories = Shopcategory::with('subcategories')
             ->whereNull('parent_id')
             ->latest()
@@ -21,11 +22,13 @@ class ShopCategoryController extends Controller
 
     public function create()
     {
+        $this->authorizeCatalog('products.edit');
         return view('shop-categories.create');
     }
 
     public function store(Request $request)
     {
+        $this->authorizeCatalog('products.edit');
         // Slugify parent slug before validation
         $request->merge(['slug' => Str::slug($request->input('slug'))]);
 
@@ -76,6 +79,7 @@ class ShopCategoryController extends Controller
 
     public function show(Shopcategory $shopCategory)
     {
+        $this->authorizeCatalog('products.view');
         $shopCategory->load(['subcategories', 'parent']);
 
         return view('shop-categories.show', compact('shopCategory'));
@@ -83,6 +87,7 @@ class ShopCategoryController extends Controller
 
     public function edit(Shopcategory $shopCategory)
     {
+        $this->authorizeCatalog('products.edit');
         $shopCategory->load(['subcategories', 'parent']);
 
         return view('shop-categories.edit', compact('shopCategory'));
@@ -90,6 +95,7 @@ class ShopCategoryController extends Controller
 
     public function update(Request $request, Shopcategory $shopCategory)
     {
+        $this->authorizeCatalog('products.edit');
         // Slugify parent slug before validation
         $request->merge(['slug' => Str::slug($request->input('slug'))]);
 
@@ -144,6 +150,7 @@ class ShopCategoryController extends Controller
 
     public function destroy(Shopcategory $shopCategory)
     {
+        $this->authorizeCatalog('products.delete');
         $name = $shopCategory->name;
 
         $shopCategory->subcategories()->delete();
@@ -151,5 +158,10 @@ class ShopCategoryController extends Controller
 
         return redirect()->route('shop-categories.index')
             ->with('success', "Category '{$name}' deleted successfully!");
+    }
+
+    private function authorizeCatalog(string $permission): void
+    {
+        abort_unless(auth()->user()?->hasPermission($permission), 403);
     }
 }

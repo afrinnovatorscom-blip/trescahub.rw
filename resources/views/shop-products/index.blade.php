@@ -35,6 +35,7 @@
                                 <th>Subcategory</th>
                                 <th>Price (RWF)</th>
                                 <th>Working Days</th>
+                                <th>Approval</th>
                                 <th>Status</th>
                                 <th>Actions</th>
                             </tr>
@@ -81,8 +82,13 @@
                                     
                                     {{-- Working Days --}}
                                     <td>{{ $product->working_days }} day(s)</td>
-                                    
-                                    {{-- Status --}}
+                                    <td>
+                                        <span class="badge bg-light text-dark">{{ str_replace('_', ' ', $product->approval_status ?? 'pending') }}</span>
+                                        <div class="small text-muted">{{ $product->publication_status ?? 'unpublished' }}</div>
+                                        @if(auth()->user()->hasPermission('vendors.view') && $product->vendor)
+                                            <div class="small">{{ $product->vendor->business_name }}</div>
+                                        @endif
+                                    </td>
                                     <td>
                                         @if($product->status === 'in_stock')
                                             <span class="badge bg-success">In Stock</span>
@@ -117,7 +123,7 @@
             @else
                 <div class="text-center py-5">
                     <p class="text-muted">No products found.</p>
-                    <a href="{{ route('shop-products.create') }}" class="btn btn-primary btn-sm">
+                    <a href="{{ route('admin.shop-products.create') }}" class="btn btn-primary btn-sm">
                         Create First Product
                     </a>
                 </div>

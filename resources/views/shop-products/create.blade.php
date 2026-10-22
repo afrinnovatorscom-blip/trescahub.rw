@@ -214,6 +214,8 @@
 
                         {{-- Buttons --}}
                         <div class="d-flex gap-2">
+                        @include('shop-products.workflow-fields')
+
                             <button type="submit" class="btn btn-primary">Create Product</button>
                             <a href="{{ route('admin.shop-products.index') }}" class="btn btn-secondary">Cancel</a>
                         </div>

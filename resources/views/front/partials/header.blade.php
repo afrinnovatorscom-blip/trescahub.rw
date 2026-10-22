@@ -27,6 +27,11 @@
                            style="font-size: 13px;">Shop</a>
                     </li>
                     <li class="nav-item">
+                        <a href="{{ route('track-order') }}"
+                           class="nav-link rounded px-3 py-2 fw-medium {{ request()->routeIs('track-order') ? 'active text-primary bg-light' : 'text-muted' }}"
+                           style="font-size: 13px;">Track Order</a>
+                    </li>
+                    <li class="nav-item">
                         <a href="{{ route('for-partners') }}"
                            class="nav-link rounded px-3 py-2 fw-medium {{ request()->routeIs('for-partners') ? 'active text-primary bg-light' : 'text-muted' }}"
                            style="font-size: 13px;">For Partners</a>

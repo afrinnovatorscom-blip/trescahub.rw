@@ -253,6 +253,8 @@
 
                         {{-- Buttons --}}
                         <div class="d-flex gap-2">
+                        @include('shop-products.workflow-fields', ['product' => $shopProduct])
+
                             <button type="submit" class="btn btn-primary">Update Product</button>
                             <a href="{{ route('admin.shop-products.index') }}" class="btn btn-secondary">Cancel</a>
                         </div>

@@ -12,6 +12,7 @@ use App\Http\Controllers\CtaCategoryController;
 use App\Http\Controllers\CtaController;
 use App\Http\Controllers\RequestServiceController;
 use App\Http\Controllers\SearchController;
+use App\Http\Controllers\Marketplace\AdminAccessController;
 use App\Models\ShopProduct;
 use App\Models\Cta;
 
@@ -19,7 +20,8 @@ use App\Models\Cta;
 // ─── Public routes ────────────────────────────────────────────────────────────
 
 Route::get('/', function () {
-    $popularProducts = ShopProduct::with(['category', 'subcategory'])
+    $popularProducts = ShopProduct::query()->publicCatalog()
+        ->with(['category', 'subcategory'])
         ->where('is_popular', true)
         ->latest()
         ->get();
@@ -45,16 +47,10 @@ Route::get('/shop/{shopProduct:slug}', [ShopProductController::class, 'publicSho
 // ── Partners (Public) ─────────────────────────────────────────────────────────
 Route::get('/for-partners', [PartnerController::class, 'publicIndex'])->name('for-partners');
 
-// ── Search (Live JSON) ────────────────────────────────────────────────────────
 Route::get('/search', [SearchController::class, 'live'])->name('search.live');
 
-// ── Other public pages ────────────────────────────────────────────────────────
-Route::get('/cart', function () {
-    return view('cart');
-})->name('cart');
-
 Route::get('/admin', function () {
-    return view('admin');
+    return redirect()->route('dashboard');
 })->name('admin');
 
 Route::post('/testimonials', [TestimonialController::class, 'store'])->name('testimonials.store');
@@ -68,11 +64,9 @@ Route::middleware([
     'verified',
 ])->group(function () {
 
-    Route::get('/dashboard', function () {
-        return view('dashboard');
-    })->name('dashboard');
+    Route::get('/dashboard', [AdminAccessController::class, 'dashboard'])->name('dashboard');
 
-    // ── Services ──────────────────────────────────────────────────────────────
+    Route::middleware('permission:cms.manage')->group(function () {
     Route::get('/admin/services/subcategories', [ServiceController::class, 'subcategories'])
         ->name('services.subcategories');
 
@@ -92,8 +86,9 @@ Route::middleware([
     Route::get('/admin/categories/{category}/edit',  [CategoryController::class, 'edit'])->name('categories.edit');
     Route::put('/admin/categories/{category}',       [CategoryController::class, 'update'])->name('categories.update');
     Route::delete('/admin/categories/{category}',    [CategoryController::class, 'destroy'])->name('categories.destroy');
+    });
 
-    // ── Shop Categories ───────────────────────────────────────────────────────
+    Route::middleware('permission:admin.access')->group(function () {
     Route::get('/admin/shop-categories',                       [ShopCategoryController::class, 'index'])->name('shop-categories.index');
     Route::get('/admin/shop-categories/create',                [ShopCategoryController::class, 'create'])->name('shop-categories.create');
     Route::post('/admin/shop-categories',                      [ShopCategoryController::class, 'store'])->name('shop-categories.store');
@@ -110,8 +105,9 @@ Route::middleware([
     Route::get('/admin/shop-products/{shopProduct}/edit',      [ShopProductController::class, 'edit'])->name('admin.shop-products.edit');
     Route::put('/admin/shop-products/{shopProduct}',           [ShopProductController::class, 'update'])->name('admin.shop-products.update');
     Route::delete('/admin/shop-products/{shopProduct}',        [ShopProductController::class, 'destroy'])->name('admin.shop-products.destroy');
+    });
 
-    // ── Partners (Admin) ──────────────────────────────────────────────────────
+    Route::middleware('permission:cms.manage')->group(function () {
     Route::get('/admin/partners',                      [PartnerController::class, 'index'])->name('partners.index');
     Route::get('/admin/partners/create',               [PartnerController::class, 'create'])->name('partners.create');
     Route::post('/admin/partners',                     [PartnerController::class, 'store'])->name('partners.store');
@@ -161,5 +157,8 @@ Route::middleware([
     Route::get('/admin/service-requests',                           [RequestServiceController::class, 'index'])->name('service-requests.index');
     Route::patch('/admin/service-requests/{serviceRequest}/status', [RequestServiceController::class, 'updateStatus'])->name('service-requests.status');
     Route::delete('/admin/service-requests/{serviceRequest}',       [RequestServiceController::class, 'destroy'])->name('service-requests.destroy');
+    });
 
 });
+
+require __DIR__.'/marketplace.php';

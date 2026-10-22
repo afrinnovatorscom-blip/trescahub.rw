@@ -4,35 +4,45 @@ namespace App\Http\Controllers;
 
 use App\Models\Shopcategory;
 use App\Models\ShopProduct;
+use App\Services\ProductWorkflowService;
+use App\Support\ProductPayload;
+use App\Support\PublicAsset;
+use App\Support\PublicProduct;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\File;
-use Illuminate\Support\Str;
-use Illuminate\Validation\Rule;
 
 class ShopProductController extends Controller
 {
-    // ── Public ─────────────────────────────────────────────────────────────
+    public function __construct(private ProductWorkflowService $workflow) {}
 
     public function publicIndex(Request $request)
     {
-        $popularProducts = ShopProduct::with(['category', 'subcategory'])
+        $popularProducts = ShopProduct::query()->publicCatalog()
+            ->with(['category', 'subcategory'])
             ->where('is_popular', true)
             ->latest()
             ->get();
 
-        $products = ShopProduct::with(['category', 'subcategory'])
-            ->when($request->category, function ($q) use ($request) {
-                $q->whereHas('category', fn($c) => $c->where('slug', $request->category));
+        $products = ShopProduct::query()->publicCatalog()
+            ->with(['category', 'subcategory'])
+            ->when($request->category, function ($query) use ($request) {
+                $query->whereHas('category', fn ($category) => $category->where('slug', $request->category));
             })
-            ->when($request->subcategory, function ($q) use ($request) {
-                $q->whereHas('subcategory', fn($c) => $c->where('slug', $request->subcategory));
+            ->when($request->subcategory, function ($query) use ($request) {
+                $query->whereHas('subcategory', fn ($category) => $category->where('slug', $request->subcategory));
             })
-            ->when($request->status, function ($q) use ($request) {
-                $q->where('status', $request->status);
+            ->when($request->status, function ($query) use ($request) {
+                if ($request->status === 'in_stock') {
+                    $query->where('status', 'in_stock');
+                } elseif ($request->status === 'out_of_stock') {
+                    $query->where('status', 'out_of_stock');
+                }
             })
-            ->when($request->search, function ($q) use ($request) {
-                $q->where('product_name', 'like', '%' . $request->search . '%')
-                  ->orWhere('description', 'like', '%' . $request->search . '%');
+            ->when($request->search, function ($query) use ($request) {
+                $term = '%'.$request->search.'%';
+                $query->where(function ($inner) use ($term) {
+                    $inner->where('product_name', 'like', $term)
+                        ->orWhere('description', 'like', $term);
+                });
             })
             ->latest()
             ->get();
@@ -47,9 +57,12 @@ class ShopProductController extends Controller
 
     public function publicShow(ShopProduct $shopProduct)
     {
+        abort_unless($shopProduct->isPubliclyVisible(), 404);
+
         $shopProduct->load(['category', 'subcategory']);
 
-        $related = ShopProduct::with(['category', 'subcategory'])
+        $related = ShopProduct::query()->publicCatalog()
+            ->with(['category', 'subcategory'])
             ->where('shop_category_id', $shopProduct->shop_category_id)
             ->where('id', '!=', $shopProduct->id)
             ->limit(4)
@@ -58,203 +71,151 @@ class ShopProductController extends Controller
         return view('front.pages.shopproduct', compact('shopProduct', 'related'));
     }
 
-    // ── Admin ──────────────────────────────────────────────────────────────
-
-    public function index()
+    public function publicApi(Request $request)
     {
-        $products = ShopProduct::with(['category', 'subcategory'])
+        $products = ShopProduct::query()->publicCatalog()
+            ->with('category')
             ->latest()
-            ->paginate(15);
+            ->paginate(24)
+            ->through(fn (ShopProduct $product) => PublicProduct::make($product));
+
+        return response()->json($products);
+    }
+
+    public function index(Request $request)
+    {
+        $this->authorize('viewAny', ShopProduct::class);
+
+        $products = ShopProduct::query()
+            ->with(['category', 'subcategory', 'vendor'])
+            ->when($request->q, fn ($query) => $query->where('product_name', 'like', '%'.$request->q.'%'))
+            ->when($request->approval_status, fn ($query) => $query->where('approval_status', $request->approval_status))
+            ->latest()
+            ->paginate(15)
+            ->withQueryString();
 
         return view('shop-products.index', compact('products'));
     }
 
     public function create()
     {
-        $parentCategories = Shopcategory::with('subcategories')
-            ->whereNull('parent_id')
-            ->orderBy('name')
-            ->get();
+        $this->authorize('create', ShopProduct::class);
 
-        return view('shop-products.create', compact('parentCategories'));
+        $parentCategories = $this->categories();
+        $vendors = $this->vendorOptions();
+
+        return view('shop-products.create', compact('parentCategories', 'vendors'));
     }
 
     public function store(Request $request)
     {
-        $validated = $request->validate([
-            'product_name'           => ['required', 'string', 'max:255'],
-            'status'                 => ['required', Rule::in(['in_stock', 'out_of_stock'])],
-            'is_popular'             => ['nullable', 'boolean'],
-            'description'            => ['nullable', 'string'],
-            'price'                  => ['required', 'numeric', 'min:0'],
-            'working_days'           => ['required', 'integer', 'min:1'],
-            'features'               => ['nullable', 'array'],
-            'features.*'             => ['nullable', 'string', 'max:255'],
-            'specifications'         => ['nullable', 'array'],
-            'specifications.*.label' => ['nullable', 'string', 'max:255'],
-            'specifications.*.value' => ['nullable', 'string', 'max:255'],
-            'thumbnail'              => ['nullable', 'image', 'max:2048'],
-            'images'                 => ['nullable', 'array'],
-            'images.*'               => ['image', 'max:2048'],
-            'shop_category_id'       => ['required', 'integer', 'exists:shop_categories,id'],
-            'subcategory_id'         => ['nullable', 'integer', 'exists:shop_categories,id'],
-        ]);
+        $this->authorize('create', ShopProduct::class);
 
-        $thumbnailPath = null;
-        if ($request->hasFile('thumbnail')) {
-            $thumbnailPath = $this->saveImage($request->file('thumbnail'), 'shop-products/thumbnails');
-        }
+        $validated = ProductPayload::normalize($request->validate(ProductPayload::rules()));
+        $validated = $this->withUploads($request, $validated, null);
+        $user = $request->user();
 
-        $imagePaths = [];
-        if ($request->hasFile('images')) {
-            foreach ($request->file('images') as $image) {
-                $imagePaths[] = $this->saveImage($image, 'shop-products/images');
-            }
-        }
+        $product = $this->workflow->createStaff(
+            $user,
+            $validated,
+            $request->boolean('approve_now') && $user->hasPermission('products.approve'),
+            $request->boolean('publish_now') && $user->hasPermission('products.publish') && $request->boolean('approve_now'),
+        );
 
-        $features       = array_values(array_filter($validated['features'] ?? [], fn($f) => !empty(trim($f))));
-        $specifications = array_values(array_filter($validated['specifications'] ?? [], fn($s) => !empty($s['label']) && !empty($s['value'])));
+        $message = $product->isPubliclyListed()
+            ? 'Product approved and published.'
+            : 'Product saved. It stays off the public shop until it is approved and published.';
 
-        // Auto-generate unique slug
-        $baseSlug = Str::slug($validated['product_name']);
-        $slug     = $baseSlug;
-        $count    = 1;
-        while (ShopProduct::where('slug', $slug)->exists()) {
-            $slug = $baseSlug . '-' . $count++;
-        }
-
-        ShopProduct::create([
-            'product_name'     => $validated['product_name'],
-            'status'           => $validated['status'],
-            'is_popular'       => $request->boolean('is_popular', false),
-            'description'      => $validated['description'] ?? null,
-            'price'            => $validated['price'],
-            'working_days'     => $validated['working_days'],
-            'features'         => $features,
-            'specifications'   => $specifications,
-            'thumbnail'        => $thumbnailPath,
-            'images'           => $imagePaths,
-            'shop_category_id' => $validated['shop_category_id'],
-            'subcategory_id'   => $validated['subcategory_id'] ?? null,
-            'slug'             => $slug,
-        ]);
-
-        return redirect()->route('admin.shop-products.index')
-            ->with('success', 'Product created successfully!');
+        return redirect()->route('admin.shop-products.index')->with('success', $message);
     }
 
     public function show(ShopProduct $shopProduct)
     {
-        $shopProduct->load(['category', 'subcategory']);
-        return view('front.pages.shopproduct', compact('shopProduct'));
+        $this->authorize('view', $shopProduct);
+        $shopProduct->load(['category', 'subcategory', 'vendor', 'locations', 'approvalHistories.actor', 'creator', 'submitter', 'approver']);
+
+        return view('marketplace.products.show', [
+            'product' => $shopProduct,
+            'vendors' => $this->vendorOptions(),
+        ]);
     }
 
     public function edit(ShopProduct $shopProduct)
     {
+        $this->authorize('update', $shopProduct);
         $shopProduct->load(['category', 'subcategory']);
+        $parentCategories = $this->categories();
+        $vendors = $this->vendorOptions();
 
-        $parentCategories = Shopcategory::with('subcategories')
-            ->whereNull('parent_id')
-            ->orderBy('name')
-            ->get();
-
-        return view('shop-products.edit', compact('shopProduct', 'parentCategories'));
+        return view('shop-products.edit', compact('shopProduct', 'parentCategories', 'vendors'));
     }
 
     public function update(Request $request, ShopProduct $shopProduct)
     {
-        $validated = $request->validate([
-            'product_name'           => ['required', 'string', 'max:255'],
-            'status'                 => ['required', Rule::in(['in_stock', 'out_of_stock'])],
-            'is_popular'             => ['nullable', 'boolean'],
-            'description'            => ['nullable', 'string'],
-            'price'                  => ['required', 'numeric', 'min:0'],
-            'working_days'           => ['required', 'integer', 'min:1'],
-            'features'               => ['nullable', 'array'],
-            'features.*'             => ['nullable', 'string', 'max:255'],
-            'specifications'         => ['nullable', 'array'],
-            'specifications.*.label' => ['nullable', 'string', 'max:255'],
-            'specifications.*.value' => ['nullable', 'string', 'max:255'],
-            'thumbnail'              => ['nullable', 'image', 'max:2048'],
-            'images'                 => ['nullable', 'array'],
-            'images.*'               => ['image', 'max:2048'],
-            'shop_category_id'       => ['required', 'integer', 'exists:shop_categories,id'],
-            'subcategory_id'         => ['nullable', 'integer', 'exists:shop_categories,id'],
-        ]);
+        $this->authorize('update', $shopProduct);
 
-        $thumbnailPath = $shopProduct->thumbnail;
-        if ($request->hasFile('thumbnail')) {
-            $this->deleteImage($thumbnailPath);
-            $thumbnailPath = $this->saveImage($request->file('thumbnail'), 'shop-products/thumbnails');
+        $validated = ProductPayload::normalize($request->validate(ProductPayload::rules($shopProduct->id)));
+        $validated = $this->withUploads($request, $validated, $shopProduct);
+        $user = $request->user();
+
+        $this->workflow->updateStaff($shopProduct, $user, $validated);
+
+        if ($request->boolean('publish_now') && $user->hasPermission('products.publish')) {
+            $this->workflow->publish($shopProduct->refresh(), $user);
         }
 
-        $imagePaths = $shopProduct->images ?? [];
-        if ($request->hasFile('images')) {
-            foreach ($shopProduct->images ?? [] as $old) {
-                $this->deleteImage($old);
-            }
-            $imagePaths = [];
-            foreach ($request->file('images') as $image) {
-                $imagePaths[] = $this->saveImage($image, 'shop-products/images');
-            }
-        }
-
-        $features       = array_values(array_filter($validated['features'] ?? [], fn($f) => !empty(trim($f))));
-        $specifications = array_values(array_filter($validated['specifications'] ?? [], fn($s) => !empty($s['label']) && !empty($s['value'])));
-
-        $shopProduct->update([
-            'product_name'     => $validated['product_name'],
-            'status'           => $validated['status'],
-            'is_popular'       => $request->boolean('is_popular', false),
-            'description'      => $validated['description'] ?? null,
-            'price'            => $validated['price'],
-            'working_days'     => $validated['working_days'],
-            'features'         => $features,
-            'specifications'   => $specifications,
-            'thumbnail'        => $thumbnailPath,
-            'images'           => $imagePaths,
-            'shop_category_id' => $validated['shop_category_id'],
-            'subcategory_id'   => $validated['subcategory_id'] ?? null,
-        ]);
-
-        return redirect()->route('admin.shop-products.index')
-            ->with('success', 'Product updated successfully!');
+        return redirect()->route('admin.shop-products.index')->with('success', 'Product updated.');
     }
 
     public function destroy(ShopProduct $shopProduct)
     {
-        $this->deleteImage($shopProduct->thumbnail);
-        foreach ($shopProduct->images ?? [] as $img) {
-            $this->deleteImage($img);
+        $this->authorize('delete', $shopProduct);
+
+        PublicAsset::delete($shopProduct->thumbnail);
+        foreach ($shopProduct->images ?? [] as $image) {
+            PublicAsset::delete($image);
         }
 
         $name = $shopProduct->product_name;
         $shopProduct->delete();
 
-        return redirect()->route('admin.shop-products.index')
-            ->with('success', "Product '{$name}' deleted successfully!");
+        return redirect()->route('admin.shop-products.index')->with('success', "Product '{$name}' deleted.");
     }
 
-    // ── Private Helpers ────────────────────────────────────────────────────
-
-    private function saveImage($file, string $folder): string
+    private function categories()
     {
-        $destination = public_path('assets/' . $folder);
-
-        if (!File::exists($destination)) {
-            File::makeDirectory($destination, 0755, true);
-        }
-
-        $filename = uniqid() . '_' . time() . '.' . $file->getClientOriginalExtension();
-        $file->move($destination, $filename);
-
-        return $folder . '/' . $filename;
+        return Shopcategory::with('subcategories')->whereNull('parent_id')->orderBy('name')->get();
     }
 
-    private function deleteImage(?string $path): void
+    private function vendorOptions()
     {
-        if ($path && File::exists(public_path('assets/' . $path))) {
-            File::delete(public_path('assets/' . $path));
+        if (! auth()->user()->hasPermission('vendors.view') && ! auth()->user()->hasPermission('products.assign_vendor')) {
+            return collect();
         }
+
+        return \App\Models\Vendor::query()->orderBy('business_name')->get(['id', 'business_name', 'status']);
+    }
+
+    private function withUploads(Request $request, array $validated, ?ShopProduct $product): array
+    {
+        $validated['thumbnail'] = $product?->thumbnail;
+        $validated['images'] = $product?->images ?? [];
+
+        if ($request->hasFile('thumbnail')) {
+            PublicAsset::delete($product?->thumbnail);
+            $validated['thumbnail'] = PublicAsset::store($request->file('thumbnail'), 'shop-products/thumbnails');
+        }
+
+        if ($request->hasFile('images')) {
+            foreach ($product?->images ?? [] as $old) {
+                PublicAsset::delete($old);
+            }
+            $validated['images'] = [];
+            foreach ($request->file('images') as $image) {
+                $validated['images'][] = PublicAsset::store($image, 'shop-products/images');
+            }
+        }
+
+        return $validated;
     }
 }

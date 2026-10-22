@@ -109,11 +109,18 @@
                         $whatsappUrl = "https://wa.me/250780290040?text=" . $whatsappMessage;
                     @endphp
 
-                    <div class="mt-4">
+                    <div class="mt-4 d-grid gap-2">
                         <a href="{{ $whatsappUrl }}" target="_blank" class="btn btn-success btn-lg w-100 gap-2" style="background-color: #25d366; border-color: #25d366;">
                             <i class="bi bi-whatsapp"></i>
                             Order via WhatsApp
                         </a>
+                        <form method="POST" action="{{ route('cart.add') }}" class="d-flex gap-2">
+                            @csrf
+                            <input type="hidden" name="product" value="{{ $shopProduct->slug }}">
+                            <input type="number" name="quantity" value="1" min="1" max="100" class="form-control" style="max-width: 110px;" aria-label="Quantity">
+                            <button class="btn btn-primary btn-lg flex-grow-1" type="submit" @if($shopProduct->customerAvailability() !== 'in_stock') disabled @endif>Add to cart</button>
+                        </form>
+                        <a href="{{ route('product-requests.create', ['product' => $shopProduct->slug]) }}" class="btn btn-outline-dark btn-lg">Request this product</a>
                     </div>
 
                     {{-- Stock Status --}}

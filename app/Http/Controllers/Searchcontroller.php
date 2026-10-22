@@ -26,7 +26,7 @@ class SearchController extends Controller
                 'thumbnail' => $s->thumbnail ? url('assets/' . ltrim($s->thumbnail, '/')) : null,
                 'url'       => route('service.show', $s->slug),
             ]);
-        $products = ShopProduct::with('category')
+        $products = ShopProduct::query()->publicCatalog()->with('category')
             ->where(function ($query) use ($q) {
                 $query->where('product_name', 'like', "%{$q}%")
                       ->orWhere('description', 'like', "%{$q}%");
@@ -40,6 +40,6 @@ class SearchController extends Controller
                 'thumbnail' => $p->thumbnail ? url('assets/' . ltrim($p->thumbnail, '/')) : null,
                 'url'       => route('shop-products.show', $p->slug),
             ]);
-        return response()->json($services->merge($products)->values());
+        return response()->json(collect($services)->concat($products)->values());
     }
 }

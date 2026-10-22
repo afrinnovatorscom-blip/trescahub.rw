@@ -41,7 +41,9 @@ return new class extends Migration
             $table->index('shop_category_id');          // For category queries
             $table->index('subcategory_id');            // For subcategory queries
             $table->index('created_at');                // For sorting by latest
-            $table->fullText(['product_name', 'description']); // For full-text search
+            if (Schema::getConnection()->getDriverName() !== 'sqlite') {
+                $table->fullText(['product_name', 'description']); // MySQL full-text search
+            }
         });
     }
 

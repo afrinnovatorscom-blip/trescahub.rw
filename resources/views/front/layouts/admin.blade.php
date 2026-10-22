@@ -395,6 +395,9 @@
     @endphp
 
     <nav class="nav-section">
+        @if(auth()->user()->isVendorOnly())
+            @include('marketplace.partials.vendor-nav')
+        @else
         <div class="nav-section-label">Main</div>
 
         {{-- Dashboard --}}
@@ -404,7 +407,7 @@
             Dashboard
         </a>
 
-        {{-- Services --}}
+        @if(auth()->user()->hasPermission('cms.manage'))
         <button class="nav-item-link dropdown-parent {{ request()->routeIs('services.*') ? 'open' : '' }}"
                 onclick="toggleDropdown('servicesMenu', this)">
             <i class="bi bi-briefcase"></i>
@@ -586,6 +589,10 @@
             @endif
         </a>
 
+        @endif
+
+        @include('marketplace.partials.staff-nav')
+        @endif
     </nav>
 
     {{-- System --}}
@@ -613,7 +620,7 @@
             </div>
             <div class="user-info">
                 <div class="user-name">{{ auth()->user()->name ?? 'Admin' }}</div>
-                <div class="user-role">Administrator</div>
+                <div class="user-role">{{ auth()->user()->roleLabel() }}</div>
             </div>
             <i class="bi bi-three-dots-vertical" style="color:#7a8499; font-size:0.85rem;"></i>
         </div>

@@ -22,7 +22,9 @@
 
     $recentRequests = ServiceRequest::latest()->limit(6)->get();
     $recentServices = Service::with('category')->latest()->limit(5)->get();
-@endphp
+        @endphp
+
+        @include('marketplace.dashboard-cards')
 
 {{-- ── Stat Cards ── --}}
 <div class="row g-3 mb-4">
