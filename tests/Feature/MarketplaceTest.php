@@ -15,6 +15,7 @@ use App\Models\Vendor;
 use App\Services\InventoryService;
 use App\Services\OrderService;
 use App\Support\PermissionCatalog;
+use Database\Seeders\MarketplaceUserSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
@@ -275,6 +276,24 @@ class MarketplaceTest extends TestCase
         $this->assertTrue($officer->hasRole('request-officer'));
         $this->assertFalse($officer->hasRole('product-manager'));
         $this->actingAs($officer)->post(route('marketplace.products.approve', $this->product()))->assertForbidden();
+    }
+
+    public function test_user_seeder_creates_every_marketplace_role(): void
+    {
+        $this->seed(MarketplaceUserSeeder::class);
+
+        foreach (array_keys(PermissionCatalog::roles()) as $slug) {
+            $this->assertTrue(
+                User::query()->whereHas('roles', fn ($query) => $query->where('slug', $slug))->exists(),
+                $slug
+            );
+        }
+
+        $vendorUser = User::query()->where('email', 'vendor@example.com')->first();
+        $this->assertNotNull($vendorUser?->vendor_id);
+        $this->assertSame('active', $vendorUser->vendor->status);
+        $this->assertTrue($vendorUser->hasRole('vendor'));
+        $this->assertTrue(User::query()->where('email', 'super@example.com')->first()->hasRole('super-administrator'));
     }
 
     private function vendor(string $name): Vendor
