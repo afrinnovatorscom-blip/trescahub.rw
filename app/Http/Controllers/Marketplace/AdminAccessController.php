@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Marketplace;
 
 use App\Http\Controllers\Controller;
 use App\Models\AuditLog;
-use App\Models\DeliveryTask;
 use App\Models\Order;
 use App\Models\Permission;
 use App\Models\ProductRequest;
@@ -13,11 +12,12 @@ use App\Models\ShopProduct;
 use App\Models\User;
 use App\Models\Vendor;
 use App\Services\AuditLogger;
-use App\Support\PermissionCatalog;
+use App\Services\ReportService;
+use Barryvdh\DomPDF\Facade\Pdf;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
-use Illuminate\Validation\Rule;
 
 class AdminAccessController extends Controller
 {
@@ -30,64 +30,58 @@ class AdminAccessController extends Controller
         }
 
         if (! $user->hasPermission('admin.access') && ! $user->hasPermission('cms.manage')) {
-            return redirect()->route('account.orders');
+            return redirect()->route('home');
         }
 
         return view('dashboard');
     }
 
-    public function reports(Request $request)
+    public function reports(Request $request, ReportService $reportService)
     {
         abort_unless($request->user()->hasPermission('reports.view'), 403);
 
-        $from = $request->date('from');
-        $to = $request->date('to');
-        $apply = function ($query, string $column = 'created_at') use ($from, $to) {
-            if ($from) {
-                $query->whereDate($column, '>=', $from);
-            }
-            if ($to) {
-                $query->whereDate($column, '<=', $to);
-            }
+        $validated = $request->validate([
+            'from' => ['nullable', 'date'],
+            'to' => ['nullable', 'date', 'after_or_equal:from'],
+            'category' => ['nullable', 'string', 'in:all,products,services,orders,inventory,vendors'],
+            'export' => ['nullable', 'string', 'in:pdf'],
+        ]);
 
-            return $query;
-        };
-
-        $approvals = ProductRequest::query();
-        $orders = Order::query();
-        $apply($orders);
-        $apply(ProductRequest::query());
-
-        $report = [
-            'products_by_status' => ShopProduct::query()->select('approval_status', DB::raw('count(*) as total'))->groupBy('approval_status')->pluck('total', 'approval_status'),
-            'products_by_publication' => ShopProduct::query()->select('publication_status', DB::raw('count(*) as total'))->groupBy('publication_status')->pluck('total', 'publication_status'),
-            'requests_by_status' => $apply(ProductRequest::query())->select('status', DB::raw('count(*) as total'))->groupBy('status')->pluck('total', 'status'),
-            'orders_by_status' => $apply(Order::query())->select('fulfillment_status', DB::raw('count(*) as total'))->groupBy('fulfillment_status')->pluck('total', 'fulfillment_status'),
-            'converted' => $apply(ProductRequest::query())->whereNotNull('order_id')->count(),
-            'requests_total' => $apply(ProductRequest::query())->count(),
-            'late_orders' => $apply(Order::query())->whereNotNull('delivery_estimate_at')->where('delivery_estimate_at', '<', now())->whereNotIn('fulfillment_status', ['delivered', 'completed', 'cancelled', 'returned'])->count(),
-            'cancelled_orders' => $apply(Order::query())->where('fulfillment_status', 'cancelled')->count(),
-            'low_stock' => ShopProduct::query()->where('tracks_inventory', true)->whereRaw('(stock_quantity - reserved_quantity) <= low_stock_threshold')->count(),
-        ];
-
-        if ($request->user()->hasPermission('finance.view')) {
-            $report['revenue'] = $apply(Order::query())->where('payment_status', 'paid')->sum('total');
+        if (($validated['export'] ?? null) === 'pdf') {
+            return $this->exportPdf($request, $reportService);
         }
 
-        if ($request->user()->hasPermission('vendors.view')) {
-            $report['vendors'] = Vendor::query()
-                ->withCount(['orderItems as accepted_items' => fn ($query) => $query->where('assignment_status', 'accepted')])
-                ->orderByDesc('accepted_items')
-                ->limit(10)
-                ->get();
-        }
+        $from = Carbon::parse($validated['from'] ?? now()->startOfMonth()->toDateString());
+        $to = Carbon::parse($validated['to'] ?? now()->toDateString());
+        $category = $validated['category'] ?? 'all';
 
-        $report['approval_hours'] = DB::table('product_approval_histories')
-            ->where('action', 'approved')
-            ->whereNotNull('created_at')
-            ->count();
+        $report = $reportService->build($from, $to, $category, $request->user());
 
         return view('marketplace.reports.index', compact('report'));
+    }
+
+    public function exportPdf(Request $request, ReportService $reportService)
+    {
+        abort_unless($request->user()->hasPermission('reports.view'), 403);
+
+        $validated = $request->validate([
+            'from' => ['nullable', 'date'],
+            'to' => ['nullable', 'date', 'after_or_equal:from'],
+            'category' => ['nullable', 'string', 'in:all,products,services,orders,inventory,vendors'],
+        ]);
+
+        $from = Carbon::parse($validated['from'] ?? now()->startOfMonth()->toDateString());
+        $to = Carbon::parse($validated['to'] ?? now()->toDateString());
+        $category = $validated['category'] ?? 'all';
+
+        $report = $reportService->build($from, $to, $category, $request->user());
+
+        $pdf = Pdf::loadView('marketplace.reports.pdf', compact('report'))
+            ->setPaper('a4', 'portrait');
+
+        $filename = 'tresca-hub-report-' . $from->format('Y-m-d') . '-to-' . $to->format('Y-m-d') . '.pdf';
+
+        return $pdf->download($filename);
     }
 
     public function audit(Request $request)

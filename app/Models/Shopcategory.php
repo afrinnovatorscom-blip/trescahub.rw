@@ -15,13 +15,14 @@ class ShopCategory extends Model
     protected $fillable = [
         'name',
         'slug',
+        'description',
         'parent_id',
         'active',
     ];
 
     protected $casts = [
         'parent_id' => 'integer',
-        'active'    => 'boolean',
+        'active' => 'boolean',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
@@ -32,24 +33,24 @@ class ShopCategory extends Model
 
         static::creating(function ($model) {
             // Slug is the source of truth — derive name from slug if name is empty
-            if (empty($model->name) && !empty($model->slug)) {
+            if (empty($model->name) && ! empty($model->slug)) {
                 $model->name = Str::title(str_replace('-', ' ', $model->slug));
             }
 
             // If slug is still empty, generate from name
-            if (empty($model->slug) && !empty($model->name)) {
+            if (empty($model->slug) && ! empty($model->name)) {
                 $model->slug = Str::slug($model->name);
             }
         });
 
         static::updating(function ($model) {
             // Slug is the source of truth — derive name from slug if name is empty
-            if (empty($model->name) && !empty($model->slug)) {
+            if (empty($model->name) && ! empty($model->slug)) {
                 $model->name = Str::title(str_replace('-', ' ', $model->slug));
             }
 
             // If slug is still empty, generate from name
-            if (empty($model->slug) && !empty($model->name)) {
+            if (empty($model->slug) && ! empty($model->name)) {
                 $model->slug = Str::slug($model->name);
             }
         });
@@ -105,6 +106,6 @@ class ShopCategory extends Model
      */
     public function isChild(): bool
     {
-        return !is_null($this->parent_id);
+        return ! is_null($this->parent_id);
     }
 }

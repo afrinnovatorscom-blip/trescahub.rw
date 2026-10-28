@@ -11,6 +11,12 @@ return [
         'Pay on delivery, or contact TRESCA Hub for bank transfer details.'
     ),
 
+    'delivery_methods' => [
+        'in_house' => 'In-house Delivery',
+        'third_party_courier' => 'Third-party Courier',
+        'customer_collection' => 'Customer Collection',
+    ],
+
     'order_transitions' => [
         'pending_confirmation' => ['confirmed', 'cancellation_requested', 'cancelled'],
         'confirmed' => ['processing', 'awaiting_stock', 'cancellation_requested', 'cancelled'],
@@ -54,12 +60,15 @@ return [
         'product_name',
         'description',
         'price',
+        'discount_enabled',
+        'original_price',
         'features',
         'specifications',
         'working_days',
         'thumbnail',
         'images',
         'status',
+        'is_finished',
         'shop_category_id',
         'subcategory_id',
         'is_popular',

@@ -9,4 +9,5 @@
 @include('front.section.works')
 @include('front.section.cta')
 @include('front.section.client-say')
+@include('front.section.our-partners')
 @endsection

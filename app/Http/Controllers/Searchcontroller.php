@@ -23,7 +23,7 @@ class SearchController extends Controller
                 'type'      => 'service',
                 'title'     => $s->title,
                 'subtitle'  => $s->category->title ?? '',
-                'thumbnail' => $s->thumbnail ? url('assets/' . ltrim($s->thumbnail, '/')) : null,
+                'thumbnail' => $s->thumbnail ? url('assets/' . ltrim(str_replace('public/assets/', '', $s->thumbnail), '/')) : null,
                 'url'       => route('service.show', $s->slug),
             ]);
         $products = ShopProduct::query()->publicCatalog()->with('category')
@@ -37,7 +37,7 @@ class SearchController extends Controller
                 'type'      => 'product',
                 'title'     => $p->product_name,
                 'subtitle'  => $p->category->name ?? '',
-                'thumbnail' => $p->thumbnail ? url('assets/' . ltrim($p->thumbnail, '/')) : null,
+                'thumbnail' => $p->thumbnail ? url('assets/' . ltrim(str_replace('public/assets/', '', $p->thumbnail), '/')) : null,
                 'url'       => route('shop-products.show', $p->slug),
             ]);
         return response()->json(collect($services)->concat($products)->values());

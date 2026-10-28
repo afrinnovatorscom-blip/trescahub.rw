@@ -34,7 +34,7 @@
 
                         <td>
                             @if($service->thumbnail)
-                                <img src="{{ asset('public/' . $service->thumbnail) }}"
+                                <img src="{{ asset('' . $service->thumbnail) }}"
                                      class="rounded"
                                      style="width:48px;height:48px;object-fit:cover"
                                      alt="{{ $service->title }}">
@@ -128,6 +128,6 @@
 </div>
 
 @if($services->hasPages())
-    <div class="mt-3 d-flex justify-content-end">{{ $services->links() }}</div>
+    <div class="mt-3">{{ $services->links('pagination::bootstrap-5') }}</div>
 @endif
 @endsection

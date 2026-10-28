@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Shopcategory;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
@@ -23,55 +24,49 @@ class ShopCategoryController extends Controller
     public function create()
     {
         $this->authorizeCatalog('products.edit');
+
         return view('shop-categories.create');
     }
 
     public function store(Request $request)
     {
         $this->authorizeCatalog('products.edit');
-        // Slugify parent slug before validation
-        $request->merge(['slug' => Str::slug($request->input('slug'))]);
+
+        $request->merge([
+            'slug' => $this->slugFrom($request->input('slug'), $request->input('name')),
+        ]);
 
         $validated = $request->validate([
-            'slug'                 => ['required', 'string', 'max:255', 'unique:shop_categories,slug'],
-            'active'               => ['nullable', 'boolean'],
-            'subcategories'        => ['nullable', 'array'],
-            'subcategories.*.name' => ['nullable', 'string', 'max:255'],
+            'name' => ['required', 'string', 'max:255'],
+            'slug' => ['required', 'string', 'max:255', 'unique:shop_categories,slug'],
+            'description' => ['nullable', 'string', 'max:2000'],
+            'status' => ['required', Rule::in(['active', 'inactive'])],
+            'subcategories' => ['nullable', 'array'],
+            'subcategories.*.name' => ['required', 'string', 'max:255'],
             'subcategories.*.slug' => ['nullable', 'string', 'max:255'],
+            'subcategories.*.description' => ['nullable', 'string', 'max:2000'],
         ]);
 
-        $category = Shopcategory::create([
-            'name'      => Str::title(str_replace('-', ' ', $validated['slug'])),
-            'slug'      => $validated['slug'],
-            'parent_id' => null,
-            'active'    => $request->boolean('active', true),
-        ]);
+        $active = $validated['status'] === 'active';
 
-        if (!empty($validated['subcategories'])) {
-            foreach ($validated['subcategories'] as $sub) {
-                if (empty(trim($sub['name'] ?? ''))) {
-                    continue;
-                }
+        DB::transaction(function () use ($validated, $active) {
+            $category = Shopcategory::query()->create([
+                'name' => $validated['name'],
+                'slug' => $validated['slug'],
+                'description' => $validated['description'] ?? null,
+                'parent_id' => null,
+                'active' => $active,
+            ]);
 
-                $subSlug = !empty($sub['slug'])
-                    ? Str::slug($sub['slug'])
-                    : Str::slug($sub['name']);
-
-                // Make slug unique by appending suffix if duplicate
-                $originalSubSlug = $subSlug;
-                $counter = 1;
-                while (Shopcategory::where('slug', $subSlug)->exists()) {
-                    $subSlug = $originalSubSlug . '-' . $counter++;
-                }
-
-                Shopcategory::create([
-                    'name'      => $sub['name'],
-                    'slug'      => $subSlug,
-                    'parent_id' => $category->id,
-                    'active'    => $category->active,
+            foreach ($validated['subcategories'] ?? [] as $subcategory) {
+                $category->subcategories()->create([
+                    'name' => $subcategory['name'],
+                    'slug' => $this->uniqueSlug($subcategory['slug'] ?? null, $subcategory['name']),
+                    'description' => $subcategory['description'] ?? null,
+                    'active' => $active,
                 ]);
             }
-        }
+        });
 
         return redirect()->route('shop-categories.index')
             ->with('success', 'Category created successfully!');
@@ -96,53 +91,64 @@ class ShopCategoryController extends Controller
     public function update(Request $request, Shopcategory $shopCategory)
     {
         $this->authorizeCatalog('products.edit');
-        // Slugify parent slug before validation
-        $request->merge(['slug' => Str::slug($request->input('slug'))]);
+
+        $request->merge([
+            'slug' => $this->slugFrom($request->input('slug'), $request->input('name')),
+        ]);
 
         $validated = $request->validate([
-            'slug'                 => ['required', 'string', 'max:255',
-                                        Rule::unique('shop_categories', 'slug')->ignore($shopCategory->id)],
-            'active'               => ['nullable', 'boolean'],
-            'subcategories'        => ['nullable', 'array'],
-            'subcategories.*.name' => ['nullable', 'string', 'max:255'],
+            'name' => ['required', 'string', 'max:255'],
+            'slug' => [
+                'required',
+                'string',
+                'max:255',
+                Rule::unique('shop_categories', 'slug')->ignore($shopCategory->id),
+            ],
+            'description' => ['nullable', 'string', 'max:2000'],
+            'status' => ['required', Rule::in(['active', 'inactive'])],
+            'subcategories' => ['nullable', 'array'],
+            'subcategories.*.id' => [
+                'nullable',
+                'integer',
+                Rule::exists('shop_categories', 'id')->where('parent_id', $shopCategory->id),
+            ],
+            'subcategories.*.name' => ['required', 'string', 'max:255'],
             'subcategories.*.slug' => ['nullable', 'string', 'max:255'],
+            'subcategories.*.description' => ['nullable', 'string', 'max:2000'],
         ]);
 
-        $shopCategory->update([
-            'name'      => Str::title(str_replace('-', ' ', $validated['slug'])),
-            'slug'      => $validated['slug'],
-            'parent_id' => null,
-            'active'    => $request->boolean('active', $shopCategory->active),
-        ]);
+        $active = $validated['status'] === 'active';
 
-        // Delete old subcategories then re-create
-        $shopCategory->subcategories()->delete();
+        DB::transaction(function () use ($shopCategory, $validated, $active) {
+            $shopCategory->update([
+                'name' => $validated['name'],
+                'slug' => $validated['slug'],
+                'description' => $validated['description'] ?? null,
+                'parent_id' => null,
+                'active' => $active,
+            ]);
 
-        if (!empty($validated['subcategories'])) {
-            foreach ($validated['subcategories'] as $sub) {
-                if (empty(trim($sub['name'] ?? ''))) {
-                    continue;
+            $shopCategory->subcategories()->update(['active' => $active]);
+
+            foreach ($validated['subcategories'] ?? [] as $subcategory) {
+                $child = ! empty($subcategory['id'])
+                    ? $shopCategory->subcategories()->findOrFail($subcategory['id'])
+                    : null;
+                $slug = $this->uniqueSlug($subcategory['slug'] ?? null, $subcategory['name'], $child?->id);
+                $attributes = [
+                    'name' => $subcategory['name'],
+                    'slug' => $slug,
+                    'description' => $subcategory['description'] ?? null,
+                    'active' => $active,
+                ];
+
+                if ($child) {
+                    $child->update($attributes);
+                } else {
+                    $shopCategory->subcategories()->create($attributes);
                 }
-
-                $subSlug = !empty($sub['slug'])
-                    ? Str::slug($sub['slug'])
-                    : Str::slug($sub['name']);
-
-                // Make slug unique by appending suffix if duplicate
-                $originalSubSlug = $subSlug;
-                $counter = 1;
-                while (Shopcategory::where('slug', $subSlug)->exists()) {
-                    $subSlug = $originalSubSlug . '-' . $counter++;
-                }
-
-                Shopcategory::create([
-                    'name'      => $sub['name'],
-                    'slug'      => $subSlug,
-                    'parent_id' => $shopCategory->id,
-                    'active'    => $shopCategory->active,
-                ]);
             }
-        }
+        });
 
         return redirect()->route('shop-categories.index')
             ->with('success', 'Category updated successfully!');
@@ -158,6 +164,31 @@ class ShopCategoryController extends Controller
 
         return redirect()->route('shop-categories.index')
             ->with('success', "Category '{$name}' deleted successfully!");
+    }
+
+    private function slugFrom(mixed $slug, mixed $name): string
+    {
+        $value = is_string($slug) && filled($slug)
+            ? $slug
+            : (is_string($name) ? $name : '');
+
+        return Str::limit(Str::slug($value), 255, '');
+    }
+
+    private function uniqueSlug(?string $slug, string $name, ?int $ignoreId = null): string
+    {
+        $base = Str::limit($this->slugFrom($slug, $name) ?: 'category', 240, '');
+        $candidate = $base;
+        $suffix = 1;
+
+        while (Shopcategory::query()
+            ->when($ignoreId, fn ($query) => $query->where('id', '!=', $ignoreId))
+            ->where('slug', $candidate)
+            ->exists()) {
+            $candidate = $base.'-'.$suffix++;
+        }
+
+        return $candidate;
     }
 
     private function authorizeCatalog(string $permission): void

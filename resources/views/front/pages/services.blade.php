@@ -1,198 +1,126 @@
 @extends('front.layouts.guest')
 @section('content')
 
-<main class="py-12 py-md-20">
+<main class="py-5 py-md-5" style="padding-top: 5rem !important; padding-bottom: 5rem !important;">
     <div class="container">
-        {{-- Header Section --}}
+
+        {{-- Header --}}
         <div class="text-center mb-5">
-            <h1 class="display-4 fw-bold mb-4">Services Marketplace</h1>
-            <p class="fs-5 text-muted mx-auto" style="max-width: 600px;">
-                Browse our specialized service categories. Order packages like products — add to cart, checkout, and track your order.
+            <h1 class="fw-bold mb-3" style="font-size: 2.8rem; color: #111; letter-spacing: -0.5px;">
+                Services Marketplace
+            </h1>
+            <p class="mx-auto" style="max-width: 600px; font-size: 1.05rem; color: #6b7280; line-height: 1.7;">
+                Browse our five specialized service stores. Order packages like products — add to cart, checkout, and track your order.
             </p>
         </div>
 
         {{-- Services Grid --}}
-        <div class="row g-4 mt-5">
+        <div class="row g-4 mt-4">
             @forelse($categories as $category)
+            @php
+                $emojiMap = [
+                    'graphic'      => '🎨',
+                    'design'       => '✏️',
+                    'content'      => '📝',
+                    'writing'      => '📝',
+                    'web'          => '💻',
+                    'development'  => '💻',
+                    'photography'  => '📷',
+                    'photo'        => '📷',
+                    'video'        => '🎬',
+                    'production'   => '🎬',
+                    'engineering'  => '🔧',
+                    'technical'    => '⚙️',
+                    'construction' => '🏗️',
+                    'shopping'     => '🛒',
+                    'supplies'     => '📦',
+                    'refreshment'  => '🥤',
+                    'catering'     => '🍽️',
+                    'event'        => '📅',
+                    'support'      => '🆘',
+                    'works'        => '🔨',
+                ];
+
+                $categoryLower = strtolower($category->title);
+                $emoji = '⭐';
+                foreach ($emojiMap as $keyword => $icon) {
+                    if (str_contains($categoryLower, $keyword)) {
+                        $emoji = $icon;
+                        break;
+                    }
+                }
+
+                $packageCount = $category->services()->count();
+            @endphp
+
                 <div class="col-12 col-md-6 col-lg-4">
-                    <a href="{{ route('services.category', $category->slug) }}" class="text-decoration-none">
-                        <div class="card h-100 service-card"
-                             style="cursor: pointer; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);">
-                            <div class="card-body d-flex flex-column p-5">
-                                {{-- Icon --}}
-                                <div class="service-icon mb-4">
-                                    @php
-                                        // Map category names to Font Awesome icons
-                                        $iconMap = [
-                                            'graphic' => 'fas fa-palette',
-                                            'design' => 'fas fa-palette',
-                                            'content' => 'fas fa-pen-fancy',
-                                            'writing' => 'fas fa-pen-fancy',
-                                            'web' => 'fas fa-code',
-                                            'development' => 'fas fa-code',
-                                            'photography' => 'fas fa-camera',
-                                            'photo' => 'fas fa-camera',
-                                            'video' => 'fas fa-video',
-                                            'production' => 'fas fa-video',
-                                            'engineering' => 'fas fa-tools',
-                                            'technical' => 'fas fa-tools',
-                                            'construction' => 'fas fa-hammer',
-                                            'shopping' => 'fas fa-shopping-cart',
-                                            'supplies' => 'fas fa-box',
-                                            'refreshments' => 'fas fa-utensils',
-                                            'catering' => 'fas fa-utensils',
-                                        ];
+                    <a href="{{ route('services.category', $category->slug) }}"
+                       class="text-decoration-none">
+                        <div class="service-card h-100 d-flex flex-column p-4 rounded-4"
+                             style="background: #fff;
+                                    border: 1px solid #e5e7eb;
+                                    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+                                    transition: all 0.3s cubic-bezier(0.4,0,0.2,1);">
 
-                                        $categoryLower = strtolower($category->title);
-                                        $icon = 'fas fa-star'; // default icon
+                            {{-- Emoji Icon --}}
+                            <span style="font-size: 3rem; line-height: 1; margin-bottom: 16px; display: block;">
+                                {{ $emoji }}
+                            </span>
 
-                                        foreach ($iconMap as $keyword => $faIcon) {
-                                            if (stripos($categoryLower, $keyword) !== false) {
-                                                $icon = $faIcon;
-                                                break;
-                                            }
-                                        }
-                                    @endphp
-                                    <i class="{{ $icon }}" style="font-size: 2.5rem; color: var(--bs-primary-color); display: inline-block;"></i>
-                                </div>
+                            {{-- Title --}}
+                            <h2 class="fw-bold mb-1" style="font-size: 1.15rem; color: #111;">
+                                {{ $category->title }}
+                            </h2>
 
-                                {{-- Title --}}
-                                <h2 class="card-title fw-bold fs-5 mb-2" style="color: var(--bs-body-color);">
-                                    {{ $category->title }}
-                                </h2>
+                            {{-- Company tag --}}
+                            <p class="fw-semibold mb-2" style="font-size: 0.75rem; color: #16a34a; text-transform: uppercase; letter-spacing: 0.4px;">
+                                TRESCA {{ strtoupper(explode(' ', trim($category->title))[0]) }} Ltd
+                            </p>
 
-                                {{-- Description --}}
-                                <p class="card-text text-muted flex-grow-1 small mb-4" style="font-size: 0.875rem; line-height: 1.6;">
-                                    {{ Str::limit($category->description, 100) }}
-                                </p>
+                            {{-- Description --}}
+                            <p class="mb-4" style="font-size: 0.875rem; color: #6b7280; line-height: 1.6; flex-grow: 1;">
+                                {{ Str::limit($category->description, 100) }}
+                            </p>
 
-                                {{-- Package Count and Browse Link --}}
-                                @php
-                                    $packageCount = $category->services()->count();
-                                @endphp
-
-                                <div class="service-link d-flex align-items-center gap-2 small fw-semibold text-primary"
-                                     style="font-size: 0.875rem; transition: gap 0.3s ease;">
-                                    <span>Browse {{ $packageCount }} {{ Str::plural('service', $packageCount) }}</span>
-                                    <i class="fas fa-arrow-right" style="font-size: 0.875rem; transition: transform 0.3s ease; display: inline-block;"></i>
-                                </div>
+                            {{-- Browse Link --}}
+                            <div class="service-link d-flex align-items-center gap-2 fw-semibold"
+                                 style="font-size: 0.875rem; color: #16a34a; transition: gap 0.3s ease;">
+                                <span>Browse {{ $packageCount }} {{ Str::plural('service', $packageCount) }}</span>
+                                <span class="service-arrow" style="transition: transform 0.3s ease; display: inline-block;">→</span>
                             </div>
+
                         </div>
                     </a>
                 </div>
+
             @empty
                 <div class="col-12">
-                    <div class="alert alert-info text-center py-5">
-                        <h5 class="mb-2">No Services Available</h5>
-                        <p class="text-muted">Please check back soon for new services.</p>
+                    <div class="text-center py-5" style="color: #6b7280;">
+                        <span style="font-size: 3rem;">📭</span>
+                        <h5 class="mt-3 mb-1 fw-bold">No Services Available</h5>
+                        <p class="mb-0">Please check back soon for new services.</p>
                     </div>
                 </div>
             @endforelse
         </div>
+
     </div>
 </main>
 
 <style>
-    :root {
-        --bs-body-color: #1f2937;
-        --bs-border-color: #e5e7eb;
-        --bs-primary-color: #16a34a;
-        --bs-text-muted: #6b7280;
-    }
-
-    .py-md-20 {
-        padding-top: 5rem;
-        padding-bottom: 5rem;
-    }
-
-    @media (max-width: 768px) {
-        .py-md-20 {
-            padding-top: 3rem;
-            padding-bottom: 3rem;
-        }
-    }
-
-    .service-card {
-        box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        background-color: #fff;
-        border: none;
-    }
-
     .service-card:hover {
-        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
         transform: translateY(-4px);
+        box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1) !important;
     }
-
     .service-card:hover .service-link {
-        gap: 0.75rem;
+        gap: 0.75rem !important;
     }
-
-    .service-card:hover .fa-arrow-right {
+    .service-card:hover .service-arrow {
         transform: translateX(4px);
     }
 
-    .service-icon {
-        display: flex;
-        align-items: center;
-        justify-content: flex-start;
-        min-height: 2.5rem;
-    }
-
-    .flex-grow-1 {
-        flex-grow: 1 !important;
-    }
-
-    .p-5 {
-        padding: 1.5rem;
-    }
-
-    .mb-2 {
-        margin-bottom: 0.5rem !important;
-    }
-
-    .mb-3 {
-        margin-bottom: 0.75rem !important;
-    }
-
-    .mb-4 {
-        margin-bottom: 1rem !important;
-    }
-
-    .mb-5 {
-        margin-bottom: 1.5rem !important;
-    }
-
-    .text-primary {
-        color: var(--bs-primary-color) !important;
-    }
-
-    .text-muted {
-        color: var(--bs-text-muted) !important;
-    }
-
-    .display-4 {
-        color: var(--bs-body-color);
-        font-weight: 700;
-    }
-
-    .fs-5 {
-        color: var(--bs-text-muted);
-    }
-
-    /* Responsive */
     @media (max-width: 576px) {
-        .display-4 {
-            font-size: 2rem;
-        }
-
-        .fs-5 {
-            font-size: 1rem !important;
-        }
-
-        .p-5 {
-            padding: 1.25rem;
-        }
+        h1 { font-size: 2rem !important; }
     }
 </style>
 

@@ -56,7 +56,7 @@
                                 {{-- Thumbnail --}}
                                 <td>
                                     @if($thumbnail)
-                                        <img src="{{ asset('public/' . $thumbnail) }}"
+                                        <img src="{{ asset('' . $thumbnail) }}"
                                              alt="{{ $title ?? '' }}"
                                              class="rounded"
                                              style="width:50px;height:40px;object-fit:cover;">

@@ -11,7 +11,13 @@
             <span class="badge bg-warning text-dark">Revision {{ str_replace('_', ' ', $product->revision_status) }}</span>
         @endif
     </p>
-    <p>RWF {{ number_format($product->price, 0, '.', ',') }} · {{ $product->working_days }} working days · Available {{ $product->availableQuantity() }}</p>
+    <p>RWF {{ number_format($product->price, 0, '.', ',') }} · {{ $product->working_days }} working days · Current stock {{ number_format($product->stock_quantity) }} {{ $product->stock_unit ?: 'units' }}</p>
+    @if($product->tracks_inventory && array_key_exists('initial_stock_quantity', $product->pending_payload ?? []))
+        <p class="alert alert-info py-2">
+            Unapproved initial stock: {{ number_format((int) $product->pending_payload['initial_stock_quantity']) }} {{ $product->stock_unit ?: 'units' }}.
+            It remains unavailable until the product is approved.
+        </p>
+    @endif
     @if(auth()->user()->hasPermission('vendors.view'))
         <p>Vendor: {{ $product->vendor?->business_name ?? 'Not assigned' }}</p>
     @endif

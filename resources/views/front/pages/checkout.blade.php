@@ -13,11 +13,17 @@
     </ul>
     <form method="POST" action="{{ route('checkout.place') }}" class="row g-3">
         @csrf
-        <div class="col-md-6"><label class="form-label" for="customer_name">Name</label><input id="customer_name" name="customer_name" class="form-control" required value="{{ old('customer_name', auth()->user()->name ?? '') }}"></div>
-        <div class="col-md-6"><label class="form-label" for="phone">Phone</label><input id="phone" name="phone" class="form-control" required value="{{ old('phone', auth()->user()->phone ?? '') }}"></div>
-        <div class="col-12"><label class="form-label" for="email">Email</label><input id="email" type="email" name="email" class="form-control" value="{{ old('email', auth()->user()->email ?? '') }}"></div>
-        <div class="col-12"><label class="form-label" for="delivery_address">Delivery address</label><textarea id="delivery_address" name="delivery_address" class="form-control" required>{{ old('delivery_address') }}</textarea></div>
-        <div class="col-12"><label class="form-label" for="delivery_notes">Delivery notes</label><textarea id="delivery_notes" name="delivery_notes" class="form-control">{{ old('delivery_notes') }}</textarea></div>
+        <input type="hidden" name="submission_key" value="{{ $submissionKey }}">
+        <div class="col-md-6"><label class="form-label" for="customer_name">Name</label><input id="customer_name" name="customer_name" class="form-control" required value="{{ old('customer_name', $defaultAddress?->recipient_name ?? $customer?->name ?? '') }}"></div>
+        <div class="col-md-6"><label class="form-label" for="phone">Phone</label><input id="phone" name="phone" class="form-control" required value="{{ old('phone', $defaultAddress?->recipient_phone ?? $customer?->phone ?? '') }}"></div>
+        <div class="col-12"><label class="form-label" for="email">Email</label><input id="email" type="email" name="email" class="form-control" value="{{ old('email', $defaultAddress?->recipient_email ?? $customer?->email ?? '') }}"></div>
+        <div class="col-12"><label class="form-label" for="delivery_address">Delivery address</label><textarea id="delivery_address" name="delivery_address" class="form-control" required>{{ old('delivery_address', $defaultAddress?->formattedAddress()) }}</textarea></div>
+        <div class="col-12"><label class="form-label" for="delivery_notes">Delivery notes</label><textarea id="delivery_notes" name="delivery_notes" class="form-control">{{ old('delivery_notes', $defaultAddress?->delivery_instructions) }}</textarea></div>
+        @if($customer)
+            <div class="col-12">
+                <a href="{{ route('account.profile') }}" class="small text-decoration-none">Manage saved addresses</a>
+            </div>
+        @endif
         <div class="col-12">
             <label class="form-label" for="payment_method">Payment</label>
             <select id="payment_method" name="payment_method" class="form-select">

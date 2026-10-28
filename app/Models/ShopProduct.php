@@ -20,6 +20,9 @@ class ShopProduct extends Model
         'sku',
         'status',
         'is_popular',
+        'discount_enabled',
+        'original_price',
+        'is_finished',
         'description',
         'price',
         'working_days',
@@ -36,12 +39,14 @@ class ShopProduct extends Model
         'vendor_id',
         'acquisition_cost',
         'stock_quantity',
+        'stock_unit',
         'reserved_quantity',
         'tracks_inventory',
         'low_stock_threshold',
         'product_type',
         'condition',
         'internal_notes',
+        'inventory_notes',
         'created_by',
         'submitted_by',
         'approved_by',
@@ -53,6 +58,7 @@ class ShopProduct extends Model
         'vendor_id',
         'acquisition_cost',
         'internal_notes',
+        'inventory_notes',
         'approved_by',
         'created_by',
         'submitted_by',
@@ -66,6 +72,9 @@ class ShopProduct extends Model
 
     protected $casts = [
         'is_popular' => 'boolean',
+        'discount_enabled' => 'boolean',
+        'original_price' => 'decimal:2',
+        'is_finished' => 'boolean',
         'features' => 'array',
         'specifications' => 'array',
         'images' => 'array',
@@ -107,9 +116,13 @@ class ShopProduct extends Model
         });
 
         static::saving(function (ShopProduct $model) {
-            if ($model->tracks_inventory) {
+            if ($model->tracks_inventory && $model->isDirty(['stock_quantity', 'reserved_quantity', 'tracks_inventory'])) {
                 $available = (int) $model->stock_quantity - (int) $model->reserved_quantity;
-                $model->status = $available > 0 ? 'in_stock' : 'out_of_stock';
+                if ($available <= 0) {
+                    $model->status = 'out_of_stock';
+                } elseif (! $model->isDirty('status')) {
+                    $model->status = 'in_stock';
+                }
             }
         });
     }
@@ -149,6 +162,11 @@ class ShopProduct extends Model
         return $this->hasMany(InventoryMovement::class);
     }
 
+    public function inventoryAdjustmentRequests(): HasMany
+    {
+        return $this->hasMany(InventoryAdjustmentRequest::class);
+    }
+
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
@@ -168,6 +186,18 @@ class ShopProduct extends Model
     {
         return $query->where('approval_status', 'approved')
             ->where('publication_status', 'published')
+            ->where('is_finished', false)
+            ->whereHas('category', fn ($category) => $category
+                ->where('active', true)
+                ->where(fn ($category) => $category
+                    ->whereNull('parent_id')
+                    ->orWhereHas('parent', fn ($parent) => $parent->where('active', true))))
+            ->where(function ($query) {
+                $query->whereNull('subcategory_id')
+                    ->orWhereHas('subcategory', fn ($subcategory) => $subcategory
+                        ->where('active', true)
+                        ->whereHas('parent', fn ($parent) => $parent->where('active', true)));
+            })
             ->where(function ($inner) {
                 $inner->whereNull('vendor_id')
                     ->orWhereIn('vendor_id', function ($sub) {
@@ -196,17 +226,38 @@ class ShopProduct extends Model
             return 'unavailable';
         }
 
+        if ($this->status !== 'in_stock') {
+            return 'out_of_stock';
+        }
+
         if ($this->tracks_inventory) {
             return $this->availableQuantity() > 0 ? 'in_stock' : 'out_of_stock';
         }
 
-        return $this->status === 'in_stock' ? 'in_stock' : 'out_of_stock';
+        return 'in_stock';
     }
 
     public function isPubliclyListed(): bool
     {
         return $this->approval_status === 'approved'
-            && $this->publication_status === 'published';
+            && $this->publication_status === 'published'
+            && ! $this->is_finished;
+    }
+
+    public function hasValidDiscount(): bool
+    {
+        return $this->discount_enabled
+            && $this->original_price !== null
+            && (float) $this->original_price > (float) $this->price;
+    }
+
+    public function getDiscountPercentageAttribute(): int
+    {
+        if (! $this->hasValidDiscount()) {
+            return 0;
+        }
+
+        return (int) round((1 - ((float) $this->price / (float) $this->original_price)) * 100);
     }
 
     public function vendorIsSellable(): bool
@@ -224,7 +275,27 @@ class ShopProduct extends Model
 
     public function isPubliclyVisible(): bool
     {
-        return $this->isPubliclyListed() && $this->vendorIsSellable();
+        return $this->isPubliclyListed()
+            && $this->vendorIsSellable()
+            && ! $this->is_finished
+            && $this->hasActiveCategoryHierarchy();
+    }
+
+    private function hasActiveCategoryHierarchy(): bool
+    {
+        if (! $this->category()
+            ->where('active', true)
+            ->where(fn ($category) => $category
+                ->whereNull('parent_id')
+                ->orWhereHas('parent', fn ($parent) => $parent->where('active', true)))
+            ->exists()) {
+            return false;
+        }
+
+        return ! $this->subcategory_id || $this->subcategory()
+            ->where('active', true)
+            ->whereHas('parent', fn ($parent) => $parent->where('active', true))
+            ->exists();
     }
 
     public function canPurchase(int $quantity): bool

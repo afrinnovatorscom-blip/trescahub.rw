@@ -3,6 +3,10 @@
 @section('title', 'Edit Category')
 
 @section('content')
+@php
+    $classificationValues = old('classification_name', $category->classification_name ?? []);
+    $subcategoryValues = old('subcategory', $category->subcategory ?? []);
+@endphp
 <div class="d-flex justify-content-between align-items-center mb-3">
     <h4 class="fw-bold mb-0">
         <i class="bi bi-pencil-square me-2 text-primary"></i>Edit Category
@@ -45,48 +49,44 @@
                     <div class="form-text">Clear to auto-regenerate from title on save.</div>
                 </div>
 
-                {{-- Classification → FK to services --}}
-                <div class="col-md-6">
-                    <label for="classification_name" class="form-label fw-semibold">
-                        Classification <span class="text-danger">*</span>
-                        <small class="text-muted fw-normal">(Service)</small>
-                    </label>
-                    <select id="classification_name" name="classification_name"
-                            class="form-select @error('classification_name') is-invalid @enderror" required>
-                        <option value="">— Select service —</option>
-                        @foreach($services as $service)
-                            <option value="{{ $service->id }}"
-                                {{ old('classification_name', $category->classification_name) == $service->id ? 'selected' : '' }}>
-                                {{ $service->name }}
-                            </option>
-                        @endforeach
-                    </select>
-                    @error('classification_name')<div class="invalid-feedback">{{ $message }}</div>@enderror
-                </div>
-
-                {{-- Subcategory → JSON array of service IDs --}}
+                {{-- Classification Name → plain text input, stored as array --}}
                 <div class="col-md-6">
                     <label class="form-label fw-semibold">
-                        Subcategories <small class="text-muted fw-normal">(FK → Services)</small>
+                        Classification <span class="text-danger">*</span>
+                        <small class="text-muted fw-normal">(type &amp; press Add)</small>
                     </label>
-
                     <div class="input-group mb-2">
-                        <select id="subcategory-select" class="form-select">
-                            <option value="">— Select a service to add —</option>
-                            @foreach($services as $service)
-                                <option value="{{ $service->id }}" data-name="{{ $service->name }}">
-                                    {{ $service->name }}
-                                </option>
-                            @endforeach
-                        </select>
+                        <input type="text" id="classification-input"
+                               class="form-control @error('classification_name') is-invalid @enderror"
+                               placeholder="e.g. Electronics">
+                        <button type="button" class="btn btn-outline-primary" id="add-classification">
+                            <i class="bi bi-plus-lg"></i> Add
+                        </button>
+                    </div>
+                    <div id="classification-tags" class="d-flex flex-wrap gap-2 mb-1"></div>
+                    <div id="classification-inputs"></div>
+                    @error('classification_name')
+                        <div class="text-danger small">{{ $message }}</div>
+                    @enderror
+                    @error('classification_name.*')
+                        <div class="text-danger small">{{ $message }}</div>
+                    @enderror
+                </div>
+
+                {{-- Subcategories → plain text input, stored as array --}}
+                <div class="col-md-6">
+                    <label class="form-label fw-semibold">
+                        Subcategories <small class="text-muted fw-normal">(type &amp; press Add)</small>
+                    </label>
+                    <div class="input-group mb-2">
+                        <input type="text" id="subcategory-input" class="form-control"
+                               placeholder="e.g. Mobile Phones">
                         <button type="button" class="btn btn-outline-primary" id="add-subcategory">
                             <i class="bi bi-plus-lg"></i> Add
                         </button>
                     </div>
-
                     <div id="subcategory-tags" class="d-flex flex-wrap gap-2 mb-1"></div>
                     <div id="subcategory-inputs"></div>
-
                     @error('subcategory')
                         <div class="text-danger small">{{ $message }}</div>
                     @enderror
@@ -120,63 +120,83 @@
 
 @push('scripts')
 <script>
-    // ── Slug ───────────────────────────────────────────────────────────────
-    const titleInput = document.getElementById('title');
-    const slugInput  = document.getElementById('slug');
-    titleInput.addEventListener('input', () => {
-        if (slugInput.value === '') {
-            slugInput.value = titleInput.value.toLowerCase().trim()
-                .replace(/[^\w\s-]/g, '').replace(/[\s_]+/g, '-').replace(/^-+|-+$/g, '');
-        }
-    });
+const titleInput = document.getElementById('title');
+const slugInput = document.getElementById('slug');
+titleInput.addEventListener('input', () => {
+    if (slugInput.value === '') {
+        slugInput.value = titleInput.value.toLowerCase().trim()
+            .replace(/[^\w\s-]/g, '').replace(/[\s_]+/g, '-').replace(/^-+|-+$/g, '');
+    }
+});
 
-    // ── Subcategory tag manager ────────────────────────────────────────────
-    const selected  = new Map();
-    const tagsDiv   = document.getElementById('subcategory-tags');
-    const inputsDiv = document.getElementById('subcategory-inputs');
-    const addBtn    = document.getElementById('add-subcategory');
-    const selectEl  = document.getElementById('subcategory-select');
+function makeTagManager({ inputId, addBtnId, tagsId, hiddenId, inputName, initialItems }) {
+    const inputEl = document.getElementById(inputId);
+    const addBtn = document.getElementById(addBtnId);
+    const tagsDiv = document.getElementById(tagsId);
+    const hiddenDiv = document.getElementById(hiddenId);
+    const items = initialItems.filter(value => typeof value === 'string' && value.trim() !== '');
 
-    function renderTags() {
-        tagsDiv.innerHTML   = '';
-        inputsDiv.innerHTML = '';
-        selected.forEach((name, id) => {
+    function render() {
+        tagsDiv.innerHTML = '';
+        hiddenDiv.innerHTML = '';
+        items.forEach((value, index) => {
             const badge = document.createElement('span');
             badge.className = 'badge bg-primary d-flex align-items-center gap-1 px-2 py-2';
-            badge.innerHTML = `${name}
-                <button type="button" class="btn-close btn-close-white ms-1"
-                        style="font-size:.6rem" data-id="${id}"></button>`;
-            badge.querySelector('.btn-close').addEventListener('click', () => {
-                selected.delete(id);
-                renderTags();
+            badge.textContent = value;
+            const removeButton = document.createElement('button');
+            removeButton.type = 'button';
+            removeButton.className = 'btn-close btn-close-white ms-1';
+            removeButton.style.fontSize = '.6rem';
+            removeButton.setAttribute('aria-label', `Remove ${value}`);
+            removeButton.addEventListener('click', () => {
+                items.splice(index, 1);
+                render();
             });
+            badge.appendChild(removeButton);
             tagsDiv.appendChild(badge);
 
-            const inp = document.createElement('input');
-            inp.type  = 'hidden';
-            inp.name  = 'subcategory[]';
-            inp.value = id;
-            inputsDiv.appendChild(inp);
+            const hiddenInput = document.createElement('input');
+            hiddenInput.type = 'hidden';
+            hiddenInput.name = inputName;
+            hiddenInput.value = value;
+            hiddenDiv.appendChild(hiddenInput);
         });
     }
 
-    addBtn.addEventListener('click', () => {
-        const opt = selectEl.options[selectEl.selectedIndex];
-        if (!opt.value) return;
-        selected.set(opt.value, opt.dataset.name);
-        selectEl.value = '';
-        renderTags();
+    function addItem() {
+        const value = inputEl.value.trim();
+        if (!value || items.includes(value)) return;
+        items.push(value);
+        inputEl.value = '';
+        render();
+        inputEl.focus();
+    }
+
+    addBtn.addEventListener('click', addItem);
+    inputEl.addEventListener('keydown', event => {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            addItem();
+        }
     });
+    render();
+}
 
-    // Pre-fill existing subcategories (from DB or old())
-    const existing = @json(old('subcategory', $selectedSubcategory));
-    const services  = @json($services->pluck('name', 'id'));
-    if (existing && existing.length) {
-        existing.forEach(id => {
-            const sid = String(id);
-            if (services[sid]) selected.set(sid, services[sid]);
-        });
-        renderTags();
-    }
+makeTagManager({
+    inputId: 'classification-input',
+    addBtnId: 'add-classification',
+    tagsId: 'classification-tags',
+    hiddenId: 'classification-inputs',
+    inputName: 'classification_name[]',
+    initialItems: @json($classificationValues),
+});
+makeTagManager({
+    inputId: 'subcategory-input',
+    addBtnId: 'add-subcategory',
+    tagsId: 'subcategory-tags',
+    hiddenId: 'subcategory-inputs',
+    inputName: 'subcategory[]',
+    initialItems: @json($subcategoryValues),
+});
 </script>
 @endpush

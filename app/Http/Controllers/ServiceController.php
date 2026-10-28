@@ -54,7 +54,7 @@ class ServiceController extends Controller
 
     public function index()
     {
-        $services   = Service::latest()->paginate(10);
+        $services   = Service::latest()->paginate(10)->withQueryString();
         $categories = Category::orderBy('title')->get()->keyBy('id');
         return view('services.index', compact('services', 'categories'));
     }
@@ -203,7 +203,9 @@ class ServiceController extends Controller
             : null;
 
         $validated['is_popular']  = $request->has('is_popular');
-        $validated['is_in_stock'] = $request->has('is_in_stock');
+        $validated['is_in_stock'] = $request->has('is_in_stock')
+            ? $request->boolean('is_in_stock')
+            : $service->is_in_stock;
 
         $service->update($validated);
 

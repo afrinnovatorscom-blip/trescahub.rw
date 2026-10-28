@@ -181,7 +181,6 @@ The sidebar must use a deep navy background and remain visually distinct from th
 
 #### MARKETPLACE
 
-- Catalog
 - Product Approvals
 - Vendors
 - Product Requests

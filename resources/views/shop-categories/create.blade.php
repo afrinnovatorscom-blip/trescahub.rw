@@ -1,152 +1,279 @@
 @extends('front.layouts.admin')
 @section('content')
 
-<div class="container py-4">
-    <div class="row">
-        <div class="col-lg-6 mx-auto">
-            <h1 class="h3 mb-4">Create Shop Category</h1>
+@php
+    $subcategoryRows = old('subcategories', []);
+    $subcategoryRows = is_array($subcategoryRows) ? $subcategoryRows : [];
+    $nextSubcategoryIndex = count($subcategoryRows)
+        ? max(array_map('intval', array_keys($subcategoryRows))) + 1
+        : 0;
+@endphp
 
-            <div class="card">
-                <div class="card-body">
-                    <form action="{{ route('shop-categories.store') }}" method="POST">
-                        @csrf
+<div class="container-fluid py-4">
+    <div class="mx-auto" style="max-width: 920px;">
+        <div class="mb-4">
+            <div class="text-muted small mb-2">
+                <a href="{{ route('shop-categories.index') }}" class="text-decoration-none text-muted">Shop Categories</a>
+                <span class="mx-1">/</span>
+                <span>Create</span>
+            </div>
+            <h1 class="h3 mb-1">Create Product Category</h1>
+            <p class="text-muted mb-0">Add a shop category and optionally organize it with subcategories.</p>
+        </div>
 
-                        {{-- Parent Slug --}}
-                        <div class="mb-4">
-                            <label for="slug" class="form-label fw-bold">Parent Category Slug *</label>
-                            <input type="text"
-                                   class="form-control @error('slug') is-invalid @enderror"
-                                   id="slug"
-                                   name="slug"
-                                   value="{{ old('slug') }}"
-                                   placeholder="e.g., electronics"
-                                   required>
-                            <small class="text-muted">This will be the unique identifier for the parent category</small>
-                            @error('slug')
-                                <div class="invalid-feedback">{{ $message }}</div>
-                            @enderror
-                        </div>
+        @if($errors->any())
+            <div class="alert alert-danger" role="alert">
+                Please review the highlighted fields and correct the errors below.
+            </div>
+        @endif
 
-                        {{-- Subcategories --}}
-                        <div class="mb-3">
-                            <label class="form-label fw-bold">
-                                Subcategories
-                                <span class="text-muted fw-normal">(Quick-add children)</span>
-                            </label>
+        <form action="{{ route('shop-categories.store') }}" method="POST" id="categoryForm">
+            @csrf
 
-                            <div id="subcategories-container">
-                                {{-- Row 0 --}}
-                                <div class="subcategory-row border rounded p-2 mb-2">
-                                    <div class="mb-2">
-                                        <input type="text"
-                                               class="form-control sub-name"
-                                               name="subcategories[0][name]"
-                                               placeholder="Subcategory name e.g., Laptops"
-                                               value="{{ old('subcategories.0.name') }}"
-                                               oninput="syncSlug(this)">
-                                    </div>
-                                    <div class="input-group">
-                                        <span class="input-group-text text-muted" style="font-size:.8rem;">slug</span>
-                                        <input type="text"
-                                               class="form-control sub-slug"
-                                               name="subcategories[0][slug]"
-                                               placeholder="Auto-generated"
-                                               value="{{ old('subcategories.0.slug') }}">
-                                        <button type="button" class="btn btn-outline-danger" onclick="removeSubcategory(this)">
-                                            <i class="bi bi-trash"></i>
-                                        </button>
-                                    </div>
+            <section class="card mb-4">
+                <div class="card-header bg-white py-3">
+                    <h2 class="h5 mb-0">Category Information</h2>
+                </div>
+                <div class="card-body p-3 p-md-4">
+                    <div class="mb-3">
+                        <label for="name" class="form-label fw-semibold">Category Name <span class="text-danger">*</span></label>
+                        <input type="text"
+                               class="form-control @error('name') is-invalid @enderror"
+                               id="name"
+                               name="name"
+                               value="{{ old('name') }}"
+                               maxlength="255"
+                               autocomplete="off"
+                               required>
+                        @error('name')
+                            <div class="invalid-feedback">{{ $message }}</div>
+                        @enderror
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="slug" class="form-label fw-semibold">Slug <span class="text-danger">*</span></label>
+                        <input type="text"
+                               class="form-control @error('slug') is-invalid @enderror"
+                               id="slug"
+                               name="slug"
+                               value="{{ old('slug') }}"
+                               maxlength="255"
+                               autocomplete="off"
+                               required>
+                        <div class="form-text">Generated from the category name. You can edit it if needed; it must be unique.</div>
+                        @error('slug')
+                            <div class="invalid-feedback">{{ $message }}</div>
+                        @enderror
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="description" class="form-label fw-semibold">Description</label>
+                        <textarea class="form-control @error('description') is-invalid @enderror"
+                                  id="description"
+                                  name="description"
+                                  rows="3"
+                                  maxlength="2000"
+                                  placeholder="Optional details about this category">{{ old('description') }}</textarea>
+                        <div class="form-text">Optional, up to 2,000 characters.</div>
+                        @error('description')
+                            <div class="invalid-feedback">{{ $message }}</div>
+                        @enderror
+                    </div>
+
+                    <div>
+                        <label for="status" class="form-label fw-semibold">Status <span class="text-danger">*</span></label>
+                        <select class="form-select @error('status') is-invalid @enderror"
+                                id="status"
+                                name="status"
+                                required>
+                            <option value="active" {{ old('status', 'active') === 'active' ? 'selected' : '' }}>Active</option>
+                            <option value="inactive" {{ old('status') === 'inactive' ? 'selected' : '' }}>Inactive</option>
+                        </select>
+                        <div class="form-text">Inactive categories and their subcategories are hidden from public shop browsing.</div>
+                        @error('status')
+                            <div class="invalid-feedback">{{ $message }}</div>
+                        @enderror
+                    </div>
+                </div>
+            </section>
+
+            <section class="card mb-4">
+                <div class="card-header bg-white py-3 d-flex flex-column flex-sm-row align-items-start align-items-sm-center justify-content-between gap-3">
+                    <div>
+                        <h2 class="h5 mb-0">Subcategories</h2>
+                        <p class="small text-muted mb-0 mt-1">Optional. Each subcategory will belong to this category.</p>
+                    </div>
+                    <button type="button" class="btn btn-outline-primary btn-sm" id="addSubcategory">
+                        <i class="bi bi-plus-lg me-1" aria-hidden="true"></i>Add Another Subcategory
+                    </button>
+                </div>
+                <div class="card-body p-3 p-md-4">
+                    <div id="subcategoriesContainer" aria-live="polite">
+                        @foreach($subcategoryRows as $index => $subcategory)
+                            <div class="subcategory-row border rounded p-3 mb-3" data-index="{{ $index }}">
+                                <div class="d-flex align-items-center justify-content-between mb-3">
+                                    <h3 class="h6 mb-0">Subcategory</h3>
+                                    <button type="button" class="btn btn-sm btn-link text-danger p-0 remove-subcategory">
+                                        Remove
+                                    </button>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="subcategory-name-{{ $index }}" class="form-label fw-semibold">Subcategory Name <span class="text-danger">*</span></label>
+                                    <input type="text"
+                                           class="form-control @error('subcategories.'.$index.'.name') is-invalid @enderror subcategory-name"
+                                           id="subcategory-name-{{ $index }}"
+                                           name="subcategories[{{ $index }}][name]"
+                                           value="{{ $subcategory['name'] ?? '' }}"
+                                           maxlength="255"
+                                           required>
+                                    @error('subcategories.'.$index.'.name')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                    @enderror
+                                </div>
+                                <div class="mb-3">
+                                    <label for="subcategory-slug-{{ $index }}" class="form-label fw-semibold">Slug</label>
+                                    <input type="text"
+                                           class="form-control subcategory-slug @error('subcategories.'.$index.'.slug') is-invalid @enderror"
+                                           id="subcategory-slug-{{ $index }}"
+                                           name="subcategories[{{ $index }}][slug]"
+                                           value="{{ $subcategory['slug'] ?? '' }}"
+                                           maxlength="255">
+                                    <div class="form-text">Generated from the name; edit only if needed.</div>
+                                    @error('subcategories.'.$index.'.slug')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                    @enderror
+                                </div>
+                                <div>
+                                    <label for="subcategory-description-{{ $index }}" class="form-label fw-semibold">Description</label>
+                                    <textarea class="form-control @error('subcategories.'.$index.'.description') is-invalid @enderror"
+                                              id="subcategory-description-{{ $index }}"
+                                              name="subcategories[{{ $index }}][description]"
+                                              rows="2"
+                                              maxlength="2000">{{ $subcategory['description'] ?? '' }}</textarea>
+                                    @error('subcategories.'.$index.'.description')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                    @enderror
                                 </div>
                             </div>
-
-                            <button type="button" class="btn btn-outline-primary btn-sm mt-2" onclick="addSubcategory()">
-                                + Add Subcategory
-                            </button>
-                            <div class="form-text text-muted mt-1">
-                                Slugs are auto-generated from the subcategory name.
-                            </div>
-                        </div>
-
-                        {{-- Active --}}
-                        <div class="mb-4">
-                            <div class="form-check form-switch">
-                                <input class="form-check-input"
-                                       type="checkbox"
-                                       id="active"
-                                       name="active"
-                                       value="1"
-                                       {{ old('active', '1') ? 'checked' : '' }}>
-                                <label class="form-check-label" for="active">Active</label>
-                            </div>
-                        </div>
-
-                        {{-- Buttons --}}
-                        <div class="d-flex gap-2">
-                            <button type="submit" class="btn btn-primary">Create Category</button>
-                            <a href="{{ route('shop-categories.index') }}" class="btn btn-secondary">Cancel</a>
-                        </div>
-
-                    </form>
+                        @endforeach
+                    </div>
+                    @error('subcategories')
+                        <div class="text-danger small mt-2">{{ $message }}</div>
+                    @enderror
+                    <div id="emptySubcategoriesMessage" class="text-muted small {{ count($subcategoryRows) ? 'd-none' : '' }}">
+                        No subcategories added.
+                    </div>
                 </div>
+            </section>
+
+            <div class="d-flex flex-column-reverse flex-sm-row justify-content-end gap-2">
+                <a href="{{ route('shop-categories.index') }}" class="btn btn-outline-secondary">Cancel</a>
+                <button type="submit" class="btn btn-primary px-4" id="saveCategoryButton">Save Category</button>
             </div>
-        </div>
+        </form>
     </div>
 </div>
 
 <script>
+document.addEventListener('DOMContentLoaded', function () {
+    const form = document.getElementById('categoryForm');
+    const nameInput = document.getElementById('name');
+    const slugInput = document.getElementById('slug');
+    const container = document.getElementById('subcategoriesContainer');
+    const emptyMessage = document.getElementById('emptySubcategoriesMessage');
+    const addButton = document.getElementById('addSubcategory');
+    let rowIndex = {{ $nextSubcategoryIndex }};
+
     function toSlug(value) {
-        return value
-            .toLowerCase()
-            .trim()
+        return value.toLowerCase().trim()
             .replace(/[^\w\s-]/g, '')
             .replace(/\s+/g, '-')
             .replace(/-+/g, '-');
     }
 
-    function syncSlug(nameInput) {
-        const row       = nameInput.closest('.subcategory-row');
-        const slugInput = row.querySelector('.sub-slug');
-        slugInput.value = toSlug(nameInput.value);
+    function updateEmptyMessage() {
+        emptyMessage.classList.toggle('d-none', container.children.length > 0);
     }
 
-    let rowIndex = 1;
-
-    function addSubcategory() {
-        const container = document.getElementById('subcategories-container');
-        const row       = document.createElement('div');
-        row.className   = 'subcategory-row border rounded p-2 mb-2';
-        row.innerHTML   = `
-            <div class="mb-2">
-                <input type="text"
-                       class="form-control sub-name"
-                       name="subcategories[${rowIndex}][name]"
-                       placeholder="Subcategory name e.g., Laptops"
-                       oninput="syncSlug(this)">
-            </div>
-            <div class="input-group">
-                <span class="input-group-text text-muted" style="font-size:.8rem;">slug</span>
-                <input type="text"
-                       class="form-control sub-slug"
-                       name="subcategories[${rowIndex}][slug]"
-                       placeholder="Auto-generated">
-                <button type="button" class="btn btn-outline-danger" onclick="removeSubcategory(this)">
-                    <i class="bi bi-trash"></i>
-                </button>
-            </div>
-        `;
-        container.appendChild(row);
-        row.querySelector('.sub-name').focus();
-        rowIndex++;
-    }
-
-    function removeSubcategory(button) {
-        const container = document.getElementById('subcategories-container');
-        if (container.children.length > 1) {
-            button.closest('.subcategory-row').remove();
-        } else {
-            container.querySelectorAll('input').forEach(i => i.value = '');
+    function syncSlug(input, name) {
+        const slug = input.closest(name ? '.subcategory-row' : 'form')
+            .querySelector(name ? '.subcategory-slug' : '#slug');
+        if (!slug.dataset.manuallyEdited) {
+            slug.value = toSlug(input.value);
         }
     }
+
+    function createSubcategoryRow(index) {
+        const row = document.createElement('div');
+        row.className = 'subcategory-row border rounded p-3 mb-3';
+        row.dataset.index = index;
+        row.innerHTML = `
+            <div class="d-flex align-items-center justify-content-between mb-3">
+                <h3 class="h6 mb-0">Subcategory</h3>
+                <button type="button" class="btn btn-sm btn-link text-danger p-0 remove-subcategory">Remove</button>
+            </div>
+            <div class="mb-3">
+                <label for="subcategory-name-${index}" class="form-label fw-semibold">Subcategory Name <span class="text-danger">*</span></label>
+                <input type="text" class="form-control subcategory-name" id="subcategory-name-${index}" name="subcategories[${index}][name]" maxlength="255" required>
+            </div>
+            <div class="mb-3">
+                <label for="subcategory-slug-${index}" class="form-label fw-semibold">Slug</label>
+                <input type="text" class="form-control subcategory-slug" id="subcategory-slug-${index}" name="subcategories[${index}][slug]" maxlength="255">
+                <div class="form-text">Generated from the name; edit only if needed.</div>
+            </div>
+            <div>
+                <label for="subcategory-description-${index}" class="form-label fw-semibold">Description</label>
+                <textarea class="form-control" id="subcategory-description-${index}" name="subcategories[${index}][description]" rows="2" maxlength="2000"></textarea>
+            </div>`;
+        return row;
+    }
+
+    nameInput.addEventListener('input', function () {
+        syncSlug(this, false);
+    });
+    slugInput.addEventListener('input', function () {
+        this.dataset.manuallyEdited = 'true';
+    });
+
+    container.addEventListener('input', function (event) {
+        if (event.target.matches('.subcategory-name')) {
+            syncSlug(event.target, true);
+        }
+        if (event.target.matches('.subcategory-slug')) {
+            event.target.dataset.manuallyEdited = 'true';
+        }
+    });
+
+    container.addEventListener('click', function (event) {
+        const removeButton = event.target.closest('.remove-subcategory');
+        if (removeButton) {
+            removeButton.closest('.subcategory-row').remove();
+            updateEmptyMessage();
+        }
+    });
+
+    addButton.addEventListener('click', function () {
+        const row = createSubcategoryRow(rowIndex++);
+        container.appendChild(row);
+        updateEmptyMessage();
+        row.querySelector('.subcategory-name').focus();
+    });
+
+    form.addEventListener('submit', function () {
+        const button = document.getElementById('saveCategoryButton');
+        button.disabled = true;
+        button.innerHTML = '<span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>Saving...';
+    });
+
+    slugInput.dataset.manuallyEdited = slugInput.value.trim() ? 'true' : '';
+    if (!slugInput.value && nameInput.value) {
+        slugInput.value = toSlug(nameInput.value);
+    }
+    container.querySelectorAll('.subcategory-slug').forEach(function (input) {
+        input.dataset.manuallyEdited = input.value.trim() ? 'true' : '';
+    });
+    updateEmptyMessage();
+});
 </script>
 
 @endsection

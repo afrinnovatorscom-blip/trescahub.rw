@@ -50,7 +50,7 @@
                         <!-- Background Image -->
                         @if($thumbnail)
                         <div class="h-100 w-100 position-absolute" 
-                             style="background-image: url('{{ asset('public/' . $thumbnail) }}'); 
+                             style="background-image: url('{{ asset('' . $thumbnail) }}'); 
                                     background-size: cover; 
                                     background-position: center;">
                         </div>

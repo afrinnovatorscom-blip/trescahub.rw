@@ -49,6 +49,7 @@
 
         {{-- Form --}}
         <form action="{{ route('request-service.store') }}" method="POST" enctype="multipart/form-data"
+              id="serviceForm"
               class="rounded-4 border p-4 p-md-5"
               style="border-color:#e5e7eb;background:#fff;box-shadow:0 2px 16px rgba(0,0,0,0.06);">
             @csrf
@@ -62,7 +63,7 @@
                     <input type="text"
                            id="name"
                            name="name"
-                           value="{{ old('name') }}"
+                           value="{{ old('name', $defaultAddress?->recipient_name ?? auth()->user()->name ?? '') }}"
                            class="form-control @error('name') is-invalid @enderror"
                            placeholder="Your full name"
                            required>
@@ -78,7 +79,7 @@
                     <input type="tel"
                            id="phone"
                            name="phone"
-                           value="{{ old('phone') }}"
+                           value="{{ old('phone', $defaultAddress?->recipient_phone ?? auth()->user()->phone ?? '') }}"
                            class="form-control @error('phone') is-invalid @enderror"
                            placeholder="+250 7XX XXX XXX"
                            required>
@@ -94,7 +95,7 @@
                 <input type="email"
                        id="email"
                        name="email"
-                       value="{{ old('email') }}"
+                       value="{{ old('email', $defaultAddress?->recipient_email ?? auth()->user()->email ?? '') }}"
                        class="form-control @error('email') is-invalid @enderror"
                        placeholder="you@example.com">
                 @error('email')
@@ -167,7 +168,7 @@
             </div>
 
             {{-- File Upload --}}
-            <div class="mb-5">
+            <div class="mb-4">
                 <label for="files" class="form-label fw-semibold">
                     Attach Files <span class="text-muted fw-normal">(optional)</span>
                 </label>
@@ -183,8 +184,45 @@
                 @enderror
             </div>
 
+            {{-- ── MATH CAPTCHA ──────────────────────────────────── --}}
+            <div class="mb-5 p-4 rounded-3 border" style="background:#f8fafc;border-color:#e2e8f0!important;">
+                <div class="d-flex align-items-center gap-2 mb-3">
+                    <div class="d-flex align-items-center justify-content-center rounded-circle flex-shrink-0"
+                         style="width:32px;height:32px;background:rgba(22,163,74,0.1);">
+                        <i class="bi bi-shield-check-fill text-success" style="font-size:0.85rem;"></i>
+                    </div>
+                    <div>
+                        <p class="fw-semibold mb-0 small">Verify you're human</p>
+                        <p class="text-muted mb-0" style="font-size:0.75rem;">Answer the simple math question below to continue</p>
+                    </div>
+                </div>
+
+                <div class="d-flex align-items-center gap-3 flex-wrap">
+                    <div class="px-4 py-2 rounded-3 fw-bold text-center"
+                         style="background:#fff;border:1.5px solid #cbd5e1;font-size:1.25rem;min-width:160px;letter-spacing:0.05em;">
+                        <span id="captchaQuestion">Loading...</span>
+                    </div>
+                    <span class="fw-bold text-muted">=</span>
+                    <input type="number"
+                           id="captchaInput"
+                           class="form-control text-center fw-semibold"
+                           placeholder="?"
+                           autocomplete="off"
+                           style="max-width:100px;font-size:1.1rem;"
+                           required>
+                    <button type="button" id="refreshCaptcha"
+                            class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1"
+                            title="Get a new question">
+                        <i class="bi bi-arrow-clockwise"></i> New question
+                    </button>
+                </div>
+
+                <div id="captchaFeedback" class="mt-2" style="display:none;font-size:0.85rem;"></div>
+            </div>
+
             {{-- Submit --}}
             <button type="submit"
+                    id="submitBtn"
                     class="btn btn-success w-100 fw-semibold py-3"
                     style="font-size:1rem;letter-spacing:0.02em;">
                 <i class="bi bi-send me-2"></i> Submit Request
@@ -195,5 +233,76 @@
 
     </div>
 </main>
+
+<script>
+(function () {
+    let correctAnswer = null;
+
+    function generateCaptcha() {
+        const ops = ['+', '-', 'x'];
+        const op = ops[Math.floor(Math.random() * ops.length)];
+        let a, b, answer;
+
+        if (op === '+') {
+            a = Math.floor(Math.random() * 20) + 1;
+            b = Math.floor(Math.random() * 20) + 1;
+            answer = a + b;
+        } else if (op === '-') {
+            a = Math.floor(Math.random() * 20) + 5;
+            b = Math.floor(Math.random() * (a - 1)) + 1;
+            answer = a - b;
+        } else {
+            a = Math.floor(Math.random() * 9) + 2;
+            b = Math.floor(Math.random() * 9) + 2;
+            answer = a * b;
+        }
+
+        correctAnswer = answer;
+        document.getElementById('captchaQuestion').textContent = a + ' ' + op + ' ' + b;
+        document.getElementById('captchaInput').value = '';
+        hideFeedback();
+    }
+
+    function hideFeedback() {
+        const fb = document.getElementById('captchaFeedback');
+        fb.style.display = 'none';
+        fb.textContent = '';
+        document.getElementById('captchaInput').classList.remove('is-invalid', 'is-valid');
+    }
+
+    function showFeedback(msg, type) {
+        const fb = document.getElementById('captchaFeedback');
+        fb.textContent = msg;
+        fb.className = 'mt-2 ' + (type === 'error' ? 'text-danger' : 'text-success');
+        fb.style.display = 'block';
+        document.getElementById('captchaInput').classList.toggle('is-invalid', type === 'error');
+        document.getElementById('captchaInput').classList.toggle('is-valid', type === 'success');
+    }
+
+    document.getElementById('refreshCaptcha').addEventListener('click', generateCaptcha);
+
+    document.getElementById('captchaInput').addEventListener('input', function () {
+        if (this.value === '') { hideFeedback(); return; }
+        const val = parseInt(this.value, 10);
+        if (val === correctAnswer) {
+            showFeedback('Correct! You can now submit.', 'success');
+        } else {
+            showFeedback('That answer is incorrect. Please try again.', 'error');
+        }
+    });
+
+    document.getElementById('serviceForm').addEventListener('submit', function (e) {
+        const val = parseInt(document.getElementById('captchaInput').value, 10);
+        if (isNaN(val) || val !== correctAnswer) {
+            e.preventDefault();
+            showFeedback('Please answer the math question correctly before submitting.', 'error');
+            document.getElementById('captchaInput').focus();
+            document.getElementById('captchaInput').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    });
+
+    generateCaptcha();
+})();
+</script>
 
 @endsection

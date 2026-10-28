@@ -4,37 +4,64 @@ namespace App\Http\Controllers;
 
 use App\Models\Shopcategory;
 use App\Models\ShopProduct;
+use App\Models\Vendor;
+use App\Services\ProductImageService;
 use App\Services\ProductWorkflowService;
 use App\Support\ProductPayload;
 use App\Support\PublicAsset;
 use App\Support\PublicProduct;
 use Illuminate\Http\Request;
+use Throwable;
 
 class ShopProductController extends Controller
 {
-    public function __construct(private ProductWorkflowService $workflow) {}
+    public function __construct(
+        private ProductWorkflowService $workflow,
+        private ProductImageService $images,
+    ) {}
 
     public function publicIndex(Request $request)
     {
+        $categorySlug = $request->query('category');
+        $categorySlug = is_string($categorySlug) ? trim($categorySlug) : null;
+        if ($categorySlug === '' || strtolower($categorySlug) === 'all') {
+            $categorySlug = null;
+        }
+
+        $subcategorySlug = $request->query('subcategory');
+        $subcategorySlug = is_string($subcategorySlug) ? trim($subcategorySlug) : null;
+        if ($subcategorySlug === '' || strtolower($subcategorySlug) === 'all') {
+            $subcategorySlug = null;
+        }
+
         $popularProducts = ShopProduct::query()->publicCatalog()
             ->with(['category', 'subcategory'])
             ->where('is_popular', true)
             ->latest()
             ->get();
 
-        $products = ShopProduct::query()->publicCatalog()
+        $catalogQuery = ShopProduct::query()->publicCatalog();
+
+        $products = (clone $catalogQuery)
             ->with(['category', 'subcategory'])
-            ->when($request->category, function ($query) use ($request) {
-                $query->whereHas('category', fn ($category) => $category->where('slug', $request->category));
+            ->when($categorySlug, function ($query) use ($categorySlug) {
+                $query->whereHas('category', fn ($category) => $category->where('slug', $categorySlug));
             })
-            ->when($request->subcategory, function ($query) use ($request) {
-                $query->whereHas('subcategory', fn ($category) => $category->where('slug', $request->subcategory));
+            ->when($subcategorySlug, function ($query) use ($subcategorySlug) {
+                $query->whereHas('subcategory', fn ($category) => $category->where('slug', $subcategorySlug));
             })
             ->when($request->status, function ($query) use ($request) {
                 if ($request->status === 'in_stock') {
-                    $query->where('status', 'in_stock');
+                    $query->where('status', 'in_stock')
+                        ->where(fn ($availability) => $availability
+                            ->where('tracks_inventory', false)
+                            ->orWhereColumn('stock_quantity', '>', 'reserved_quantity'));
                 } elseif ($request->status === 'out_of_stock') {
-                    $query->where('status', 'out_of_stock');
+                    $query->where(fn ($availability) => $availability
+                        ->where('status', 'out_of_stock')
+                        ->orWhere(fn ($tracked) => $tracked
+                            ->where('tracks_inventory', true)
+                            ->whereColumn('stock_quantity', '<=', 'reserved_quantity')));
                 }
             })
             ->when($request->search, function ($query) use ($request) {
@@ -47,12 +74,25 @@ class ShopProductController extends Controller
             ->latest()
             ->get();
 
-        $parentCategories = Shopcategory::with('subcategories')
+        $allProductsCount = (clone $catalogQuery)->count();
+        $categoryCounts = (clone $catalogQuery)
+            ->selectRaw('shop_category_id, COUNT(*) as products_count')
+            ->groupBy('shop_category_id')
+            ->pluck('products_count', 'shop_category_id');
+
+        $parentCategories = Shopcategory::with(['subcategories' => fn ($query) => $query->where('active', true)])
             ->whereNull('parent_id')
+            ->where('active', true)
             ->orderBy('name')
             ->get();
 
-        return view('front.pages.shop', compact('products', 'popularProducts', 'parentCategories'));
+        return view('front.pages.shop', compact(
+            'products',
+            'popularProducts',
+            'parentCategories',
+            'allProductsCount',
+            'categoryCounts',
+        ));
     }
 
     public function publicShow(ShopProduct $shopProduct)
@@ -85,16 +125,29 @@ class ShopProductController extends Controller
     public function index(Request $request)
     {
         $this->authorize('viewAny', ShopProduct::class);
+        $filters = $request->validate([
+            'q' => ['nullable', 'string', 'max:255'],
+            'approval_status' => ['nullable', 'string', 'max:50'],
+            'vendor_id' => ['nullable', 'integer', 'exists:vendors,id'],
+        ]);
+        if (isset($filters['vendor_id'])) {
+            abort_unless($request->user()->hasPermission('vendors.view'), 403);
+        }
 
         $products = ShopProduct::query()
             ->with(['category', 'subcategory', 'vendor'])
-            ->when($request->q, fn ($query) => $query->where('product_name', 'like', '%'.$request->q.'%'))
-            ->when($request->approval_status, fn ($query) => $query->where('approval_status', $request->approval_status))
+            ->when($filters['q'] ?? null, fn ($query, $term) => $query->where('product_name', 'like', '%'.$term.'%'))
+            ->when($filters['approval_status'] ?? null, fn ($query, $status) => $query->where('approval_status', $status))
+            ->when($filters['vendor_id'] ?? null, fn ($query, $vendorId) => $query->where('vendor_id', $vendorId))
             ->latest()
             ->paginate(15)
             ->withQueryString();
 
-        return view('shop-products.index', compact('products'));
+        $vendors = $request->user()->hasPermission('vendors.view')
+            ? Vendor::query()->orderBy('business_name')->get(['id', 'business_name'])
+            : collect();
+
+        return view('shop-products.index', compact('products', 'vendors'));
     }
 
     public function create()
@@ -103,28 +156,38 @@ class ShopProductController extends Controller
 
         $parentCategories = $this->categories();
         $vendors = $this->vendorOptions();
+        $shopProduct = new ShopProduct;
 
-        return view('shop-products.create', compact('parentCategories', 'vendors'));
+        return view('shop-products.create', compact('parentCategories', 'vendors', 'shopProduct'));
     }
 
     public function store(Request $request)
     {
         $this->authorize('create', ShopProduct::class);
 
-        $validated = ProductPayload::normalize($request->validate(ProductPayload::rules()));
-        $validated = $this->withUploads($request, $validated, null);
+        $validated = ProductPayload::normalize($request->validate(ProductPayload::rules(true)));
+        [$validated, $newUploads, $obsoleteUploads] = $this->images->withUploads($request, $validated, null);
         $user = $request->user();
 
-        $product = $this->workflow->createStaff(
-            $user,
-            $validated,
-            $request->boolean('approve_now') && $user->hasPermission('products.approve'),
-            $request->boolean('publish_now') && $user->hasPermission('products.publish') && $request->boolean('approve_now'),
-        );
+        try {
+            $product = $this->workflow->createStaff(
+                $user,
+                $validated,
+                $request->boolean('publish_now') && $user->hasPermission('products.publish'),
+            );
+        } catch (Throwable $exception) {
+            foreach ($newUploads as $path) {
+                PublicAsset::delete($path);
+            }
+
+            throw $exception;
+        }
+
+        $this->images->deleteUnreferenced($obsoleteUploads);
 
         $message = $product->isPubliclyListed()
             ? 'Product approved and published.'
-            : 'Product saved. It stays off the public shop until it is approved and published.';
+        : 'Product saved.';
 
         return redirect()->route('admin.shop-products.index')->with('success', $message);
     }
@@ -154,15 +217,25 @@ class ShopProductController extends Controller
     {
         $this->authorize('update', $shopProduct);
 
-        $validated = ProductPayload::normalize($request->validate(ProductPayload::rules($shopProduct->id)));
-        $validated = $this->withUploads($request, $validated, $shopProduct);
+        $validated = ProductPayload::normalize($request->validate(ProductPayload::rules()));
+        [$validated, $newUploads, $obsoleteUploads] = $this->images->withUploads($request, $validated, $shopProduct);
         $user = $request->user();
 
-        $this->workflow->updateStaff($shopProduct, $user, $validated);
+        try {
+            $this->workflow->updateStaff($shopProduct, $user, $validated);
 
-        if ($request->boolean('publish_now') && $user->hasPermission('products.publish')) {
-            $this->workflow->publish($shopProduct->refresh(), $user);
+            if ($request->boolean('publish_now') && $user->hasPermission('products.publish')) {
+                $this->workflow->publish($shopProduct->refresh(), $user);
+            }
+        } catch (Throwable $exception) {
+            foreach ($newUploads as $path) {
+                PublicAsset::delete($path);
+            }
+
+            throw $exception;
         }
+
+        $this->images->deleteUnreferenced($obsoleteUploads);
 
         return redirect()->route('admin.shop-products.index')->with('success', 'Product updated.');
     }
@@ -171,13 +244,16 @@ class ShopProductController extends Controller
     {
         $this->authorize('delete', $shopProduct);
 
-        PublicAsset::delete($shopProduct->thumbnail);
-        foreach ($shopProduct->images ?? [] as $image) {
-            PublicAsset::delete($image);
-        }
+        $pendingPayload = $shopProduct->pending_payload ?? [];
+        $assets = array_filter(array_merge(
+            [$shopProduct->thumbnail, $pendingPayload['thumbnail'] ?? null],
+            $shopProduct->images ?? [],
+            $pendingPayload['images'] ?? [],
+        ));
 
         $name = $shopProduct->product_name;
         $shopProduct->delete();
+        $this->images->deleteUnreferenced($assets);
 
         return redirect()->route('admin.shop-products.index')->with('success', "Product '{$name}' deleted.");
     }
@@ -194,28 +270,5 @@ class ShopProductController extends Controller
         }
 
         return \App\Models\Vendor::query()->orderBy('business_name')->get(['id', 'business_name', 'status']);
-    }
-
-    private function withUploads(Request $request, array $validated, ?ShopProduct $product): array
-    {
-        $validated['thumbnail'] = $product?->thumbnail;
-        $validated['images'] = $product?->images ?? [];
-
-        if ($request->hasFile('thumbnail')) {
-            PublicAsset::delete($product?->thumbnail);
-            $validated['thumbnail'] = PublicAsset::store($request->file('thumbnail'), 'shop-products/thumbnails');
-        }
-
-        if ($request->hasFile('images')) {
-            foreach ($product?->images ?? [] as $old) {
-                PublicAsset::delete($old);
-            }
-            $validated['images'] = [];
-            foreach ($request->file('images') as $image) {
-                $validated['images'][] = PublicAsset::store($image, 'shop-products/images');
-            }
-        }
-
-        return $validated;
     }
 }

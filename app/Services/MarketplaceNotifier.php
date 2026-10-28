@@ -2,11 +2,14 @@
 
 namespace App\Services;
 
+use App\Models\Customer;
+use App\Models\InventoryAdjustmentRequest;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\ProductRequest;
 use App\Models\ShopProduct;
 use App\Models\User;
+use App\Models\Vendor;
 use App\Notifications\MarketplaceNotification;
 use Illuminate\Support\Collection;
 
@@ -23,7 +26,7 @@ class MarketplaceNotifier
             ->get();
     }
 
-    public function send(User $user, string $title, string $body, ?string $url, string $dedupeKey, bool $internal = true): void
+    public function send(User|Customer $user, string $title, string $body, ?string $url, string $dedupeKey, bool $internal = true): void
     {
         if ($dedupeKey !== '' && $user->notifications()
             ->where('data->dedupe_key', $dedupeKey)
@@ -113,13 +116,41 @@ class MarketplaceNotifier
         }
     }
 
+    public function hasVendorDeliveryRequest(Order $order, int $vendorId): bool
+    {
+        $dedupeKey = 'vendor-delivery-request-'.$order->id.'-'.$vendorId;
+
+        return User::query()
+            ->where('vendor_id', $vendorId)
+            ->whereHas('notifications', fn ($notifications) => $notifications->where('data->dedupe_key', $dedupeKey))
+            ->exists();
+    }
+
+    public function requestVendorDelivery(Order $order, Vendor $vendor): void
+    {
+        $order->loadMissing('items');
+        $vendor->loadMissing('users');
+        $itemCount = $order->items->where('vendor_id', $vendor->id)->count();
+
+        foreach ($vendor->users as $user) {
+            $this->send(
+                $user,
+                'Delivery requested',
+                'Please review delivery details for order '.$order->reference.' and create a delivery for your assigned products when they are ready. '.$itemCount.' '.\Illuminate\Support\Str::plural('product', $itemCount).' assigned.',
+                route('vendor.orders.show', $order->reference),
+                'vendor-delivery-request-'.$order->id.'-'.$vendor->id,
+            );
+        }
+    }
+
     public function customerOrder(Order $order, string $title, string $body): void
     {
-        $order->loadMissing('customer');
+        $order->loadMissing(['accountCustomer', 'user']);
+        $customer = $order->accountCustomer ?? $order->user;
 
-        if ($order->user_id && $order->customer) {
+        if ($customer) {
             $this->send(
-                $order->customer,
+                $customer,
                 $title,
                 $body,
                 route('account.orders.show', $order->reference),
@@ -140,5 +171,35 @@ class MarketplaceNotifier
                 'low-stock-'.$product->id.'-'.$product->availableQuantity(),
             );
         }
+    }
+
+    public function inventoryRequestSubmitted(InventoryAdjustmentRequest $request): void
+    {
+        foreach ($this->staff('inventory.manage')->filter(fn (User $user) => $user->hasPermission('admin.access')) as $user) {
+            $this->send(
+                $user,
+                'Inventory change awaiting approval',
+                $request->product->product_name.' has a pending vendor stock change request.',
+                route('marketplace.inventory.index', ['request_status' => 'pending']),
+                'inventory-request-'.$request->id.'-pending',
+            );
+        }
+    }
+
+    public function inventoryRequestDecision(InventoryAdjustmentRequest $request, string $decision, ?string $note): void
+    {
+        $owner = $request->requester;
+        if (! $owner) {
+            return;
+        }
+
+        $this->send(
+            $owner,
+            'Inventory request '.$decision,
+            trim('The request for '.$request->product?->product_name.' was '.$decision.'. '.($note ?? '')),
+            route('vendor.inventory'),
+            'inventory-request-'.$request->id.'-'.$decision,
+            false,
+        );
     }
 }

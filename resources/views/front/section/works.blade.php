@@ -17,6 +17,8 @@
         '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="white" viewBox="0 0 16 16"><path d="M3.612 15.443c-.386.198-.824-.149-.746-.592l.83-4.73L.173 6.765c-.329-.314-.158-.888.283-.95l4.898-.696L7.538.792c.197-.39.73-.39.927 0l2.184 4.327 4.898.696c.441.062.612.636.282.95l-3.522 3.356.83 4.73c.078.443-.36.79-.746.592L8 13.187l-4.389 2.256z"/></svg>',
         '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="white" viewBox="0 0 16 16"><path d="M8 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z"/><path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zM1.5 8a6.5 6.5 0 1 1 13 0 6.5 6.5 0 0 1-13 0z"/></svg>',
     ];
+    $works = $works->reverse()->values()
+        ->map(fn ($work, $index) => ['work' => $work, 'icon' => $icons[$index % count($icons)]]);
 @endphp
 
 @if($works->count() > 0)
@@ -27,18 +29,18 @@
             How It Works
         </h2>
         <div class="row g-5 row-cols-2 row-cols-sm-2 row-cols-md-3 row-cols-lg-4 text-center">
-            @foreach($works as $index => $work)
+            @foreach($works as $step)
             <div class="col">
                 <div class="d-flex flex-column align-items-center">
                     <div class="d-flex align-items-center justify-content-center rounded-circle mb-4"
                          style="width:65px;height:65px;min-width:65px;background-color:#2d8c5e;">
-                        {!! $icons[$index % count($icons)] !!}
+                        {!! $step['icon'] !!}
                     </div>
                     <h3 class="fw-bold mb-2" style="font-family:'Space Grotesk',sans-serif;font-size:1.05rem;">
-                        {{ $work->title }}
+                        {{ $step['work']->title }}
                     </h3>
-                    @if($work->description)
-                        <p class="text-muted small mb-0">{{ $work->description }}</p>
+                    @if($step['work']->description)
+                        <p class="text-muted small mb-0">{{ $step['work']->description }}</p>
                     @endif
                 </div>
             </div>

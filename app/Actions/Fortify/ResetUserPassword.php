@@ -21,6 +21,17 @@ class ResetUserPassword implements ResetsUserPasswords
      */
     public function reset(User $user, array $input): void
     {
+        $customerOnly = $user->vendor_id === null
+            && $user->roles()->where('slug', 'customer')->exists()
+            && ! $user->roles()->where('slug', '!=', 'customer')->exists()
+            && ! $user->directPermissions()->exists();
+
+        if ($customerOnly) {
+            throw ValidationException::withMessages([
+                'email' => 'Customer passwords must be reset through the customer account recovery page.',
+            ]);
+        }
+
         Validator::make($input, [
             'password' => $this->passwordRules(),
         ])->validate();

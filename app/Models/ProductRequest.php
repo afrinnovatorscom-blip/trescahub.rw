@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class ProductRequest extends Model
 {
     protected $fillable = [
-        'reference', 'user_id', 'shop_product_id', 'vendor_id', 'assigned_officer_id',
+        'reference', 'user_id', 'customer_id', 'shop_product_id', 'vendor_id', 'assigned_officer_id',
         'product_location_id', 'order_id', 'customer_name', 'email', 'phone', 'product_name',
         'quantity', 'instructions', 'delivery_location', 'priority', 'status',
         'customer_message', 'internal_notes',
@@ -17,7 +17,12 @@ class ProductRequest extends Model
 
     public function customer(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'user_id');
+        return $this->belongsTo(Customer::class);
+    }
+
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
     }
 
     public function product(): BelongsTo

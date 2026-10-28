@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Exceptions\InventoryException;
 use App\Models\InventoryMovement;
+use App\Models\InventoryAdjustmentRequest;
 use App\Models\OrderItem;
 use App\Models\ProductLocation;
 use App\Models\ShopProduct;
@@ -15,9 +16,32 @@ class InventoryService
 {
     public function __construct(private MarketplaceNotifier $notifier) {}
 
-    public function adjust(ShopProduct $product, int $delta, ?ProductLocation $location, ?User $actor, ?string $note = null): void
+    public function adjust(
+        ShopProduct $product,
+        int $delta,
+        ?ProductLocation $location,
+        ?User $actor,
+        ?string $note = null,
+        ?InventoryAdjustmentRequest $adjustmentRequest = null,
+        ?string $submissionToken = null,
+        ?string $movementType = null,
+    ): bool
     {
-        DB::transaction(function () use ($product, $delta, $location, $actor, $note) {
+        return DB::transaction(function () use ($product, $delta, $location, $actor, $note, $adjustmentRequest, $submissionToken, $movementType) {
+            if ($submissionToken !== null) {
+                $inserted = DB::table('inventory_adjustment_submissions')->insertOrIgnore([
+                    'token' => $submissionToken,
+                    'shop_product_id' => $product->id,
+                    'user_id' => $actor?->id,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+                if ($inserted === 0) {
+                    return false;
+                }
+            }
+
             $locked = ShopProduct::query()->whereKey($product->id)->lockForUpdate()->firstOrFail();
             $lockedLocation = $this->lockLocation($locked, $location);
 
@@ -25,6 +49,9 @@ class InventoryService
 
             if ($newStock < 0 || $newStock < (int) $locked->reserved_quantity) {
                 throw new InventoryException('That adjustment would drop stock below zero or below the reserved quantity.');
+            }
+            if ($newStock > 2147483647) {
+                throw new InventoryException('That adjustment would exceed the supported stock quantity limit.');
             }
 
             if ($lockedLocation) {
@@ -42,13 +69,13 @@ class InventoryService
                 $locked,
                 $lockedLocation,
                 $actor,
-                'adjustment',
+                $movementType ?? 'adjustment',
                 $delta,
                 (int) $locked->stock_quantity,
                 $newStock,
                 (int) $locked->reserved_quantity,
                 (int) $locked->reserved_quantity,
-                null,
+                $adjustmentRequest,
                 $note,
             );
 
@@ -65,6 +92,8 @@ class InventoryService
             if ($locked->availableQuantity() <= (int) $locked->low_stock_threshold) {
                 $this->notifier->lowStock($locked);
             }
+
+            return true;
         });
     }
 

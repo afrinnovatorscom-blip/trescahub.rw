@@ -19,5 +19,9 @@ export default {
         },
     },
 
+    corePlugins: {
+        container: false,
+    },
+
     plugins: [forms, typography],
 };

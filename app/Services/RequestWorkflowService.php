@@ -2,13 +2,13 @@
 
 namespace App\Services;
 
+use App\Models\Customer;
 use App\Models\Order;
 use App\Models\ProductRequest;
 use App\Models\RequestStatusHistory;
 use App\Models\ShopProduct;
 use App\Models\User;
 use App\Models\Vendor;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class RequestWorkflowService
@@ -18,8 +18,22 @@ class RequestWorkflowService
         private MarketplaceNotifier $notifier,
     ) {}
 
-    public function submit(array $data, ?User $customer): ProductRequest
+    public function submit(array $data, User|Customer|null $customer, ?string $submissionKey = null): ProductRequest|Order
     {
+        if ($submissionKey !== null) {
+            $existingOrder = Order::query()->where('submission_key', $submissionKey)->first();
+
+            if ($existingOrder) {
+                if ($existingOrder->source !== 'request_product') {
+                    throw ValidationException::withMessages([
+                        'submission_key' => 'This submission key has already been used.',
+                    ]);
+                }
+
+                return $existingOrder->load('items');
+            }
+        }
+
         $product = null;
 
         if (! empty($data['product_slug'])) {
@@ -32,9 +46,26 @@ class RequestWorkflowService
             }
         }
 
+        if ($product && ($data['request_type'] ?? 'purchase') === 'purchase') {
+            return $this->orders->place([
+                'name' => $data['customer_name'],
+                'email' => $data['email'] ?? null,
+                'phone' => $data['phone'],
+                'delivery_address' => trim((string) ($data['delivery_location'] ?? '')) ?: 'To be confirmed',
+                'delivery_notes' => $data['instructions'] ?? null,
+                'payment_method' => 'cash_on_delivery',
+            ], [
+                ['product' => $product, 'quantity' => (int) $data['quantity']],
+            ], $customer instanceof User ? $customer : null,
+                $customer instanceof Customer ? $customer : null,
+                'request_product',
+                $submissionKey);
+        }
+
         $request = ProductRequest::query()->create([
             'reference' => ReferenceGenerator::request(),
-            'user_id' => $customer?->id,
+            'user_id' => $customer instanceof User ? $customer->id : null,
+            'customer_id' => $customer instanceof Customer ? $customer->id : null,
             'shop_product_id' => $product?->id,
             'customer_name' => $data['customer_name'],
             'email' => $data['email'] ?? null,
@@ -48,7 +79,7 @@ class RequestWorkflowService
             'customer_message' => 'We have received your request.',
         ]);
 
-        $this->history($request, $customer, null, 'submitted', null, 'We have received your request.', []);
+        $this->history($request, $customer instanceof User ? $customer : null, null, 'submitted', null, 'We have received your request.', []);
         $this->notifier->requestNeedsStaff($request, 'New product request');
 
         return $request;
@@ -178,7 +209,9 @@ class RequestWorkflowService
             'payment_method' => 'cash_on_delivery',
         ], [
             ['product' => $product, 'quantity' => $request->quantity],
-        ], $request->user_id ? User::query()->find($request->user_id) : null);
+        ], $request->user_id ? User::query()->find($request->user_id) : null,
+            $request->customer_id ? Customer::query()->find($request->customer_id) : null,
+            'request_product');
 
         $from = $request->status;
         $request->order_id = $order->id;

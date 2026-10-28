@@ -6,7 +6,7 @@
         <div class="col-md-6">
 
             <div class="text-center mb-4">
-                <x-authentication-card-logo />
+                @include('front.partials.auth-brand')
             </div>
 
             <div class="card shadow-sm border-0 rounded-4">
@@ -25,7 +25,7 @@
                         </div>
                     @endif
 
-                    <form method="POST" action="{{ route('register') }}">
+                    <form method="POST" action="{{ route('register.store') }}">
                         @csrf
 
                         <div class="mb-3">
@@ -59,6 +59,23 @@
                                 placeholder="you@example.com"
                             />
                             @error('email')
+                                <div class="invalid-feedback">{{ $message }}</div>
+                            @enderror
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="phone" class="form-label fw-semibold small">Phone Number</label>
+                            <input
+                                id="phone"
+                                type="tel"
+                                name="phone"
+                                value="{{ old('phone') }}"
+                                class="form-control rounded-3 @error('phone') is-invalid @enderror"
+                                required
+                                autocomplete="tel"
+                                placeholder="+250 7XX XXX XXX"
+                            />
+                            @error('phone')
                                 <div class="invalid-feedback">{{ $message }}</div>
                             @enderror
                         </div>
@@ -104,8 +121,8 @@
                                     />
                                     <label class="form-check-label small text-muted" for="terms">
                                         {!! __('I agree to the :terms_of_service and :privacy_policy', [
-                                            'terms_of_service' => '<a target="_blank" href="'.route('terms.show').'" class="text-decoration-none text-primary">'.__('Terms of Service').'</a>',
-                                            'privacy_policy'   => '<a target="_blank" href="'.route('policy.show').'" class="text-decoration-none text-primary">'.__('Privacy Policy').'</a>',
+                                            'terms_of_service' => '<a target="_blank" href="'.route('terms.show').'" class="text-decoration-none text-success">'.__('Terms of Service').'</a>',
+                                            'privacy_policy'   => '<a target="_blank" href="'.route('policy.show').'" class="text-decoration-none text-success">'.__('Privacy Policy').'</a>',
                                         ]) !!}
                                     </label>
                                     @error('terms')
@@ -116,7 +133,7 @@
                         @endif
 
                         <div class="d-grid">
-                            <button type="submit" class="btn btn-primary rounded-3 py-2 fw-semibold">
+                            <button type="submit" class="btn rounded-3 py-2 fw-semibold text-white" style="background:#16a34a;border-color:#16a34a;">
                                 Create Account
                             </button>
                         </div>
@@ -127,7 +144,7 @@
 
             <p class="text-center text-muted small mt-4">
                 Already have an account?
-                <a href="{{ route('login') }}" class="text-decoration-none fw-semibold text-primary">Sign in</a>
+                <a href="{{ route('home') }}" class="text-decoration-none fw-semibold text-success">Sign in</a>
             </p>
 
         </div>

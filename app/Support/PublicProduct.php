@@ -19,7 +19,11 @@ class PublicProduct
             'category' => $product->category?->name,
             'specifications' => $product->specifications ?? [],
             'features' => $product->features ?? [],
-            'thumbnail' => $product->thumbnail ? url('assets/'.ltrim($product->thumbnail, '/')) : null,
+            'thumbnail' => $product->thumbnail ? url('assets/'.ltrim(str_replace('public/assets/', '', $product->thumbnail), '/')) : null,
+            'discount' => $product->hasValidDiscount() ? [
+                'original_price' => $product->original_price,
+                'percentage' => $product->discount_percentage,
+            ] : null,
             'url' => route('shop-products.show', $product->slug),
         ];
     }

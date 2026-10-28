@@ -1,5 +1,12 @@
 @extends('front.layouts.guest')
 @section('content')
+@php
+    $productGallery = array_values(array_unique(array_filter(array_merge(
+        [$shopProduct->thumbnail],
+        $shopProduct->images ?? []
+    ))));
+    $productGalleryUrl = fn ($path) => asset('assets/' . ltrim(str_replace('public/assets/', '', $path), '/'));
+@endphp
 
 <main class="py-5 py-md-20">
     <div class="container">
@@ -11,15 +18,16 @@
         </a>
 
         {{-- Product Detail --}}
-        <div class="row g-5 mt-2">
+        <div class="row gx-4 gy-5 g-lg-5 mt-2">
             {{-- Left: Image --}}
             <div class="col-12 col-lg-5">
                 <div class="rounded-3 overflow-hidden bg-light shadow-sm">
-                    @if($shopProduct->thumbnail)
-                        <img src="{{ asset('public/assets/' . $shopProduct->thumbnail) }}"
+                    @if(count($productGallery) > 0)
+                        <img id="productMainImage" src="{{ $productGalleryUrl($productGallery[0]) }}"
                              alt="{{ $shopProduct->product_name }}"
                              class="w-100 img-fluid"
-                             style="aspect-ratio: 1 / 1; object-fit: cover;">
+                             style="aspect-ratio: 1 / 1; object-fit: cover; cursor: zoom-in;"
+                             data-bs-toggle="modal" data-bs-target="#imageModal">
                     @else
                         <div class="d-flex align-items-center justify-content-center"
                              style="aspect-ratio: 1 / 1; font-size: 4rem; color: #ccc;">
@@ -30,7 +38,7 @@
 
                 {{-- Badges --}}
                 <div class="d-flex gap-2 mt-4 flex-wrap">
-                    @if($shopProduct->status === 'in_stock')
+                    @if($shopProduct->customerAvailability() === 'in_stock')
                         <span class="badge bg-success" style="font-size: 0.8rem;">In Stock</span>
                     @else
                         <span class="badge bg-danger" style="font-size: 0.8rem;">Out of Stock</span>
@@ -43,20 +51,20 @@
                 </div>
 
                 {{-- Additional Images Gallery (if exists) --}}
-                @if($shopProduct->images && count($shopProduct->images) > 0)
+                @if(count($productGallery) > 0)
                     <div class="mt-4">
                         <h6 class="text-muted mb-3" style="font-size: 0.9rem;">Gallery</h6>
-                        <div class="row g-2">
-                            @foreach($shopProduct->images as $image)
-                                <div class="col-4">
-                                    <img src="{{ asset('public/assets/' . $image) }}"
-                                         alt="Gallery"
-                                         class="w-100 rounded-2 shadow-sm"
-                                         style="height: 100px; object-fit: cover; cursor: pointer; transition: all 0.3s ease;"
-                                         data-bs-toggle="modal"
-                                         data-bs-target="#imageModal"
-                                         onclick="document.getElementById('modalImage').src = this.src;">
-                                </div>
+                        <div class="d-flex flex-wrap gap-2" id="productGallery">
+                            @foreach($productGallery as $index => $image)
+                                <button type="button" class="btn p-0 border rounded-2 overflow-hidden gallery-thumbnail {{ $index === 0 ? 'border-primary' : '' }}"
+                                        data-gallery-index="{{ $index }}"
+                                        data-gallery-src="{{ $productGalleryUrl($image) }}"
+                                        aria-label="View product image {{ $index + 1 }}"
+                                        aria-pressed="{{ $index === 0 ? 'true' : 'false' }}">
+                                    <img src="{{ $productGalleryUrl($image) }}"
+                                         alt="Product image {{ $index + 1 }}"
+                                         style="width:76px;height:76px;object-fit:cover;">
+                                </button>
                             @endforeach
                         </div>
                     </div>
@@ -90,7 +98,13 @@
                         <span class="fw-bold" style="font-size: 2.5rem; color: #16a34a;">
                             RWF {{ number_format($shopProduct->price, 0, '.', ',') }}
                         </span>
+                        @if($shopProduct->hasValidDiscount())
+                            <span class="badge bg-danger mb-2">{{ $shopProduct->discount_percentage }}% off</span>
+                        @endif
                     </div>
+                    @if($shopProduct->hasValidDiscount())
+                        <div class="text-muted text-decoration-line-through">RWF {{ number_format($shopProduct->original_price, 0, '.', ',') }}</div>
+                    @endif
 
                     {{-- Working Days --}}
                     <div class="d-flex align-items-center gap-2 mt-3 text-muted" style="font-size: 0.95rem;">
@@ -124,7 +138,7 @@
                     </div>
 
                     {{-- Stock Status --}}
-                    @if($shopProduct->status === 'out_of_stock')
+                    @if($shopProduct->customerAvailability() === 'out_of_stock')
                         <div class="alert alert-warning mt-3 mb-0" role="alert">
                             <i class="bi bi-exclamation-triangle"></i>
                             This product is currently out of stock. Contact us for availability.
@@ -197,7 +211,7 @@
                                     {{-- Thumbnail --}}
                                     <div class="overflow-hidden bg-light" style="height: 180px;">
                                         @if($relatedProduct->thumbnail)
-                                            <img src="{{ asset('public/assets/' . $relatedProduct->thumbnail) }}"
+                                            <img src="{{ asset('assets/' . ltrim(str_replace('public/assets/', '', $relatedProduct->thumbnail), '/')) }}"
                                                  alt="{{ $relatedProduct->product_name }}"
                                                  class="w-100 h-100"
                                                  style="object-fit: cover; transition: transform 0.3s ease;">
@@ -217,9 +231,12 @@
                                                     {{ $relatedProduct->category->name }}
                                                 </span>
                                             @endif
-                                            <span class="badge {{ $relatedProduct->status === 'in_stock' ? 'bg-success' : 'bg-danger' }}"
+                                            @if($relatedProduct->hasValidDiscount())
+                                                <span class="badge bg-danger" style="font-size: 0.7rem;">{{ $relatedProduct->discount_percentage }}% off</span>
+                                            @endif
+                                            <span class="badge {{ $relatedProduct->customerAvailability() === 'in_stock' ? 'bg-success' : 'bg-danger' }}"
                                                   style="font-size: 0.7rem;">
-                                                {{ $relatedProduct->status === 'in_stock' ? 'In Stock' : 'Out of Stock' }}
+                                                {{ $relatedProduct->customerAvailability() === 'in_stock' ? 'In Stock' : 'Out of Stock' }}
                                             </span>
                                         </div>
 
@@ -246,11 +263,46 @@
                                         <div class="d-flex justify-content-between align-items-center mt-auto">
                                             <span class="fw-bold text-success" style="font-size: 1.25rem;">
                                                 RWF {{ number_format($relatedProduct->price, 0, '.', ',') }}
+                                                @if($relatedProduct->hasValidDiscount())
+                                                    <span class="d-block small text-muted text-decoration-line-through">RWF {{ number_format($relatedProduct->original_price, 0, '.', ',') }}</span>
+                                                @endif
                                             </span>
                                             <span class="btn btn-sm btn-success">
                                                 <i class="bi bi-eye me-1"></i> View
                                             </span>
                                         </div>
+
+                                        <script>
+                                        document.addEventListener('DOMContentLoaded', function () {
+                                            const mainImage = document.getElementById('productMainImage');
+                                            const thumbnails = Array.from(document.querySelectorAll('.gallery-thumbnail'));
+                                            const modalImage = document.getElementById('modalImage');
+                                            if (!mainImage || thumbnails.length === 0) return;
+
+                                            let activeIndex = 0;
+                                            const selectImage = function (index) {
+                                                activeIndex = (index + thumbnails.length) % thumbnails.length;
+                                                mainImage.src = thumbnails[activeIndex].dataset.gallerySrc;
+                                                thumbnails.forEach((thumbnail, thumbnailIndex) => {
+                                                    thumbnail.classList.toggle('border-primary', thumbnailIndex === activeIndex);
+                                                    thumbnail.setAttribute('aria-pressed', thumbnailIndex === activeIndex ? 'true' : 'false');
+                                                });
+                                                modalImage.src = mainImage.src;
+                                            };
+
+                                            thumbnails.forEach((thumbnail, index) => thumbnail.addEventListener('click', () => selectImage(index)));
+                                            mainImage.addEventListener('click', () => { modalImage.src = mainImage.src; });
+
+                                            let touchStartX = null;
+                                            mainImage.addEventListener('touchstart', event => { touchStartX = event.changedTouches[0].screenX; }, { passive: true });
+                                            mainImage.addEventListener('touchend', event => {
+                                                if (touchStartX === null) return;
+                                                const distance = event.changedTouches[0].screenX - touchStartX;
+                                                if (Math.abs(distance) > 40) selectImage(activeIndex + (distance < 0 ? 1 : -1));
+                                                touchStartX = null;
+                                            }, { passive: true });
+                                        });
+                                        </script>
 
                                     </div>
                                 </div>

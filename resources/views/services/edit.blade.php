@@ -184,6 +184,21 @@
     </div>
 </div>
 
+{{-- ── SERVICE STATUS ──────────────────────────────────────────────────────── --}}
+<div class="card mb-4">
+    <div class="card-header bg-white fw-semibold">Service Status</div>
+    <div class="card-body">
+        <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" role="switch"
+                   name="is_popular" id="is_popular" value="1"
+                   {{ old('is_popular', $service->is_popular) ? 'checked' : '' }}>
+            <label class="form-check-label fw-semibold" for="is_popular">
+                <i class="bi bi-fire text-warning me-1"></i> Mark as Popular
+            </label>
+        </div>
+    </div>
+</div>
+
 {{-- ── IMAGES ──────────────────────────────────────────────────────────────── --}}
 <div class="card mb-4">
     <div class="card-header bg-white fw-semibold">Images</div>

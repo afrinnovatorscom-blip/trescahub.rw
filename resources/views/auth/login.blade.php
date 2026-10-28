@@ -5,6 +5,10 @@
     <div class="row justify-content-center align-items-center min-vh-100">
         <div class="col-md-5">
 
+            <div class="text-center mb-4">
+                @include('front.partials.auth-brand')
+            </div>
+
             <div class="card shadow-sm border-0 rounded-4">
                 <div class="card-body p-4 p-md-5">
 
@@ -73,14 +77,14 @@
                             </div>
 
                             @if (Route::has('password.request'))
-                                <a href="{{ route('password.request') }}" class="small text-decoration-none text-primary">
+                                <a href="{{ route('password.request') }}" class="small text-decoration-none text-success">
                                     Forgot password?
                                 </a>
                             @endif
                         </div>
 
                         <div class="d-grid">
-                            <button type="submit" class="btn btn-primary rounded-3 py-2 fw-semibold">
+                            <button type="submit" class="btn rounded-3 py-2 fw-semibold text-white" style="background:#16a34a;border-color:#16a34a;">
                                 Sign In
                             </button>
                         </div>
@@ -91,7 +95,7 @@
 
             <p class="text-center text-muted small mt-4">
                 Don't have an account?
-                <a href="{{ route('register') }}" class="text-decoration-none fw-semibold text-primary">Create one</a>
+                <a href="{{ route('register') }}" class="text-decoration-none fw-semibold text-success">Create one</a>
             </p>
 
         </div>

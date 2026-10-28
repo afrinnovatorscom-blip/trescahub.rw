@@ -12,11 +12,14 @@ class DeliveryTask extends Model
         'reference', 'order_id', 'order_item_id', 'vendor_id', 'product_location_id',
         'assigned_officer_id', 'delivery_officer_id', 'status', 'fulfillment_instructions',
         'internal_notes', 'customer_message', 'dispatched_at', 'delivered_at', 'proof_path',
+        'delivery_method', 'courier_name', 'delivery_phone', 'vehicle_registration',
+        'expected_delivery_at', 'tracking_reference', 'delivery_notes', 'dispatch_proof_path',
     ];
 
     protected $casts = [
         'dispatched_at' => 'datetime',
         'delivered_at' => 'datetime',
+        'expected_delivery_at' => 'date',
     ];
 
     public function order(): BelongsTo

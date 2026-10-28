@@ -20,6 +20,24 @@
         </div>
     @endif
 
+    @if(auth()->user()->hasPermission('vendors.view'))
+        <form method="GET" action="{{ route('admin.shop-products.index') }}" class="row g-2 mb-3">
+            <div class="col-md-5">
+                <label class="form-label" for="vendorFilter">Filter by vendor</label>
+                <select id="vendorFilter" name="vendor_id" class="form-select">
+                    <option value="">All vendors</option>
+                    @foreach($vendors as $vendor)
+                        <option value="{{ $vendor->id }}" @selected(request('vendor_id') == $vendor->id)>{{ $vendor->business_name }}</option>
+                    @endforeach
+                </select>
+            </div>
+            <div class="col-auto align-self-end"><button class="btn btn-outline-primary" type="submit">Filter</button></div>
+            @if(request()->filled('vendor_id'))
+                <div class="col-auto align-self-end"><a class="btn btn-outline-secondary" href="{{ route('admin.shop-products.index') }}">Clear</a></div>
+            @endif
+        </form>
+    @endif
+
     <div class="card">
         <div class="card-body">
             @if($products->count() > 0)
@@ -48,7 +66,7 @@
                                     {{-- Thumbnail --}}
                                     <td>
                                         @if($product->thumbnail)
-                                            <img src="{{ asset('public/assets/' . $product->thumbnail) }}"
+                                            <img src="{{ asset('assets/' . $product->thumbnail) }}"
                                                  alt="{{ $product->product_name }}"
                                                  class="rounded"
                                                  style="width:50px;height:50px;object-fit:cover;">

@@ -5,27 +5,35 @@ namespace App\Services;
 use App\Models\ProductApprovalHistory;
 use App\Models\ShopProduct;
 use App\Models\User;
+use App\Support\PublicAsset;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class ProductWorkflowService
 {
-    public function __construct(private MarketplaceNotifier $notifier) {}
+    public function __construct(
+        private MarketplaceNotifier $notifier,
+        private InventoryService $inventory,
+    ) {}
 
-    public function createStaff(User $actor, array $data, bool $approveNow, bool $publishNow): ShopProduct
+    public function createStaff(User $actor, array $data, bool $publishNow): ShopProduct
     {
-        return DB::transaction(function () use ($actor, $data, $approveNow, $publishNow) {
+        return DB::transaction(function () use ($actor, $data, $publishNow) {
             $product = new ShopProduct($this->staffAttributes($actor, $data));
             $product->created_by = $actor->id;
             $product->approval_status = 'pending_approval';
             $product->publication_status = 'unpublished';
+            $product->pending_payload = $this->initialStockPayload($data);
             $product->slug = ShopProduct::uniqueSlug($product->product_name);
             $product->save();
+            $this->assignSku($product);
 
             $this->history($product, $actor, 'created', null, 'pending_approval', null);
             AuditLogger::log($actor, 'product.created', $product, ['name' => $product->product_name]);
 
-            if ($approveNow) {
+            if ($actor->hasPermission('products.approve')
+                && (! array_key_exists('initial_stock_quantity', $product->pending_payload ?? [])
+                    || $actor->hasPermission('inventory.manage'))) {
                 $this->approve($product, $actor, 'Approved during creation.');
                 $product->refresh();
             }
@@ -49,29 +57,26 @@ class ProductWorkflowService
         });
     }
 
-    public function createVendor(User $actor, array $data, bool $submit): ShopProduct
+    public function createVendor(User $actor, array $data): ShopProduct
     {
         $this->assertVendor($actor);
 
-        return DB::transaction(function () use ($actor, $data, $submit) {
+        return DB::transaction(function () use ($actor, $data) {
             $product = new ShopProduct($this->vendorAttributes($data));
+            $product->tracks_inventory = (bool) ($data['tracks_inventory'] ?? false);
             $product->vendor_id = $actor->vendor_id;
             $product->created_by = $actor->id;
             $product->publication_status = 'unpublished';
-            $product->approval_status = $submit ? 'pending_approval' : 'draft';
+            $product->approval_status = 'pending_approval';
             $product->slug = ShopProduct::uniqueSlug($product->product_name);
-
-            if ($submit) {
-                $product->submitted_by = $actor->id;
-                $product->submitted_at = now();
-            }
+            $product->submitted_by = $actor->id;
+            $product->submitted_at = now();
+            $product->pending_payload = $this->initialStockPayload($data);
 
             $product->save();
-            $this->history($product, $actor, $submit ? 'submitted' : 'drafted', null, $product->approval_status, null);
-
-            if ($submit) {
-                $this->notifier->productSubmitted($product);
-            }
+            $this->assignSku($product);
+            $this->history($product, $actor, 'submitted', null, $product->approval_status, null);
+            $this->notifier->productSubmitted($product);
 
             return $product->refresh();
         });
@@ -122,39 +127,106 @@ class ProductWorkflowService
     {
         $this->assertReviewer($actor, $product);
 
-        if ($product->pending_payload) {
-            $product->fill($this->onlyCritical($product->pending_payload));
+        DB::transaction(function () use ($product, $actor, $note) {
+            $product = ShopProduct::query()->whereKey($product->id)->lockForUpdate()->firstOrFail();
+            $this->assertReviewer($actor, $product);
+
+            if ($product->approval_status === 'approved'
+                && $product->revision_status !== 'pending_approval'
+                && ! array_key_exists('initial_stock_quantity', $product->pending_payload ?? [])) {
+                return;
+            }
+
+            $pendingPayload = $product->pending_payload ?? [];
+            $initialStock = $pendingPayload['initial_stock_quantity'] ?? null;
+            if ($initialStock !== null) {
+                if (! $product->tracks_inventory) {
+                    throw ValidationException::withMessages([
+                        'initial_stock_quantity' => 'Enable stock tracking before approving the pending initial stock.',
+                    ]);
+                }
+                if (! $actor->hasPermission('inventory.manage')) {
+                    abort(403);
+                }
+            }
+            $previousAssets = [];
+
+            if ($pendingPayload) {
+                $previousAssets = array_filter(array_merge(
+                    [$product->thumbnail],
+                    $product->images ?? [],
+                ));
+                $previousName = $product->product_name;
+                $product->fill($this->onlyCritical($pendingPayload));
+                if ($product->product_name !== $previousName) {
+                    $product->slug = ShopProduct::uniqueSlug($product->product_name, $product->id);
+                }
+            }
+
+            if ($initialStock !== null && $product->tracks_inventory) {
+                $alreadyRegistered = $product->inventoryMovements()
+                    ->where('type', 'initial_stock')
+                    ->exists();
+
+                if (! $alreadyRegistered) {
+                    $this->inventory->adjust(
+                        $product,
+                        (int) $initialStock,
+                        null,
+                        $actor,
+                        'Initial stock approved with product submission.',
+                        movementType: 'initial_stock',
+                    );
+                }
+            }
+
+            $from = $product->approval_status;
             $product->pending_payload = null;
             $product->revision_status = null;
-        }
+            $product->approval_status = 'approved';
+            $product->approved_by = $actor->id;
+            $product->approved_at = now();
+            $product->save();
 
-        $from = $product->approval_status;
-        $product->approval_status = 'approved';
-        $product->approved_by = $actor->id;
-        $product->approved_at = now();
-        $product->save();
-
-        $this->history($product, $actor, 'approved', $from, 'approved', $note);
-        AuditLogger::log($actor, 'product.approved', $product, ['note' => $note]);
-        $this->notifier->productDecision($product, 'approved', $note);
+            $this->history($product, $actor, 'approved', $from, 'approved', $note);
+            AuditLogger::log($actor, 'product.approved', $product, ['note' => $note]);
+            $this->notifier->productDecision($product, 'approved', $note);
+            foreach ($previousAssets as $path) {
+                PublicAsset::deleteIfUnreferenced($path);
+            }
+        });
     }
 
     public function reject(ShopProduct $product, User $actor, string $note): void
     {
         $this->assertReviewer($actor, $product);
 
-        $from = $product->approval_status;
-        $product->approval_status = 'rejected';
-        $product->publication_status = 'unpublished';
-        $product->pending_payload = null;
-        $product->revision_status = null;
-        $product->approved_by = $actor->id;
-        $product->approved_at = now();
-        $product->save();
+        DB::transaction(function () use ($product, $actor, $note) {
+            $product = ShopProduct::query()->whereKey($product->id)->lockForUpdate()->firstOrFail();
+            $this->assertReviewer($actor, $product);
+            $pendingAssets = array_filter(array_merge(
+                [$product->pending_payload['thumbnail'] ?? null],
+                $product->pending_payload['images'] ?? [],
+            ));
+            $pendingInitialStock = $product->pending_payload['initial_stock_quantity'] ?? null;
+            $from = $product->approval_status;
+            $product->approval_status = 'rejected';
+            $product->publication_status = 'unpublished';
+            $product->pending_payload = $pendingInitialStock !== null
+                ? ['initial_stock_quantity' => (int) $pendingInitialStock]
+                : null;
+            $product->revision_status = null;
+            $product->approved_by = $actor->id;
+            $product->approved_at = now();
+            $product->save();
 
-        $this->history($product, $actor, 'rejected', $from, 'rejected', $note);
-        AuditLogger::log($actor, 'product.rejected', $product, ['note' => $note]);
-        $this->notifier->productDecision($product, 'rejected', $note);
+            $this->history($product, $actor, 'rejected', $from, 'rejected', $note);
+            AuditLogger::log($actor, 'product.rejected', $product, ['note' => $note]);
+            $this->notifier->productDecision($product, 'rejected', $note);
+            foreach ($pendingAssets as $path) {
+                PublicAsset::deleteIfUnreferenced($path);
+            }
+        });
     }
 
     public function requestChanges(ShopProduct $product, User $actor, string $note): void
@@ -227,6 +299,10 @@ class ProductWorkflowService
         $critical = config('marketplace.critical_product_fields');
         $live = $product->exists && $product->isPubliclyListed();
         $canApplyLive = ! $vendorMode && $actor->hasPermission('products.approve');
+        $previousPendingAssets = array_filter(array_merge(
+            [$product->pending_payload['thumbnail'] ?? null],
+            $product->pending_payload['images'] ?? [],
+        ));
 
         if ($live && ! $canApplyLive) {
             $pending = $product->pending_payload ?? [];
@@ -253,6 +329,9 @@ class ProductWorkflowService
             $this->history($product, $actor, 'revision_submitted', $product->approval_status, 'pending_approval', null);
             $this->notifier->productSubmitted($product);
         }
+        foreach ($previousPendingAssets as $path) {
+            PublicAsset::deleteIfUnreferenced($path);
+        }
     }
 
     private function staffAttributes(User $actor, array $data, ?ShopProduct $existing = null): array
@@ -269,15 +348,13 @@ class ProductWorkflowService
 
         if ($actor->hasPermission('products.edit') || $actor->hasPermission('products.create')) {
             $attributes['internal_notes'] = $data['internal_notes'] ?? $existing?->internal_notes;
-            $attributes['sku'] = ($data['sku'] ?? null) !== '' ? ($data['sku'] ?? $existing?->sku) : null;
+            if ($existing) {
+                $attributes['sku'] = $existing->sku;
+            }
             $attributes['product_type'] = $data['product_type'] ?? $existing?->product_type;
             $attributes['condition'] = $data['condition'] ?? $existing?->condition;
             $attributes['tracks_inventory'] = (bool) ($data['tracks_inventory'] ?? $existing?->tracks_inventory);
             $attributes['low_stock_threshold'] = $data['low_stock_threshold'] ?? $existing?->low_stock_threshold ?? 5;
-
-            if (! $existing) {
-                $attributes['stock_quantity'] = (int) ($data['stock_quantity'] ?? 0);
-            }
         }
 
         return $attributes;
@@ -285,7 +362,19 @@ class ProductWorkflowService
 
     private function vendorAttributes(array $data): array
     {
-        return $this->publicAttributes($data);
+        $attributes = $this->publicAttributes($data);
+        unset($attributes['is_popular']);
+
+        return $attributes;
+    }
+
+    private function initialStockPayload(array $data): ?array
+    {
+        if (! ($data['tracks_inventory'] ?? false) || ! array_key_exists('initial_stock_quantity', $data)) {
+            return null;
+        }
+
+        return ['initial_stock_quantity' => (int) $data['initial_stock_quantity']];
     }
 
     private function publicAttributes(array $data): array
@@ -294,9 +383,13 @@ class ProductWorkflowService
             'product_name' => $data['product_name'],
             'description' => $data['description'] ?? null,
             'price' => $data['price'],
+            'stock_unit' => $data['stock_unit'] ?? null,
             'working_days' => $data['working_days'],
             'status' => $data['status'],
+            'is_finished' => (bool) ($data['is_finished'] ?? false),
             'is_popular' => (bool) ($data['is_popular'] ?? false),
+            'discount_enabled' => (bool) ($data['discount_enabled'] ?? false),
+            'original_price' => $data['discount_enabled'] ? ($data['original_price'] ?? null) : null,
             'features' => $data['features'] ?? [],
             'specifications' => $data['specifications'] ?? [],
             'thumbnail' => $data['thumbnail'] ?? null,
@@ -304,6 +397,20 @@ class ProductWorkflowService
             'shop_category_id' => $data['shop_category_id'],
             'subcategory_id' => $data['subcategory_id'] ?? null,
         ];
+    }
+
+    private function assignSku(ShopProduct $product): void
+    {
+        $baseSku = 'TH-PROD-'.str_pad((string) $product->id, 4, '0', STR_PAD_LEFT);
+        $sku = $baseSku;
+        $suffix = 1;
+
+        while (ShopProduct::query()->where('sku', $sku)->where('id', '!=', $product->id)->exists()) {
+            $sku = $baseSku.'-'.$suffix++;
+        }
+
+        $product->sku = $sku;
+        $product->save();
     }
 
     private function onlyCritical(array $payload): array

@@ -130,55 +130,6 @@
         .nav-item-link.active { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
         .nav-item-link.active i { color: var(--accent); }
 
-        .nav-item-link .nav-arrow {
-            margin-left: auto;
-            font-size: 0.7rem;
-            transition: transform 0.25s ease;
-            flex-shrink: 0;
-            color: var(--text-muted-custom);
-        }
-
-        .nav-item-link.open .nav-arrow { transform: rotate(90deg); }
-
-        .nav-submenu {
-            overflow: hidden;
-            max-height: 0;
-            transition: max-height 0.3s ease, opacity 0.25s ease;
-            opacity: 0;
-            padding-left: 14px;
-        }
-
-        .nav-submenu.open { max-height: 300px; opacity: 1; }
-
-        .nav-sub-link {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 8px 12px;
-            border-radius: 8px;
-            color: #7a8499;
-            text-decoration: none;
-            font-size: 0.82rem;
-            font-weight: 400;
-            transition: all 0.15s ease;
-            margin-bottom: 1px;
-        }
-
-        .nav-sub-link::before {
-            content: '';
-            width: 5px; height: 5px;
-            border-radius: 50%;
-            background: rgba(255,255,255,0.15);
-            flex-shrink: 0;
-            transition: background 0.15s;
-        }
-
-        .nav-sub-link:hover { color: #fff; background: rgba(255,255,255,0.05); }
-        .nav-sub-link:hover::before { background: var(--accent); }
-        .nav-sub-link.active { color: var(--accent); background: var(--accent-soft); }
-        .nav-sub-link.active::before { background: var(--accent); }
-        .nav-item-link.dropdown-parent.open { background: rgba(255,255,255,0.04); color: #fff; }
-
         .nav-badge {
             margin-left: auto;
             font-size: 0.6rem;
@@ -385,7 +336,7 @@
         <div class="brand-icon">T</div>
         <div class="brand-name">
             Tresca Hub
-            <span>Admin Panel</span>
+            <span>{{ auth()->user()->isVendorOnly() ? 'Vendor Panel' : 'Admin Panel' }}</span>
         </div>
     </a>
 
@@ -408,166 +359,48 @@
         </a>
 
         @if(auth()->user()->hasPermission('cms.manage'))
-        <button class="nav-item-link dropdown-parent {{ request()->routeIs('services.*') ? 'open' : '' }}"
-                onclick="toggleDropdown('servicesMenu', this)">
-            <i class="bi bi-briefcase"></i>
-            Services
-            <i class="bi bi-chevron-right nav-arrow"></i>
-        </button>
-        <div class="nav-submenu {{ request()->routeIs('services.*') ? 'open' : '' }}" id="servicesMenu">
-            <a href="{{ route('services.index') }}"
-               class="nav-sub-link {{ request()->routeIs('services.index') ? 'active' : '' }}">
-                All Services
+            <a href="{{ route('services.index') }}" class="nav-item-link {{ request()->routeIs('services.*') ? 'active' : '' }}">
+                <i class="bi bi-briefcase"></i>
+                Services
             </a>
-            <a href="{{ route('services.create') }}"
-               class="nav-sub-link {{ request()->routeIs('services.create') ? 'active' : '' }}">
-                Add Service
+            <a href="{{ route('backgrounds.index') }}" class="nav-item-link {{ request()->routeIs('backgrounds.*') ? 'active' : '' }}">
+                <i class="bi bi-image"></i>
+                Backgrounds
             </a>
-        </div>
+            <a href="{{ route('categories.index') }}" class="nav-item-link {{ request()->routeIs('categories.*') ? 'active' : '' }}">
+                <i class="bi bi-card-list"></i>
+                Categories
+            </a>
+        @endif
 
-        {{-- Backgrounds --}}
-        <button class="nav-item-link dropdown-parent {{ request()->routeIs('backgrounds.*') ? 'open' : '' }}"
-                onclick="toggleDropdown('backgroundsMenu', this)">
-            <i class="bi bi-image"></i>
-            Backgrounds
-            <i class="bi bi-chevron-right nav-arrow"></i>
-        </button>
-        <div class="nav-submenu {{ request()->routeIs('backgrounds.*') ? 'open' : '' }}" id="backgroundsMenu">
-            <a href="{{ route('backgrounds.index') }}"
-               class="nav-sub-link {{ request()->routeIs('backgrounds.index') ? 'active' : '' }}">
-                All Backgrounds
+        @if(auth()->user()->hasPermission('admin.access'))
+            <a href="{{ route('shop-categories.index') }}" class="nav-item-link {{ request()->routeIs('shop-categories.*') ? 'active' : '' }}">
+                <i class="bi bi-bag"></i>
+                Shop Categories
             </a>
-            <a href="{{ route('backgrounds.create') }}"
-               class="nav-sub-link {{ request()->routeIs('backgrounds.create') ? 'active' : '' }}">
-                Add Background
+            <a href="{{ route('admin.shop-products.index') }}" class="nav-item-link {{ request()->routeIs('admin.shop-products.*') ? 'active' : '' }}">
+                <i class="bi bi-box-seam"></i>
+                Shop Products
             </a>
-        </div>
+        @endif
 
-        {{-- Categories --}}
-        <button class="nav-item-link dropdown-parent {{ request()->routeIs('categories.*') ? 'open' : '' }}"
-                onclick="toggleDropdown('categoriesMenu', this)">
-            <i class="bi bi-card-list"></i>
-            Categories
-            <i class="bi bi-chevron-right nav-arrow"></i>
-        </button>
-        <div class="nav-submenu {{ request()->routeIs('categories.*') ? 'open' : '' }}" id="categoriesMenu">
-            <a href="{{ route('categories.index') }}"
-               class="nav-sub-link {{ request()->routeIs('categories.index') ? 'active' : '' }}">
-                All Categories
+        @if(auth()->user()->hasPermission('cms.manage'))
+            <a href="{{ route('partners.index') }}" class="nav-item-link {{ request()->routeIs('partners.*') ? 'active' : '' }}">
+                <i class="bi bi-handshake"></i>
+                Partners
             </a>
-            <a href="{{ route('categories.create') }}"
-               class="nav-sub-link {{ request()->routeIs('categories.create') ? 'active' : '' }}">
-                Add Category
+            <a href="{{ route('works.index') }}" class="nav-item-link {{ request()->routeIs('works.*') ? 'active' : '' }}">
+                <i class="bi bi-grid-3x3-gap"></i>
+                Works
             </a>
-        </div>
-
-        {{-- Shop Categories --}}
-        <button class="nav-item-link dropdown-parent {{ request()->routeIs('shop-categories.*') ? 'open' : '' }}"
-                onclick="toggleDropdown('shopCategoriesMenu', this)">
-            <i class="bi bi-bag"></i>
-            Shop Categories
-            <i class="bi bi-chevron-right nav-arrow"></i>
-        </button>
-        <div class="nav-submenu {{ request()->routeIs('shop-categories.*') ? 'open' : '' }}" id="shopCategoriesMenu">
-            <a href="{{ route('shop-categories.index') }}"
-               class="nav-sub-link {{ request()->routeIs('shop-categories.index') ? 'active' : '' }}">
-                All Categories
+            <a href="{{ route('cta-categories.index') }}" class="nav-item-link {{ request()->routeIs('cta-categories.*') ? 'active' : '' }}">
+                <i class="bi bi-megaphone"></i>
+                CTA Categories
             </a>
-            <a href="{{ route('shop-categories.create') }}"
-               class="nav-sub-link {{ request()->routeIs('shop-categories.create') ? 'active' : '' }}">
-                Add Category
+            <a href="{{ route('ctas.index') }}" class="nav-item-link {{ request()->routeIs('ctas.*') ? 'active' : '' }}">
+                <i class="bi bi-lightning-charge"></i>
+                CTAs
             </a>
-        </div>
-
-        {{-- Shop Products --}}
-        <button class="nav-item-link dropdown-parent {{ request()->routeIs('shop-products.*') ? 'open' : '' }}"
-                onclick="toggleDropdown('shopProductsMenu', this)">
-            <i class="bi bi-box-seam"></i>
-            Shop Products
-            <i class="bi bi-chevron-right nav-arrow"></i>
-        </button>
-        <div class="nav-submenu {{ request()->routeIs('admin.shop-products.*') ? 'open' : '' }}" id="shopProductsMenu">
-            <a href="{{ route('admin.shop-products.index') }}"
-               class="nav-sub-link {{ request()->routeIs('admin.shop-products.index') ? 'active' : '' }}">
-                All Products
-            </a>
-            <a href="{{ route('admin.shop-products.create') }}"
-               class="nav-sub-link {{ request()->routeIs('admin.shop-products.create') ? 'active' : '' }}">
-                Add Product
-            </a>
-        </div>
-
-        {{-- Partners --}}
-        <button class="nav-item-link dropdown-parent {{ request()->routeIs('partners.*') ? 'open' : '' }}"
-                onclick="toggleDropdown('partnersMenu', this)">
-            <i class="bi bi-handshake"></i>
-            Partners
-            <i class="bi bi-chevron-right nav-arrow"></i>
-        </button>
-        <div class="nav-submenu {{ request()->routeIs('partners.*') ? 'open' : '' }}" id="partnersMenu">
-            <a href="{{ route('partners.index') }}"
-               class="nav-sub-link {{ request()->routeIs('partners.index') ? 'active' : '' }}">
-                All Partners
-            </a>
-            <a href="{{ route('partners.create') }}"
-               class="nav-sub-link {{ request()->routeIs('partners.create') ? 'active' : '' }}">
-                Add Partner
-            </a>
-        </div>
-
-        {{-- Works --}}
-        <button class="nav-item-link dropdown-parent {{ request()->routeIs('works.*') ? 'open' : '' }}"
-                onclick="toggleDropdown('worksMenu', this)">
-            <i class="bi bi-grid-3x3-gap"></i>
-            Works
-            <i class="bi bi-chevron-right nav-arrow"></i>
-        </button>
-        <div class="nav-submenu {{ request()->routeIs('works.*') ? 'open' : '' }}" id="worksMenu">
-            <a href="{{ route('works.index') }}"
-               class="nav-sub-link {{ request()->routeIs('works.index') ? 'active' : '' }}">
-                All Works
-            </a>
-            <a href="{{ route('works.create') }}"
-               class="nav-sub-link {{ request()->routeIs('works.create') ? 'active' : '' }}">
-                Add Work
-            </a>
-        </div>
-
-        {{-- CTA Categories --}}
-        <button class="nav-item-link dropdown-parent {{ request()->routeIs('cta-categories.*') ? 'open' : '' }}"
-                onclick="toggleDropdown('ctaCategoriesMenu', this)">
-            <i class="bi bi-megaphone"></i>
-            CTA Categories
-            <i class="bi bi-chevron-right nav-arrow"></i>
-        </button>
-        <div class="nav-submenu {{ request()->routeIs('cta-categories.*') ? 'open' : '' }}" id="ctaCategoriesMenu">
-            <a href="{{ route('cta-categories.index') }}"
-               class="nav-sub-link {{ request()->routeIs('cta-categories.index') ? 'active' : '' }}">
-                All CTA Categories
-            </a>
-            <a href="{{ route('cta-categories.create') }}"
-               class="nav-sub-link {{ request()->routeIs('cta-categories.create') ? 'active' : '' }}">
-                Add CTA Category
-            </a>
-        </div>
-
-        {{-- CTAs --}}
-        <button class="nav-item-link dropdown-parent {{ request()->routeIs('ctas.*') ? 'open' : '' }}"
-                onclick="toggleDropdown('ctasMenu', this)">
-            <i class="bi bi-lightning-charge"></i>
-            CTAs
-            <i class="bi bi-chevron-right nav-arrow"></i>
-        </button>
-        <div class="nav-submenu {{ request()->routeIs('ctas.*') ? 'open' : '' }}" id="ctasMenu">
-            <a href="{{ route('ctas.index') }}"
-               class="nav-sub-link {{ request()->routeIs('ctas.index') ? 'active' : '' }}">
-                All CTAs
-            </a>
-            <a href="{{ route('ctas.create') }}"
-               class="nav-sub-link {{ request()->routeIs('ctas.create') ? 'active' : '' }}">
-                Add CTA
-            </a>
-        </div>
 
         {{-- Testimonials --}}
         <a href="{{ route('testimonials.index') }}"
@@ -615,12 +448,30 @@
 
     <div class="sidebar-footer">
         <div class="user-card">
+            @php
+                $profileUser = auth()->user();
+                $profileVendor = $profileUser->isVendorOnly() ? $profileUser->vendor : null;
+                $profileLogoPath = ltrim((string) $profileVendor?->business_logo_path, '/');
+                $profileLogoExists = $profileLogoPath !== ''
+                    && ! str_contains($profileLogoPath, '..')
+                    && \Illuminate\Support\Facades\File::isFile(public_path('assets/'.$profileLogoPath));
+                $profileInitialSource = trim((string) ($profileVendor?->business_name ?: $profileUser->name));
+                $profileInitial = \Illuminate\Support\Str::upper(\Illuminate\Support\Str::substr($profileInitialSource ?: 'A', 0, 1));
+            @endphp
             <div class="user-avatar">
-                {{ strtoupper(substr(auth()->user()->name ?? 'A', 0, 1)) }}
+                @if($profileLogoExists)
+                    <img
+                        src="{{ asset('assets/'.$profileLogoPath) }}"
+                        alt="{{ $profileVendor->business_name ?: $profileUser->name }} logo"
+                        style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;"
+                        onerror="this.hidden = true; this.nextElementSibling.hidden = false;"
+                    >
+                @endif
+                <span @if($profileLogoExists) hidden @endif>{{ $profileInitial }}</span>
             </div>
             <div class="user-info">
-                <div class="user-name">{{ auth()->user()->name ?? 'Admin' }}</div>
-                <div class="user-role">{{ auth()->user()->roleLabel() }}</div>
+                <div class="user-name">{{ $profileUser->name ?? 'Admin' }}</div>
+                <div class="user-role">{{ $profileUser->roleLabel() }}</div>
             </div>
             <i class="bi bi-three-dots-vertical" style="color:#7a8499; font-size:0.85rem;"></i>
         </div>
@@ -669,19 +520,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-    function toggleDropdown(menuId, btn) {
-        const menu   = document.getElementById(menuId);
-        const isOpen = menu.classList.contains('open');
-
-        document.querySelectorAll('.nav-submenu').forEach(m => m.classList.remove('open'));
-        document.querySelectorAll('.dropdown-parent').forEach(b => b.classList.remove('open'));
-
-        if (!isOpen) {
-            menu.classList.add('open');
-            btn.classList.add('open');
-        }
-    }
-
     const sidebar   = document.getElementById('sidebar');
     const overlay   = document.getElementById('sidebarOverlay');
     const toggleBtn = document.getElementById('sidebarToggle');
@@ -696,14 +534,46 @@
         overlay.classList.remove('show');
     });
 
-    document.querySelectorAll('.nav-sub-link.active').forEach(link => {
-        const submenu = link.closest('.nav-submenu');
-        if (submenu) {
-            submenu.classList.add('open');
-            const parent = submenu.previousElementSibling;
-            if (parent) parent.classList.add('open');
+    const sidebarScrollKey = 'tresca-admin-sidebar-scroll';
+
+    const restoreSidebarScroll = () => {
+        try {
+            const savedPosition = sessionStorage.getItem(sidebarScrollKey);
+            if (savedPosition === null) return;
+
+            const saved = JSON.parse(savedPosition);
+            if (
+                !saved
+                || !Number.isFinite(saved.scrollTop)
+                || saved.scrollTop < 0
+                || typeof saved.atBottom !== 'boolean'
+            ) return;
+
+            const maxScroll = Math.max(0, sidebar.scrollHeight - sidebar.clientHeight);
+            sidebar.scrollTop = saved.atBottom
+                ? maxScroll
+                : Math.min(saved.scrollTop, maxScroll);
+        } catch (error) {
+            console.warn('Unable to restore the admin sidebar scroll position.', error);
         }
-    });
+    };
+
+    const saveSidebarScroll = () => {
+        const maxScroll = Math.max(0, sidebar.scrollHeight - sidebar.clientHeight);
+
+        try {
+            sessionStorage.setItem(sidebarScrollKey, JSON.stringify({
+                scrollTop: sidebar.scrollTop,
+                atBottom: maxScroll > 0 && sidebar.scrollTop >= maxScroll,
+            }));
+        } catch (error) {
+            console.error('Unable to save the admin sidebar scroll position.', error);
+        }
+    };
+
+    restoreSidebarScroll();
+    window.addEventListener('pagehide', saveSidebarScroll);
+
 </script>
 
 @stack('scripts')

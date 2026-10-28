@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class Order extends Model
 {
     protected $fillable = [
-        'reference', 'user_id', 'customer_name', 'email', 'phone', 'delivery_address',
+        'reference', 'source', 'submission_key', 'user_id', 'customer_id', 'customer_name', 'email', 'phone', 'delivery_address',
         'delivery_notes', 'subtotal', 'total', 'payment_status', 'payment_method',
         'fulfillment_status', 'customer_status_message', 'internal_notes', 'cancellation_reason',
         'assigned_officer_id', 'delivery_officer_id', 'delivery_estimate_at',
@@ -23,7 +23,17 @@ class Order extends Model
 
     public function customer(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'user_id');
+        return $this->belongsTo(Customer::class);
+    }
+
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    public function accountCustomer(): BelongsTo
+    {
+        return $this->belongsTo(Customer::class, 'customer_id');
     }
 
     public function officer(): BelongsTo
@@ -44,6 +54,11 @@ class Order extends Model
     public function histories(): HasMany
     {
         return $this->hasMany(OrderStatusHistory::class);
+    }
+
+    public function payments(): HasMany
+    {
+        return $this->hasMany(OrderPayment::class);
     }
 
     public function deliveries(): HasMany
