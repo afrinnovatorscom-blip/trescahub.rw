@@ -79,7 +79,67 @@
         box-shadow: none;
     }
     .order-detail .history-item + .history-item { border-top: 1px solid #f1f5f9; }
+    .order-detail .review-section {
+        background: #fff;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 18px;
+    }
+    .order-detail .review-section-heading { display: flex; align-items: flex-start; gap: 12px; }
+    .order-detail .review-section-icon {
+        align-items: center;
+        background: #eff6ff;
+        border: 1px solid #dbeafe;
+        border-radius: 9px;
+        color: #2563eb;
+        display: inline-flex;
+        flex: 0 0 38px;
+        height: 38px;
+        justify-content: center;
+    }
+    .order-detail .compact-heading { align-items: center; }
+    .order-detail .compact-heading .review-section-icon { flex-basis: 34px; height: 34px; }
+    .order-detail .allocation-options, .order-detail .decision-options { display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 16px; }
+    .order-detail .allocation-choice, .order-detail .decision-choice {
+        align-items: center;
+        background: #fff;
+        border: 1px solid #cbd5e1;
+        border-radius: 10px;
+        color: #334155;
+        cursor: pointer;
+        display: flex;
+        gap: 10px;
+        min-height: 74px;
+        padding: 12px;
+        position: relative;
+        text-align: left;
+    }
+    .order-detail .allocation-choice input { height: 1px; opacity: 0; position: absolute; width: 1px; }
+    .order-detail .allocation-choice.is-selected, .order-detail .decision-choice.is-selected { border: 2px solid #2563eb; background: #eff6ff; color: #1e3a8a; }
+    .order-detail .allocation-choice-mark, .order-detail .decision-choice-icon { align-items: center; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; display: inline-flex; flex: 0 0 34px; height: 34px; justify-content: center; }
+    .order-detail .allocation-choice strong, .order-detail .allocation-choice small, .order-detail .decision-choice strong, .order-detail .decision-choice small { display: block; }
+    .order-detail .allocation-choice small, .order-detail .decision-choice small { color: #64748b; font-weight: 400; margin-top: 2px; }
+    .order-detail .vendor-allocation-field { border-top: 1px solid #e2e8f0; margin-top: 16px; padding-top: 16px; }
+    .order-detail .review-actions { align-items: center; display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+    .order-detail .decision-options { grid-template-columns: 1fr; }
+    .order-detail .decision-choice { min-height: 68px; }
+    .order-detail .decision-choice.accept-choice.is-selected { background: #f0fdf4; border-color: #16a34a; color: #166534; }
+    .order-detail .cancel-choice.is-selected { background: #fef2f2; border-color: #dc2626; color: #991b1b; }
+    .order-detail .cancel-choice.is-selected .decision-choice-icon { color: #dc2626; }
+    .order-detail .segmented-control, .order-detail .payment-options { display: grid; gap: 8px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .order-detail .segmented-control label, .order-detail .payment-options label { margin: 0; }
+    .order-detail .segmented-control input, .order-detail .payment-options input { opacity: 0; position: absolute; }
+    .order-detail .segmented-control span, .order-detail .payment-options span { border: 1px solid #cbd5e1; border-radius: 8px; display: block; padding: 9px 10px; text-align: center; }
+    .order-detail .segmented-control input:checked + span, .order-detail .payment-options input:checked + span { background: #eff6ff; border: 2px solid #2563eb; color: #1e40af; }
+    .order-detail .balance-summary { border-top: 1px solid #e2e8f0; font-size: .84rem; }
+    .order-detail .balance-summary div { display: flex; justify-content: space-between; gap: 12px; padding-top: 8px; }
+    .order-detail .balance-summary dt { color: #64748b; }
+    .order-detail .balance-summary dd { font-weight: 600; margin: 0; }
     @media (max-width: 767.98px) {
+        .order-detail .allocation-options { grid-template-columns: 1fr; }
+        .order-detail .review-section { padding: 14px; }
+        .order-detail .review-actions { align-items: stretch; flex-direction: column-reverse; }
+        .order-detail .review-actions .btn { width: 100%; }
         .order-detail .table-responsive { overflow-x: visible; }
         .order-detail .order-items-table,
         .order-detail .order-items-table tbody { display: block; }
@@ -157,7 +217,7 @@
     @if($reviewMode)
         <div class="review-notice mb-3" role="status">
             <strong>Administrative decision required.</strong>
-            Review the submitted order before deciding whether to accept it for allocation and optional payment recording. Acceptance does not mark the order as paid.
+            Review the complete order, then allocate it to one vendor or keep it under Admin responsibility. Vendor allocation transfers the order directly to that vendor; Admin acceptance and payment apply only to orders handled by Admin.
         </div>
     @endif
     @if($errors->has('has_paid') && ! $allItemsHandledByAdmin)
@@ -230,8 +290,32 @@
         </div>
     </div>
 
+    @if($reviewMode)
+        <section class="detail-panel overflow-hidden mb-3" aria-labelledby="review-order-products">
+            <div class="p-3 border-bottom">
+                <h2 id="review-order-products" class="h5 mb-0">Ordered products</h2>
+            </div>
+            <div class="table-responsive">
+                <table class="table order-items-table align-middle mb-0">
+                    <thead><tr><th>Product</th><th>Quantity</th><th class="text-end">Unit price</th><th class="text-end">Subtotal</th></tr></thead>
+                    <tbody>
+                        @foreach($order->items as $item)
+                            <tr>
+                                <td><strong>{{ $item->product_name }}</strong>@if($item->sku)<div class="small text-muted">SKU: {{ $item->sku }}</div>@endif</td>
+                                <td data-label="Quantity">{{ number_format($item->quantity) }}</td>
+                                <td data-label="Unit price" class="text-end">{{ number_format((float) $item->unit_price, 2, '.', ',') }} RWF</td>
+                                <td data-label="Subtotal" class="text-end fw-semibold">{{ number_format((float) $item->line_total, 2, '.', ',') }} RWF</td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                    <tfoot><tr><th colspan="3" class="text-end">Order total</th><th class="text-end">{{ number_format((float) $order->total, 2, '.', ',') }} RWF</th></tr></tfoot>
+                </table>
+            </div>
+        </section>
+    @endif
+
     @if(! $reviewMode && $canManageOrders && ! $terminalOrder && $editing)
-        <form method="POST" action="{{ route('marketplace.orders.save-changes', $order) }}" id="order-changes-form" onsubmit="this.querySelector('button[type=submit]').disabled = true;">
+        <form method="POST" action="{{ route('marketplace.orders.save-changes', $order) }}" id="order-changes-form" data-orders-live-form onsubmit="this.querySelector('button[type=submit]').disabled = true;">
             @csrf
             <input type="hidden" name="submission_key" value="{{ old('submission_key', \Illuminate\Support\Str::uuid()) }}">
     @endif
@@ -239,21 +323,7 @@
     @if($allocationMode)
         @include('marketplace.orders.partials.accept-form')
     @elseif($acceptMode)
-        <section class="detail-panel p-3 mb-3" aria-labelledby="confirm-order-acceptance">
-            <h2 id="confirm-order-acceptance" class="h5 mb-2">Confirm Admin Handling</h2>
-            <p class="text-muted">The entire order is saved as Handled by Admin. Confirm acceptance to move the order forward. Payment will be recorded separately afterward.</p>
-            <form method="POST" action="{{ route('marketplace.orders.save-changes', $order) }}" onsubmit="if (! confirm('Accept this order for Admin handling? Payment will remain separate.')) return false; this.querySelector('button[type=submit]').disabled = true;">
-                @csrf
-                <input type="hidden" name="accept_order" value="yes">
-                <input type="hidden" name="has_paid" value="no">
-                <input type="hidden" name="submission_key" value="{{ old('submission_key', \Illuminate\Support\Str::uuid()) }}">
-                @error('accept_order')<div class="alert alert-danger">{{ $message }}</div>@enderror
-                <div class="d-flex justify-content-end">
-                    <a href="{{ route('marketplace.orders.show', $order) }}" class="btn btn-outline-secondary me-2">Back to Review</a>
-                    <button type="submit" class="btn btn-primary">Confirm Accept Order</button>
-                </div>
-            </form>
-        </section>
+        @include('marketplace.orders.partials.admin-decision')
     @else
     <section class="detail-panel overflow-hidden mb-3" aria-labelledby="ordered-products">
         <div class="p-3 border-bottom">
@@ -276,7 +346,7 @@
                 <tbody>
                     @forelse($order->items as $item)
                         @php
-                            $thumbnail = ltrim(str_replace(['public/assets/', 'assets/'], '', (string) $item->product?->thumbnail), '/');
+                            $thumbnail = ltrim(str_replace(['assets/', 'assets/'], '', (string) $item->product?->thumbnail), '/');
                             $thumbnailExists = $thumbnail !== '' && ! str_contains($thumbnail, '..') && \Illuminate\Support\Facades\File::isFile(public_path('assets/'.$thumbnail));
                         @endphp
                         <tr>
@@ -342,7 +412,7 @@
                                         @endphp
                                         @if($firstVendorItem?->id === $item->id)
                                             @if($vendorAssignmentReady && $hasPendingVendorReadyItem && ! $terminalOrder)
-                                                <form method="POST" action="{{ route('marketplace.orders.vendor-ready-for-delivery', ['order' => $order, 'vendor' => $item->vendor_id]) }}" class="mt-2" onsubmit="return confirm('Confirm that every assigned product and quantity has been checked and is ready for delivery?');">
+                                                <form method="POST" action="{{ route('marketplace.orders.vendor-ready-for-delivery', ['order' => $order, 'vendor' => $item->vendor_id]) }}" class="mt-2" data-orders-live-form onsubmit="return confirm('Confirm that every assigned product and quantity has been checked and is ready for delivery?');">
                                                     @csrf
                                                     <button type="submit" class="btn btn-sm btn-primary">Ready for Delivery</button>
                                                 </form>
@@ -364,11 +434,29 @@
     @endif
 
     @php
+        $adminDeliveryItems = $order->items->filter(fn ($item) => $item->vendor_id === null
+            && $item->assignment_status === 'admin_handled'
+            && in_array($item->fulfillment_status, ['confirmed', 'processing', 'awaiting_stock', 'ready_for_dispatch'], true)
+            && ! $order->deliveries->contains('order_item_id', $item->id));
         $adminPreparationItems = $order->items->filter(fn ($item) => $item->vendor_id === null
             && $item->assignment_status === 'admin_handled'
             && $item->fulfillment_status === 'ready_for_dispatch'
             && ! $order->deliveries->contains('order_item_id', $item->id));
     @endphp
+    @if($canManageOrders
+        && auth()->user()->hasPermission('deliveries.manage')
+        && $order->payment_status === 'paid'
+        && in_array($order->fulfillment_status, ['confirmed', 'processing', 'awaiting_stock', 'ready_for_dispatch'], true)
+        && $adminDeliveryItems->isNotEmpty())
+        <section class="detail-panel p-3 mb-3" aria-labelledby="admin-delivery-shortcut">
+            <h2 id="admin-delivery-shortcut" class="h5 mb-1">Admin-handled delivery</h2>
+            <p class="small text-muted">Send eligible Admin-handled products to Admin Deliveries. Payment is already recorded and remains separate from fulfillment.</p>
+            <form method="POST" action="{{ route('marketplace.orders.deliveries.store', $order) }}" data-orders-live-form onsubmit="if (! confirm('Send the eligible Admin-handled products to Admin Deliveries?')) return false; this.querySelector('button[type=submit]').disabled = true;">
+                @csrf
+                <button type="submit" class="btn btn-primary">Send to Delivery</button>
+            </form>
+        </section>
+    @endif
     @if($canManageOrders
         && auth()->user()->hasPermission('deliveries.manage')
         && ! in_array($order->fulfillment_status, ['pending_confirmation', 'delivered', 'completed', 'cancelled', 'returned'], true)
@@ -392,7 +480,7 @@
             <h2 id="delivery-request-title" class="h5 mb-2">Request delivery from a vendor</h2>
             <p class="small text-muted mb-3">Select an allocated vendor assignment. The vendor will receive a notification and create the delivery for its own products. This does not create a delivery or change the customer order status.</p>
             @if($requestableDeliveryAssignments->isNotEmpty())
-                <form method="POST" action="{{ route('marketplace.orders.delivery-request', $order) }}" class="d-flex flex-wrap align-items-end gap-2">
+                <form method="POST" action="{{ route('marketplace.orders.delivery-request', $order) }}" class="d-flex flex-wrap align-items-end gap-2" data-orders-live-form>
                     @csrf
                     <div class="flex-grow-1">
                         <label for="delivery-request-vendor" class="form-label small">Vendor assignment</label>
@@ -456,7 +544,7 @@
                                 <button type="button" class="btn btn-outline-danger" id="show-rejection-form" aria-controls="rejection-panel" aria-expanded="{{ $errors->has('reason') ? 'true' : 'false' }}">Reject Order</button>
                                 <div id="rejection-panel" class="mt-3" @unless($errors->has('reason')) hidden @endunless>
                                     <div class="alert alert-warning py-2 small" role="alert">The reason is saved with the order and recorded in its history.</div>
-                                    <form method="POST" action="{{ route('marketplace.orders.review', $order) }}" onsubmit="this.querySelector('button[type=submit]').disabled = true;">
+                                    <form method="POST" action="{{ route('marketplace.orders.review', $order) }}" data-orders-live-form onsubmit="this.querySelector('button[type=submit]').disabled = true;">
                                         @csrf
                                         <input type="hidden" name="decision" value="reject">
                                         <label for="rejection-reason" class="form-label">Rejection reason <span class="text-danger" aria-hidden="true">*</span></label>
@@ -471,27 +559,6 @@
                     </div>
                 @endif
             </section>
-            @if($hasSavedAllocation && ! $allocationMode)
-                @push('scripts')
-                <script>
-                    const rejectionToggle = document.getElementById('show-rejection-form');
-                    const rejectionPanel = document.getElementById('rejection-panel');
-                    const rejectionReason = document.getElementById('rejection-reason');
-                    const cancelRejection = document.getElementById('cancel-rejection');
-                    const closeRejectionPanel = () => {
-                        rejectionPanel.hidden = true;
-                        rejectionToggle.setAttribute('aria-expanded', 'false');
-                        rejectionToggle.focus();
-                    };
-                    rejectionToggle.addEventListener('click', () => {
-                        rejectionPanel.hidden = false;
-                        rejectionToggle.setAttribute('aria-expanded', 'true');
-                        rejectionReason.focus();
-                    });
-                    cancelRejection.addEventListener('click', closeRejectionPanel);
-                </script>
-                @endpush
-            @endif
         @else
             <div class="alert alert-info">This order is awaiting an administrative review decision.</div>
         @endif
@@ -542,7 +609,7 @@
                         <div class="row g-3">
                             <div class="col-md-4">
                                 <label for="has-paid" class="form-label">Has the customer paid?</label>
-                                <select id="has-paid" name="has_paid" form="order-changes-form" class="form-select" required>
+                                <select id="has-paid" name="has_paid" form="order-changes-form" class="form-select" data-outstanding-balance="{{ number_format($outstandingBalance, 2, '.', '') }}" required>
                                     <option value="no" @selected(old('has_paid', 'no') === 'no')>No, not paid</option>
                                     <option value="yes" @selected(old('has_paid') === 'yes') @disabled($outstandingBalance <= 0)>Yes, paid</option>
                                 </select>
@@ -582,36 +649,6 @@
                     </div>
                 @endif
             </section>
-        @endif
-
-        @if($editing && $canManageOrders && ! $terminalOrder && $allItemsHandledByAdmin)
-            @push('scripts')
-                <script>
-                    const hasPaidSelect = document.getElementById('has-paid');
-                    const paymentDetails = document.querySelector('.payment-details');
-                    const paymentTypeSelect = document.getElementById('payment-type');
-                    const partialAmountPanel = document.querySelector('.partial-payment-amount');
-                    const partialAmountInput = document.getElementById('partial-amount');
-                    const outstandingBalance = Number('{{ number_format($outstandingBalance, 2, '.', '') }}');
-
-                    const updatePaymentFields = () => {
-                        const showPaymentDetails = hasPaidSelect.value === 'yes' && outstandingBalance > 0;
-                        paymentDetails.hidden = !showPaymentDetails;
-                        paymentTypeSelect.required = showPaymentDetails;
-                        paymentTypeSelect.disabled = !showPaymentDetails;
-                        document.getElementById('payment-method').required = showPaymentDetails;
-                        document.getElementById('payment-method').disabled = !showPaymentDetails;
-                        const isPartial = showPaymentDetails && paymentTypeSelect.value === 'partial';
-                        partialAmountPanel.hidden = !isPartial;
-                        partialAmountInput.required = isPartial;
-                        partialAmountInput.disabled = !isPartial;
-                    };
-
-                    hasPaidSelect.addEventListener('change', updatePaymentFields);
-                    paymentTypeSelect.addEventListener('change', updatePaymentFields);
-                    updatePaymentFields();
-                </script>
-            @endpush
         @endif
 
         @if($editing && $canManageOrders && ! $terminalOrder)
@@ -694,4 +731,5 @@
         </section>
     @endif
 </div>
+@include('marketplace.orders.partials.live-updates')
 @endsection

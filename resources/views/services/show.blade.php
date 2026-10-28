@@ -16,7 +16,7 @@
                     {{-- Main Image --}}
                     <div class="main-image mb-3" style="border-radius: 12px; overflow: hidden; background-color: #f3f4f6; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
                         <img id="mainImage" 
-                             src="{{ asset('public/' . $service->thumbnail) }}" 
+                             src="{{ asset('' . $service->thumbnail) }}" 
                              alt="{{ $service->title }}"
                              style="width: 100%; height: 400px; object-fit: cover;">
                     </div>
@@ -25,11 +25,11 @@
                     @if($service->other_images && count($service->other_images) > 0)
                         <div class="gallery-thumbnails" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); gap: 10px;">
                             <div class="gallery-item active" onclick="changeImage('{{ asset('public/' . $service->thumbnail) }}')" style="cursor: pointer; border: 2px solid #16a34a; border-radius: 8px; overflow: hidden; transition: all 0.3s ease;">
-                                <img src="{{ asset('public/' . $service->thumbnail) }}" alt="Main" style="width: 100%; height: 80px; object-fit: cover;">
+                                <img src="{{ asset('' . $service->thumbnail) }}" alt="Main" style="width: 100%; height: 80px; object-fit: cover;">
                             </div>
                             @foreach($service->other_images as $image)
                                 <div class="gallery-item" onclick="changeImage('{{ asset('public/' . $image) }}')" style="cursor: pointer; border: 2px solid #e5e7eb; border-radius: 8px; overflow: hidden; transition: all 0.3s ease;">
-                                    <img src="{{ asset('public/' . $image) }}" alt="Gallery" style="width: 100%; height: 80px; object-fit: cover;">
+                                    <img src="{{ asset('public' . $image) }}" alt="Gallery" style="width: 100%; height: 80px; object-fit: cover;">
                                 </div>
                             @endforeach
                         </div>
@@ -158,7 +158,7 @@
                             {{-- Image --}}
                             @if($related->thumbnail)
                                 <div style="overflow: hidden; height: 180px; background-color: #f3f4f6;">
-                                    <img src="{{ asset('public/' . $related->thumbnail) }}" 
+                                    <img src="{{ asset('' . $related->thumbnail) }}" 
                                          alt="{{ $related->title }}"
                                          style="width: 100%; height: 100%; object-fit: cover; transition: transform 0.3s ease;">
                                 </div>

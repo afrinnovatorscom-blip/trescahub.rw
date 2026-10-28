@@ -1,9 +1,7 @@
-@extends('front.layouts.guest')
+@extends('front.layouts.auth')
 
 @section('content')
-<div class="container">
-    <div class="row justify-content-center align-items-center min-vh-100">
-        <div class="col-md-5">
+<div class="auth-page-panel">
 
             <div class="text-center mb-4">
                 @include('front.partials.auth-brand')
@@ -93,12 +91,5 @@
                 </div>
             </div>
 
-            <p class="text-center text-muted small mt-4">
-                Don't have an account?
-                <a href="{{ route('register') }}" class="text-decoration-none fw-semibold text-success">Create one</a>
-            </p>
-
-        </div>
-    </div>
 </div>
 @endsection

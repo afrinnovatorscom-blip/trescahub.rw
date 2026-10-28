@@ -250,7 +250,7 @@
             <div class="d-flex align-items-center gap-3 mb-3">
                 <div style="width:38px;height:38px;border-radius:10px;overflow:hidden;background:#f0f2f7;flex-shrink:0;">
                     @if($service->thumbnail)
-                        <img src="{{ asset('public/' . $service->thumbnail) }}" alt="{{ $service->title }}"
+                        <img src="{{ asset('' . $service->thumbnail) }}" alt="{{ $service->title }}"
                              style="width:100%;height:100%;object-fit:cover;">
                     @else
                         <div class="w-100 h-100 d-flex align-items-center justify-content-center">

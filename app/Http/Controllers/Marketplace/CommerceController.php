@@ -202,6 +202,9 @@ class CommerceController extends Controller
         $paidOrders = fn ($query) => $query
             ->where('payment_status', 'paid')
             ->whereIn('fulfillment_status', $confirmedFulfillmentStatuses)
+            ->whereDoesntHave('deliveries', fn ($deliveries) => $deliveries
+                ->whereNull('order_item_id')
+                ->whereNull('vendor_id'))
             ->whereHas('items', $unpreparedAdminItems);
         $filteredOrders = $makeQuery();
         $tabCounts = [
@@ -265,10 +268,11 @@ class CommerceController extends Controller
             && $order->items->every(
                 fn (OrderItem $item) => $item->assignment_status === 'admin_handled' && $item->vendor_id === null
             );
-        $allocationMode = $reviewMode && $canManageOrders && $request->boolean('allocate') && ! $hasSavedAllocation;
-        $acceptMode = $reviewMode && $canManageOrders && $hasSavedAllocation && (
+        $allocationMode = $reviewMode && $canManageOrders && ! $hasSavedAllocation;
+        $acceptMode = $reviewMode && $canManageOrders && $allItemsHandledByAdmin && (
             $request->boolean('accept')
-            || ($request->session()->has('errors') && $request->session()->get('_old_input.accept_order') === 'yes')
+            || $request->session()->has('errors')
+            || $hasSavedAllocation
         );
         $amountPaid = (float) $order->payments->sum(fn ($payment) => (float) $payment->amount);
         if ($amountPaid === 0.0 && $order->payment_status === 'paid') {
@@ -333,9 +337,17 @@ class CommerceController extends Controller
             $data['note'] ?? null,
         );
 
-        return redirect()
-            ->route('marketplace.orders.index', ['tab' => 'pending'])
-            ->with('success', 'Order rejected and the reason recorded.');
+        $message = 'Order rejected and the reason recorded.';
+        $redirectUrl = route('marketplace.orders.index', ['tab' => 'pending']);
+
+        if ($request->expectsJson()) {
+            return response()->json([
+                'message' => $message,
+                'redirect_url' => $redirectUrl,
+            ]);
+        }
+
+        return redirect()->to($redirectUrl)->with('success', $message);
     }
 
     public function updateOrder(Request $request, Order $order)
@@ -366,7 +378,15 @@ class CommerceController extends Controller
         $this->authorizeOrder($request->user(), $order);
         $this->orders->markVendorAssignmentReady($order, (int) $vendor->id, $request->user());
 
-        return back()->with('success', 'Vendor assignment marked Ready for Delivery.');
+        $message = 'Vendor assignment marked Ready for Delivery.';
+        if ($request->expectsJson()) {
+            return response()->json([
+                'message' => $message,
+                'redirect_url' => route('marketplace.orders.show', $order),
+            ]);
+        }
+
+        return back()->with('success', $message);
     }
 
     public function requestVendorDelivery(Request $request, Order $order)
@@ -385,13 +405,17 @@ class CommerceController extends Controller
             (int) $data['vendor_id'],
             $request->user(),
         );
+        $message = $requested
+            ? 'Delivery request sent to the selected vendor.'
+            : 'A delivery request or delivery record already exists for that vendor assignment.';
+        if ($request->expectsJson()) {
+            return response()->json([
+                'message' => $message,
+                'redirect_url' => route('marketplace.orders.show', $order),
+            ]);
+        }
 
-        return back()->with(
-            'success',
-            $requested
-                ? 'Delivery request sent to the selected vendor.'
-                : 'A delivery request or delivery record already exists for that vendor assignment.'
-        );
+        return back()->with('success', $message);
     }
 
     public function saveOrderChanges(Request $request, Order $order)
@@ -435,23 +459,32 @@ class CommerceController extends Controller
         );
 
         if (($data['accept_order'] ?? null) === 'yes') {
-            return redirect()->route('marketplace.orders.show', ['order' => $order, 'edit' => 1])
-                ->with('success', 'Order accepted. Record payment only if the customer has paid.');
-        }
-
-        if (($data['allocate_order'] ?? null) === 'yes') {
+            $message = 'Order processed successfully and moved to Paid Orders.';
+            $redirectUrl = route('marketplace.orders.index', [
+                'tab' => $order->fresh()->payment_status === 'paid' ? 'paid' : 'pending',
+            ]);
+        } elseif (($data['allocate_order'] ?? null) === 'yes') {
             if ($data['order_allocation'] !== 'admin') {
                 $vendor = Vendor::query()->whereKey((int) $data['order_allocation'])->where('status', 'active')->firstOrFail();
-
-                return redirect()->route('marketplace.orders.index', ['tab' => 'pending'])
-                    ->with('success', 'Order successfully allocated to '.$vendor->business_name.'.');
+                $message = 'Order successfully allocated to '.$vendor->business_name.'.';
+                $redirectUrl = route('marketplace.orders.index', ['tab' => 'pending']);
+            } else {
+                $message = 'Order allocated to Admin. Review the saved allocation to accept or reject it.';
+                $redirectUrl = route('marketplace.orders.show', $order);
             }
-
-            return redirect()->route('marketplace.orders.show', $order)
-                ->with('success', 'Order allocated to Admin. Review the saved allocation to accept or reject it.');
+        } else {
+            $message = 'Order changes saved.';
+            $redirectUrl = route('marketplace.orders.show', $order);
         }
 
-        return redirect()->route('marketplace.orders.show', $order)->with('success', 'Order changes saved.');
+        if ($request->expectsJson()) {
+            return response()->json([
+                'message' => $message,
+                'redirect_url' => $redirectUrl,
+            ]);
+        }
+
+        return redirect()->to($redirectUrl)->with('success', $message);
     }
 
     public function assignOrderStaff(Request $request, Order $order)
@@ -675,6 +708,7 @@ class CommerceController extends Controller
             return response()->json([
                 'message' => $message,
                 'deliveries_url' => route('marketplace.deliveries.index', ['status' => 'assigned']),
+                'redirect_url' => route('marketplace.orders.index', ['tab' => 'paid']),
                 'delivery_references' => $tasks->pluck('reference')->values(),
             ]);
         }
@@ -829,6 +863,22 @@ class CommerceController extends Controller
         }
 
         return back()->with('success', 'Delivery updated.');
+    }
+
+    public function markDeliveryDelivered(Request $request, DeliveryTask $deliveryTask)
+    {
+        abort_unless($request->user()->hasPermission('deliveries.manage'), 403);
+        $this->authorizeOrder($request->user(), $deliveryTask->order);
+        $this->orders->markDeliveryDelivered($deliveryTask, $request->user());
+
+        if ($request->expectsJson()) {
+            return response()->json([
+                'message' => 'Delivery marked as Delivered successfully.',
+                'status' => 'delivered',
+            ]);
+        }
+
+        return back()->with('success', 'Delivery marked as Delivered successfully.');
     }
 
     public function attempt(Request $request, DeliveryTask $deliveryTask)

@@ -20,16 +20,16 @@ $customerAuth = ['auth:customers'];
 Route::get('/cart', [StorefrontCommerceController::class, 'cart'])->name('cart');
 Route::post('/cart', [StorefrontCommerceController::class, 'add'])->name('cart.add');
 Route::patch('/cart', [StorefrontCommerceController::class, 'updateCart'])->name('cart.update');
-Route::get('/checkout', [StorefrontCommerceController::class, 'checkout'])->name('checkout');
-Route::post('/checkout', [StorefrontCommerceController::class, 'place'])->middleware('throttle:marketplace-sensitive')->name('checkout.place');
+Route::get('/checkout', [StorefrontCommerceController::class, 'checkout'])->middleware($customerAuth)->name('checkout');
+Route::post('/checkout', [StorefrontCommerceController::class, 'place'])->middleware(['auth:customers', 'throttle:marketplace-sensitive'])->name('checkout.place');
 Route::get('/checkout/complete/{reference}', [StorefrontCommerceController::class, 'done'])->name('checkout.done');
 
 Route::get('/track-order', [StorefrontCommerceController::class, 'trackForm'])->name('track-order');
 Route::post('/track-order', [StorefrontCommerceController::class, 'track'])->middleware('throttle:marketplace-sensitive')->name('track-order.submit');
 Route::get('/track-order/result', [StorefrontCommerceController::class, 'trackResult'])->name('track-order.result');
 
-Route::get('/product-requests', [StorefrontCommerceController::class, 'requestForm'])->name('product-requests.create');
-Route::post('/product-requests', [StorefrontCommerceController::class, 'storeRequest'])->middleware('throttle:marketplace-sensitive')->name('product-requests.store');
+Route::get('/product-requests', [StorefrontCommerceController::class, 'requestForm'])->middleware($customerAuth)->name('product-requests.create');
+Route::post('/product-requests', [StorefrontCommerceController::class, 'storeRequest'])->middleware(['auth:customers', 'throttle:marketplace-sensitive'])->name('product-requests.store');
 Route::get('/product-requests/{reference}/received', [StorefrontCommerceController::class, 'requestDone'])->name('product-requests.done');
 
 Route::middleware($customerAuth)->group(function () {
@@ -65,10 +65,12 @@ Route::middleware($auth)->group(function () {
         Route::post('/orders/{reference}/deliveries/prepare', [VendorWorkspaceController::class, 'createOrderDelivery'])->name('orders.deliveries.store');
         Route::post('/orders/{reference}/create-delivery', [VendorWorkspaceController::class, 'createOrderDelivery'])->name('orders.create-delivery');
         Route::post('/order-items/{item}/respond', [VendorWorkspaceController::class, 'respondOrder'])->name('orders.respond');
+        Route::post('/orders/{reference}/respond', [VendorWorkspaceController::class, 'respondOrderForOrder'])->name('orders.respond-order');
         Route::post('/order-items/{item}/progress', [VendorWorkspaceController::class, 'progressOrder'])->name('orders.progress');
         Route::get('/deliveries', [VendorWorkspaceController::class, 'deliveriesIndex'])->name('deliveries.index');
         Route::get('/deliveries/{reference}/prepare', [VendorWorkspaceController::class, 'prepareExistingDelivery'])->name('deliveries.prepare.existing');
         Route::post('/deliveries/{reference}/prepare', [VendorWorkspaceController::class, 'updateExistingDelivery'])->name('deliveries.prepare.update');
+        Route::post('/deliveries/{reference}/delivered', [VendorWorkspaceController::class, 'markDeliveryDelivered'])->name('deliveries.delivered');
         Route::get('/deliveries/{reference}', [VendorWorkspaceController::class, 'showDelivery'])->name('deliveries.show');
         Route::get('/deliveries/{reference}/dispatch-proof', [VendorWorkspaceController::class, 'downloadDispatchProof'])->name('deliveries.dispatch-proof');
         Route::get('/inventory', [VendorWorkspaceController::class, 'inventory'])->name('inventory');
@@ -130,6 +132,7 @@ Route::middleware($auth)->group(function () {
         Route::get('/deliveries/{deliveryTask}', [CommerceController::class, 'showDelivery'])->name('deliveries.show');
         Route::get('/deliveries/{deliveryTask}/prepare', [CommerceController::class, 'prepareExistingDelivery'])->name('deliveries.prepare.existing');
         Route::post('/deliveries/{deliveryTask}/prepare', [CommerceController::class, 'updatePreparedDelivery'])->name('deliveries.prepare.update');
+        Route::post('/deliveries/{deliveryTask}/delivered', [CommerceController::class, 'markDeliveryDelivered'])->name('deliveries.delivered');
         Route::post('/deliveries/{deliveryTask}', [CommerceController::class, 'updateDelivery'])->name('deliveries.update');
         Route::post('/deliveries/{deliveryTask}/attempts', [CommerceController::class, 'attempt'])->name('deliveries.attempt');
         Route::post('/deliveries/{deliveryTask}/proof', [CommerceController::class, 'proof'])->name('deliveries.proof');

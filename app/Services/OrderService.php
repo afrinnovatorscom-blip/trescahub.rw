@@ -297,12 +297,6 @@ class OrderService
             if ($acceptOrder && ! $lockedOrder->items()->exists()) {
                 throw ValidationException::withMessages(['allocations' => 'An order without products cannot be accepted through this form.']);
             }
-            if ($acceptOrder && $recordPayment) {
-                throw ValidationException::withMessages([
-                    'has_paid' => 'Save the order acceptance and allocation before recording payment.',
-                ]);
-            }
-
             if ($recordPayment && $submissionKey) {
                 $previousSubmission = OrderPayment::query()->where('submission_key', $submissionKey)->first();
                 if ($previousSubmission) {
@@ -653,6 +647,114 @@ class OrderService
         });
     }
 
+    public function vendorDecisionForOrder(
+        Order $order,
+        User $actor,
+        string $decision,
+        ?string $note = null,
+        bool $recordPayment = false,
+        ?string $paymentType = null,
+        ?string $paymentMethod = null,
+        ?float $partialAmount = null,
+        ?string $submissionKey = null,
+    ): void
+    {
+        if (! in_array($decision, ['accept', 'decline'], true)) {
+            throw ValidationException::withMessages(['decision' => 'That order response is not available.']);
+        }
+        if ($decision === 'decline' && ! trim((string) $note)) {
+            throw ValidationException::withMessages(['note' => 'A cancellation reason is required.']);
+        }
+
+        DB::transaction(function () use ($order, $actor, $decision, $note, $recordPayment, $paymentType, $paymentMethod, $partialAmount, $submissionKey) {
+            $lockedOrder = Order::query()->whereKey($order->id)->lockForUpdate()->firstOrFail();
+            if ($decision === 'accept' && $recordPayment && $submissionKey) {
+                $previousSubmission = OrderPayment::query()->where('submission_key', $submissionKey)->first();
+                if ($previousSubmission) {
+                    if ((int) $previousSubmission->order_id !== (int) $lockedOrder->id) {
+                        throw ValidationException::withMessages(['submission_key' => 'This payment submission key has already been used.']);
+                    }
+
+                    return;
+                }
+            }
+
+            $items = OrderItem::query()
+                ->where('order_id', $lockedOrder->id)
+                ->where('vendor_id', $actor->vendor_id)
+                ->where('assignment_status', 'assigned')
+                ->lockForUpdate()
+                ->get();
+
+            abort_if($items->isEmpty(), 404);
+            abort_if(
+                OrderItem::query()
+                    ->where('order_id', $lockedOrder->id)
+                    ->where(function ($query) use ($actor) {
+                        $query->whereNull('vendor_id')->orWhere('vendor_id', '!=', $actor->vendor_id);
+                    })
+                    ->exists(),
+                422,
+            );
+
+            foreach ($items as $item) {
+                $this->vendorDecision($item, $actor, $decision, $note);
+            }
+
+            if ($decision !== 'accept' || ! $recordPayment) {
+                return;
+            }
+
+            if (! in_array($paymentType, ['full', 'partial'], true)) {
+                throw ValidationException::withMessages(['payment_type' => 'Choose full or partial payment.']);
+            }
+            if (! in_array($paymentMethod, ['cash_on_delivery', 'bank_transfer'], true)) {
+                throw ValidationException::withMessages(['payment_method' => 'Choose a supported payment method.']);
+            }
+
+            $recordedAmount = (int) round((float) $lockedOrder->payments()->sum('amount') * 100);
+            if ($recordedAmount === 0 && $lockedOrder->payment_status === 'paid') {
+                $recordedAmount = (int) round((float) $lockedOrder->total * 100);
+            }
+            $totalAmount = (int) round((float) $lockedOrder->total * 100);
+            $outstanding = max(0, $totalAmount - $recordedAmount);
+            if ($outstanding === 0) {
+                return;
+            }
+
+            $amount = $paymentType === 'full'
+                ? $outstanding
+                : (int) round((float) $partialAmount * 100);
+            if ($amount <= 0 || ($paymentType === 'partial' && $amount >= $outstanding)) {
+                throw ValidationException::withMessages([
+                    'partial_amount' => 'Enter a positive payment amount less than the outstanding balance. Use full payment to record the remaining balance.',
+                ]);
+            }
+
+            OrderPayment::query()->create([
+                'order_id' => $lockedOrder->id,
+                'recorded_by' => $actor->id,
+                'amount' => number_format($amount / 100, 2, '.', ''),
+                'type' => $paymentType,
+                'method' => $paymentMethod,
+                'submission_key' => $submissionKey,
+            ]);
+
+            $newTotalPaid = $recordedAmount + $amount;
+            $previousStatus = $lockedOrder->payment_status;
+            $lockedOrder->payment_status = $newTotalPaid >= $totalAmount ? 'paid' : 'partially_paid';
+            $lockedOrder->payment_method = $paymentMethod;
+            $lockedOrder->save();
+            AuditLogger::log($actor, 'order.vendor_payment_recorded', $lockedOrder, [
+                'amount' => number_format($amount / 100, 2, '.', ''),
+                'type' => $paymentType,
+                'method' => $paymentMethod,
+                'from_status' => $previousStatus,
+                'to_status' => $lockedOrder->payment_status,
+            ]);
+        });
+    }
+
     public function vendorProgress(OrderItem $item, User $actor, string $to, ?string $note = null): void
     {
         $this->assertVendorItem($actor, $item);
@@ -790,6 +892,11 @@ class OrderService
                             'delivery' => 'The order must be confirmed, paid, and eligible for Admin-managed delivery preparation.',
                         ]);
                     }
+                    if ($vendorId !== null && $lockedOrder->payment_status !== 'paid') {
+                        throw ValidationException::withMessages([
+                            'delivery' => 'The order must be paid before it can be sent to delivery.',
+                        ]);
+                    }
 
                     $items = OrderItem::query()
                         ->where('order_id', $lockedOrder->id)
@@ -804,13 +911,11 @@ class OrderService
 
                     foreach ($items as $item) {
                         $assignmentIsEligible = $vendorId !== null
-                            ? $item->assignment_status === 'accepted'
+                            ? in_array($item->assignment_status, ['assigned', 'accepted'], true)
                             : $item->assignment_status === 'admin_handled' && $item->vendor_id === null;
-                        $fulfillmentIsEligible = $vendorId !== null
-                            ? $item->fulfillment_status === 'ready_for_dispatch'
-                            : in_array($item->fulfillment_status, [
-                                'confirmed', 'processing', 'awaiting_stock', 'ready_for_dispatch',
-                            ], true);
+                        $fulfillmentIsEligible = in_array($item->fulfillment_status, [
+                            'confirmed', 'processing', 'awaiting_stock', 'ready_for_dispatch',
+                        ], true);
                         if (! $assignmentIsEligible || ! $fulfillmentIsEligible) {
                             throw ValidationException::withMessages([
                                 'delivery' => $vendorId !== null
@@ -822,7 +927,17 @@ class OrderService
 
                     $existingTask = DeliveryTask::query()
                         ->where('order_id', $lockedOrder->id)
-                        ->whereIn('order_item_id', $items->modelKeys())
+                        ->where(function ($query) use ($items, $vendorId) {
+                            $query->whereIn('order_item_id', $items->modelKeys())
+                                ->orWhere(function ($unlinked) use ($vendorId) {
+                                    $unlinked->whereNull('order_item_id')
+                                        ->when(
+                                            $vendorId === null,
+                                            fn ($query) => $query->whereNull('vendor_id'),
+                                            fn ($query) => $query->where('vendor_id', $vendorId)
+                                        );
+                                });
+                        })
                         ->lockForUpdate()
                         ->exists();
                     if ($existingTask) {
@@ -831,20 +946,24 @@ class OrderService
                         ]);
                     }
 
-                    if ($vendorId === null) {
-                        foreach ($items as $item) {
-                            if ($item->fulfillment_status === 'ready_for_dispatch') {
-                                continue;
-                            }
-
-                            $previousStatus = $item->fulfillment_status;
-                            $item->fulfillment_status = 'ready_for_dispatch';
+                    foreach ($items as $item) {
+                        if ($item->assignment_status === 'assigned') {
+                            $item->assignment_status = 'accepted';
                             $item->save();
-                            AuditLogger::log($actor, 'order.item_progress', $item, [
-                                'from' => $previousStatus,
-                                'to' => 'ready_for_dispatch',
-                            ]);
+                            AuditLogger::log($actor, 'order.item_accepted', $item);
                         }
+
+                        if ($item->fulfillment_status === 'ready_for_dispatch') {
+                            continue;
+                        }
+
+                        $previousStatus = $item->fulfillment_status;
+                        $item->fulfillment_status = 'ready_for_dispatch';
+                        $item->save();
+                        AuditLogger::log($actor, 'order.item_progress', $item, [
+                            'from' => $previousStatus,
+                            'to' => 'ready_for_dispatch',
+                        ]);
                     }
 
                     $tasks = $items->map(function (OrderItem $item) use ($lockedOrder, $vendorId, $actor, $details, $dispatchProofPath) {
@@ -878,6 +997,30 @@ class OrderService
                     });
 
             return $tasks;
+        });
+    }
+
+    public function markDeliveryDelivered(DeliveryTask $deliveryTask, User $actor): void
+    {
+        DB::transaction(function () use ($deliveryTask, $actor) {
+            $task = DeliveryTask::query()->whereKey($deliveryTask->id)->lockForUpdate()->firstOrFail();
+            if ($task->status !== 'in_transit') {
+                throw ValidationException::withMessages([
+                    'delivery' => 'Only deliveries currently in transit can be marked as delivered.',
+                ]);
+            }
+
+            $task->status = 'delivered';
+            $task->delivered_at = now();
+            $task->save();
+
+            if ($task->order_item_id) {
+                $item = OrderItem::query()->whereKey($task->order_item_id)->lockForUpdate()->firstOrFail();
+                $item->fulfillment_status = 'delivered';
+                $item->save();
+            }
+
+            AuditLogger::log($actor, 'delivery.completed', $task);
         });
     }
 

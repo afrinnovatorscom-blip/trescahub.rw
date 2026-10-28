@@ -29,7 +29,7 @@
                             {{-- Thumbnail Image --}}
                             @if($service->thumbnail)
                                 <div class="service-thumbnail" style="overflow: hidden; height: 200px; background-color: #f3f4f6;">
-                                    <img src="{{ asset('public/' . $service->thumbnail) }}" 
+                                    <img src="{{ asset('' . $service->thumbnail) }}" 
                                          alt="{{ $service->title }}"
                                          style="width: 100%; height: 100%; object-fit: cover; transition: transform 0.3s ease;">
                                 </div>

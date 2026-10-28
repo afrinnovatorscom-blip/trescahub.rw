@@ -113,6 +113,44 @@ class VendorDeliveriesTest extends TestCase
             ->assertSee('delivery-filter-grid');
     }
 
+    public function test_vendor_can_mark_an_in_transit_delivery_delivered(): void
+    {
+        $vendor = $this->vendor('Completing Delivery Vendor');
+        $user = $this->vendorUser($vendor);
+        $order = $this->order('VENDOR-MARK-DELIVERED', 'Vendor Completion Customer');
+        $item = $this->item($order, $vendor, 'Vendor Completion Item');
+        $task = $this->task('VENDOR-MARK-DELIVERED-TASK', $order, $item, $vendor, 'in_transit');
+
+        $this->actingAs($user)
+            ->get(route('vendor.deliveries.index', ['status' => 'in_transit']))
+            ->assertOk()
+            ->assertSee('Mark as Delivered')
+            ->assertSee(route('vendor.deliveries.delivered', $task->reference), false);
+
+        $this->actingAs($user)
+            ->postJson(route('vendor.deliveries.delivered', $task->reference))
+            ->assertOk()
+            ->assertJsonPath('status', 'delivered')
+            ->assertJsonPath('message', 'Delivery marked as Delivered successfully.');
+        $this->assertSame('delivered', $task->fresh()->status);
+        $this->assertNotNull($task->fresh()->delivered_at);
+        $this->assertSame('delivered', $item->fresh()->fulfillment_status);
+
+        $this->actingAs($user)
+            ->get(route('vendor.deliveries.index', ['status' => 'in_transit']))
+            ->assertOk()
+            ->assertDontSee($task->reference);
+        $this->actingAs($user)
+            ->postJson(route('vendor.deliveries.delivered', $task->reference))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('delivery');
+
+        $otherVendor = $this->vendor('Other Completion Vendor');
+        $this->actingAs($this->vendorUser($otherVendor))
+            ->postJson(route('vendor.deliveries.delivered', $task->reference))
+            ->assertNotFound();
+    }
+
     private function vendor(string $name): Vendor
     {
         return Vendor::query()->create([

@@ -16,10 +16,20 @@ class PublicLoginModal extends Component
 
     public bool $remember = false;
 
+    public bool $openOnLoad = false;
+
+    public string $notice = '';
+
+    public function mount(bool $openOnLoad = false, string $notice = ''): void
+    {
+        $this->openOnLoad = $openOnLoad;
+        $this->notice = $notice;
+    }
+
     public function login(): void
     {
         if (Auth::guard('customers')->check()) {
-            $this->redirectRoute('account.orders');
+            $this->redirectAfterLogin();
 
             return;
         }
@@ -61,6 +71,27 @@ class PublicLoginModal extends Component
         RateLimiter::clear($key);
         session()->regenerate();
         $this->password = '';
+        $this->redirectAfterLogin();
+    }
+
+    private function redirectAfterLogin(): void
+    {
+        $intended = session()->pull('customer.auth_redirect', session()->pull('url.intended'));
+
+        if (is_string($intended)) {
+            $parts = parse_url($intended);
+
+            if (
+                is_array($parts)
+                && ($parts['host'] ?? null) === request()->getHost()
+                && (int) ($parts['port'] ?? request()->getPort()) === (int) request()->getPort()
+            ) {
+                $this->redirect($intended);
+
+                return;
+            }
+        }
+
         $this->redirectRoute('account.orders');
     }
 

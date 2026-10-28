@@ -723,17 +723,17 @@
                                 <i class="bi bi-check2-circle text-success"></i>
                             </div>
                             <div class="h4 fw-bold mt-1 mb-1">{{ $report['orders']['delivery_success_rate'] }}%</div>
-                            <div class="small text-muted">{{ $report['orders']['delivery_tasks_delivered'] }} of {{ $report['orders']['delivery_tasks_total'] }} delivery tasks delivered</div>
+                            <div class="small text-muted">{{ $report['orders']['delivery_tasks_delivered'] }} completed deliveries in this period</div>
                         </div>
                     </div>
                     <div class="col-md-4">
                         <div class="border rounded p-3 bg-white">
                             <div class="d-flex justify-content-between">
-                                <span class="small text-muted fw-bold">In-Transit Deliveries</span>
-                                <i class="bi bi-bicycle text-info"></i>
+                                <span class="small text-muted fw-bold">Completed Deliveries</span>
+                                <i class="bi bi-check2-all text-success"></i>
                             </div>
-                            <div class="h4 fw-bold mt-1 mb-1">{{ $report['orders']['delivery_tasks_in_transit'] }}</div>
-                            <div class="small text-muted">Active deliveries assigned to officers</div>
+                            <div class="h4 fw-bold mt-1 mb-1">{{ $report['orders']['delivery_tasks_delivered'] }}</div>
+                            <div class="small text-muted">Real completed deliveries from the Deliveries page</div>
                         </div>
                     </div>
                     <div class="col-md-4">
@@ -819,6 +819,60 @@
                                         <div class="report-empty-state">
                                             <div class="report-empty-icon"><i class="bi bi-inbox"></i></div>
                                             <div class="fw-semibold">No orders placed within this date range.</div>
+                                        </div>
+                                    </td>
+                                </tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="fw-bold small text-dark mt-4 mb-2 text-uppercase">
+                    <i class="bi bi-truck me-1"></i> Completed Deliveries (From Deliveries)
+                </div>
+                <div class="table-responsive border rounded">
+                    <table class="report-table">
+                        <thead>
+                            <tr>
+                                <th>Delivery Ref</th>
+                                <th>Order / Customer</th>
+                                <th>Item & Owner</th>
+                                <th>Officer</th>
+                                <th>Delivery / Tracking</th>
+                                <th>Delivered</th>
+                                <th class="text-end">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @forelse($report['orders']['delivery_tasks'] as $delivery)
+                                <tr>
+                                    <td class="fw-bold text-primary">{{ $delivery->reference }}</td>
+                                    <td>
+                                        <div class="fw-semibold">{{ $delivery->order?->reference ?? '—' }}</div>
+                                        <div class="small text-muted">{{ $delivery->order?->customer_name ?? 'Customer unavailable' }}</div>
+                                    </td>
+                                    <td>
+                                        <div class="fw-semibold">{{ $delivery->item?->product_name ?? 'Order item unavailable' }}</div>
+                                        <div class="small text-muted">{{ $delivery->vendor?->business_name ?? 'In-House / Admin' }}</div>
+                                    </td>
+                                    <td>{{ $delivery->officer?->name ?? 'Not assigned' }}</td>
+                                    <td>
+                                        <div class="fw-semibold">{{ $delivery->delivery_method ? (config('marketplace.delivery_methods.'.$delivery->delivery_method) ?? Str::headline($delivery->delivery_method)) : 'Method not recorded' }}</div>
+                                        <div class="small text-muted">{{ $delivery->tracking_reference ?: 'No tracking reference' }}</div>
+                                    </td>
+                                    <td class="text-nowrap">{{ $delivery->delivered_at?->format('d M Y, H:i') ?? '—' }}</td>
+                                    <td class="text-end">
+                                        <a href="{{ route('marketplace.deliveries.show', $delivery) }}" class="btn btn-sm btn-outline-primary py-1 px-2" title="View Delivery">
+                                            <i class="bi bi-eye"></i>
+                                        </a>
+                                    </td>
+                                </tr>
+                            @empty
+                                <tr>
+                                    <td colspan="8">
+                                        <div class="report-empty-state">
+                                            <div class="report-empty-icon"><i class="bi bi-truck"></i></div>
+                                            <div class="fw-semibold">No delivery activity recorded within this date range.</div>
                                         </div>
                                     </td>
                                 </tr>

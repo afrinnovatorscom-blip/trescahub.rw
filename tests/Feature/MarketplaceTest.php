@@ -140,11 +140,11 @@ class MarketplaceTest extends TestCase
             ->assertOk()
             ->assertSee('aria-label="Shopping cart, 2 products"', false)
             ->assertSee('>2</span>', false);
-        $this->get(route('checkout'))
+        $customer = $this->customerAccountFor(User::factory()->create());
+        $this->actingAs($customer, 'customers')->get(route('checkout'))
             ->assertOk()
             ->assertSee('aria-label="Shopping cart, 2 products"', false);
 
-        $customer = $this->customerAccountFor(User::factory()->create());
         $this->actingAs($customer, 'customers')->get(route('shop'))
             ->assertOk()
             ->assertSee('>2</span>', false);
@@ -204,7 +204,8 @@ class MarketplaceTest extends TestCase
             ->assertDontSee('Cart Layout Item Two')
             ->assertSee('RWF 3,000')
             ->assertSee('Proceed to Checkout');
-        $this->get(route('checkout'))->assertOk();
+        $customer = $this->customerAccountFor(User::factory()->create());
+        $this->actingAs($customer, 'customers')->get(route('checkout'))->assertOk();
 
         $this->patch(route('cart.update'), [
             'quantities' => [$first->slug => 0],
@@ -883,7 +884,7 @@ class MarketplaceTest extends TestCase
         $this->actingAs($admin)->get(route('marketplace.orders.show', $order))
             ->assertOk()
             ->assertSee('Review Order')
-            ->assertSee('Allocate Entire Order')
+            ->assertSee('Who will handle this order?')
             ->assertDontSee('Accept Order')
             ->assertDontSee('Reject Order')
             ->assertDontSee('name="allocations[', false)
@@ -911,7 +912,7 @@ class MarketplaceTest extends TestCase
 
         $this->actingAs($admin)->get(route('marketplace.orders.show', ['order' => $order, 'allocate' => 1]))
             ->assertOk()
-            ->assertSee('Allocate the Entire Order')
+            ->assertSee('Who will handle this order?')
             ->assertDontSee('Confirm Accept Order')
             ->assertDontSee('Has the customer paid?');
         $this->assertSame('pending_confirmation', $order->fresh()->fulfillment_status);
@@ -944,26 +945,24 @@ class MarketplaceTest extends TestCase
         $this->actingAs($admin)->get(route('marketplace.orders.show', $order))
             ->assertOk()
             ->assertSee('Accept Order')
-            ->assertSee('Reject Order')
-            ->assertDontSee('Payment information');
+            ->assertSee('Cancel order')
+            ->assertSee('Payment information');
 
+        $paymentSubmissionKey = (string) \Illuminate\Support\Str::uuid();
         $this->actingAs($admin)->post(route('marketplace.orders.save-changes', $order), [
             'accept_order' => 'yes',
             'has_paid' => 'yes',
             'payment_type' => 'partial',
             'payment_method' => 'bank_transfer',
             'partial_amount' => '100.00',
-            'submission_key' => (string) \Illuminate\Support\Str::uuid(),
-        ])->assertSessionHasErrors('has_paid');
-        $this->assertSame('pending_confirmation', $order->fresh()->fulfillment_status);
-        $this->assertSame(0, $order->payments()->count());
-
-        $this->actingAs($admin)->post(route('marketplace.orders.save-changes', $order), [
-            'accept_order' => 'yes',
-            'has_paid' => 'no',
-            'submission_key' => (string) \Illuminate\Support\Str::uuid(),
-        ])->assertRedirect(route('marketplace.orders.show', ['order' => $order, 'edit' => 1]));
+            'submission_key' => $paymentSubmissionKey,
+        ])
+            ->assertRedirect(route('marketplace.orders.index', ['tab' => 'pending']))
+            ->assertSessionHas('success', 'Order processed successfully and moved to Paid Orders.');
         $this->assertSame('confirmed', $order->fresh()->fulfillment_status);
+        $this->assertSame('partially_paid', $order->fresh()->payment_status);
+        $this->assertSame(100.0, (float) $order->payments()->sum('amount'));
+
         $history = OrderStatusHistory::query()
             ->where('order_id', $order->id)
             ->where('to_status', 'confirmed')
@@ -975,7 +974,6 @@ class MarketplaceTest extends TestCase
             ->assertOk()
             ->assertSee('Order Details')
             ->assertSee('Handled by Admin')
-            ->assertSee('Payment information')
             ->assertSee('Edit')
             ->assertDontSee('Save Changes');
         $this->actingAs($admin)->get(route('marketplace.orders.show', ['order' => $order, 'edit' => 1]))
@@ -1017,10 +1015,12 @@ class MarketplaceTest extends TestCase
         ])->assertSessionHasErrors('reason');
         $this->assertSame('pending_confirmation', $order->fresh()->fulfillment_status);
 
-        $this->actingAs($admin)->post(route('marketplace.orders.review', $order), [
+        $this->actingAs($admin)->postJson(route('marketplace.orders.review', $order), [
             'decision' => 'reject',
             'reason' => 'The requested item is no longer available.',
-        ])->assertRedirect(route('marketplace.orders.index', ['tab' => 'pending']));
+        ])->assertOk()
+            ->assertJsonPath('message', 'Order rejected and the reason recorded.')
+            ->assertJsonPath('redirect_url', route('marketplace.orders.index', ['tab' => 'pending']));
 
         $order->refresh();
         $this->assertSame('cancelled', $order->fulfillment_status);
@@ -1064,7 +1064,7 @@ class MarketplaceTest extends TestCase
         $this->actingAs($admin)->get(route('marketplace.orders.show', ['order' => $order, 'allocate' => 1]))
             ->assertOk()
             ->assertDontSee('Payment information')
-            ->assertSee('Allocate the Entire Order')
+            ->assertSee('Who will handle this order?')
             ->assertSee('Vendor-handled Product')
             ->assertSee('Second Vendor Product')
             ->assertDontSee('name="allocations[', false);
@@ -1174,8 +1174,10 @@ class MarketplaceTest extends TestCase
         $this->assertNull($item->fresh()->vendor_id);
         $this->assertSame(0, $order->payments()->count());
 
-        $this->actingAs($admin)->post(route('marketplace.orders.save-changes', $order), $changes)
-            ->assertRedirect(route('marketplace.orders.show', $order));
+        $this->actingAs($admin)->postJson(route('marketplace.orders.save-changes', $order), $changes)
+            ->assertOk()
+            ->assertJsonPath('message', 'Order changes saved.')
+            ->assertJsonPath('redirect_url', route('marketplace.orders.show', $order));
         $this->assertNull($item->fresh()->vendor_id);
         $this->assertSame('admin_handled', $item->fresh()->assignment_status);
         $this->assertSame('partially_paid', $order->fresh()->payment_status);
@@ -1300,7 +1302,7 @@ class MarketplaceTest extends TestCase
 
         $this->actingAs($admin)->get(route('marketplace.orders.show', ['order' => $order, 'allocate' => 1]))
             ->assertOk()
-            ->assertSee('Allocate the Entire Order')
+            ->assertSee('Who will handle this order?')
             ->assertDontSee('Payment information');
         $this->actingAs($admin)->post(route('marketplace.orders.save-changes', $order), [
             'allocate_order' => 'yes',
@@ -1312,7 +1314,7 @@ class MarketplaceTest extends TestCase
             'accept_order' => 'yes',
             'has_paid' => 'no',
             'submission_key' => (string) \Illuminate\Support\Str::uuid(),
-        ])->assertRedirect(route('marketplace.orders.show', ['order' => $order, 'edit' => 1]));
+        ])->assertRedirect(route('marketplace.orders.show', $order));
     }
 
     private function user(string $role, ?Vendor $vendor = null): User

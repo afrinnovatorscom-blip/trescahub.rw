@@ -9,7 +9,6 @@ use App\Actions\Fortify\UpdateUserProfileInformation;
 use App\Models\User;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
@@ -38,10 +37,6 @@ class FortifyServiceProvider extends ServiceProvider
         Fortify::resetUserPasswordsUsing(ResetUserPassword::class);
         Fortify::redirectUserForTwoFactorAuthenticationUsing(RedirectIfTwoFactorAuthenticatable::class);
         Fortify::authenticateUsing(function (Request $request): ?User {
-            if (Auth::guard('customers')->check()) {
-                return null;
-            }
-
             $user = User::query()->where('email', $request->input(Fortify::username()))->first();
 
             if (! $user) {

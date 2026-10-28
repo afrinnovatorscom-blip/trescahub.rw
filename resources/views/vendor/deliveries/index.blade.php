@@ -62,6 +62,11 @@
                             <td class="text-end text-nowrap">
                                 @if($task->status === 'assigned' && (int) $task->vendor_id === (int) auth()->user()->vendor_id)
                                     <a class="btn btn-sm btn-primary" href="{{ route('vendor.deliveries.prepare.existing', $task->reference) }}">Prepare Delivery</a>
+                                @elseif($task->status === 'in_transit')
+                                    <form method="POST" action="{{ route('vendor.deliveries.delivered', $task->reference) }}" class="d-inline" data-delivery-complete-form>
+                                        @csrf
+                                        <button type="submit" class="btn btn-sm btn-success">Mark as Delivered</button>
+                                    </form>
                                 @endif
                             </td>
                         </tr>
@@ -90,4 +95,5 @@
         @endif
     </section>
 </div>
+@include('marketplace.deliveries.partials.live-completion')
 @endsection

@@ -34,14 +34,21 @@
     .orders-filter-status { min-width: 160px; width: 170px; }
     .orders-filter-payment { min-width: 140px; width: 150px; }
     .orders-filter-date { min-width: 145px; width: 150px; }
-    .orders-table { min-width: 1040px; }
+    .orders-table { width: 100%; table-layout: fixed; }
     .orders-table thead th {
         background: #f8fafc; border-bottom: 1px solid #e2e8f0; color: #64748b;
-        font-size: .72rem; font-weight: 600; padding: 12px 14px; white-space: nowrap;
+        font-size: .72rem; font-weight: 600; padding: 9px 10px; white-space: nowrap;
     }
     .orders-table tbody td {
-        border-color: #f1f5f9; color: #334155; font-size: .84rem; padding: 14px; vertical-align: middle;
+        border-color: #f1f5f9; color: #334155; font-size: .84rem; padding: 10px; vertical-align: middle;
+        overflow-wrap: anywhere;
     }
+    .orders-table th:nth-child(1), .orders-table td:nth-child(1) { width: 17%; }
+    .orders-table th:nth-child(2), .orders-table td:nth-child(2) { width: 22%; }
+    .orders-table th:nth-child(3), .orders-table td:nth-child(3) { width: 16%; }
+    .orders-table th:nth-child(4), .orders-table td:nth-child(4) { width: 17%; }
+    .orders-table th:nth-child(5), .orders-table td:nth-child(5) { width: 14%; }
+    .orders-table th:nth-child(6), .orders-table td:nth-child(6) { width: 14%; }
     .orders-table tbody tr:hover { background: #f8fafc; }
     .orders-ref { color: #1d4ed8; font-weight: 700; text-decoration: none; }
     .orders-ref:hover { text-decoration: underline; }
@@ -56,13 +63,45 @@
     .orders-status-success { background: #f0fdf4; border-color: #bbf7d0; color: #166534; }
     .orders-status-danger { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
     .orders-action { white-space: nowrap; }
-    @media (max-width: 767.98px) {
+    .orders-empty-row td { width: auto !important; }
+    @media (max-width: 991.98px) {
         .orders-page-header { align-items: flex-start !important; }
         .orders-filter-scroll { margin-right: -12px; padding-right: 12px; }
         .orders-filter-row { min-width: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .orders-filter-row > * { min-width: 0; width: 100%; }
         .orders-filter-search { grid-column: 1 / -1; }
-        .orders-table { min-width: 980px; }
+        .orders-page .table-responsive { overflow: visible; }
+        .orders-table, .orders-table tbody { display: block; width: 100%; }
+        .orders-table thead { display: none; }
+        .orders-table tbody tr {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            column-gap: 12px;
+            padding: 8px 12px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        .orders-table tbody td {
+            display: block;
+            min-width: 0;
+            width: auto !important;
+            padding: 7px 0;
+            border: 0;
+        }
+        .orders-table tbody td[data-label]::before {
+            display: block;
+            margin-bottom: 3px;
+            color: #64748b;
+            content: attr(data-label);
+            font-size: .68rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .orders-table tbody td[data-label="Order"],
+        .orders-table tbody td[data-label="Customer"],
+        .orders-table tbody td[data-label="Action"] { grid-column: 1 / -1; }
+        .orders-table tbody td[data-label="Action"] .orders-action { width: 100%; }
+        .orders-table tbody .orders-empty-row { display: block; }
+        .orders-table tbody .orders-empty-row td { display: block; }
     }
 </style>
 @endpush
@@ -86,13 +125,7 @@
     $statusLabel = static fn ($status) => $status === 'ready_for_dispatch'
         ? 'Ready for Delivery'
         : \Illuminate\Support\Str::headline($status);
-    $sourceLabel = static fn ($source) => match ($source) {
-        'request_product' => 'Request Product',
-        'cart_checkout' => 'Cart Checkout',
-        default => 'Legacy order',
-    };
     $eligibleStatuses = ['confirmed', 'processing', 'awaiting_stock', 'ready_for_dispatch'];
-    $deliveryStatuses = ['confirmed', 'processing', 'awaiting_stock', 'ready_for_dispatch'];
 @endphp
 <div class="container-fluid py-4 orders-page">
     @include('marketplace.partials.flash')
@@ -154,11 +187,7 @@
     <section class="orders-panel overflow-hidden" aria-label="{{ $tabs[$tab] }}">
         <div class="table-responsive">
             <table class="table orders-table align-middle mb-0">
-                @if($tab === 'pending')
-                    <thead><tr><th>Order</th><th>Customer / contact</th><th>Products &amp; quantities</th><th>Vendor subtotal</th><th>Order status</th><th>Payment</th><th>Action</th></tr></thead>
-                @else
-                    <thead><tr><th>Order</th><th>Customer / products</th><th>Assigned products</th><th>Vendor subtotal</th><th>Fulfillment</th><th>Payment</th><th>Action</th></tr></thead>
-                @endif
+                <thead><tr><th>Order</th><th>Customer</th><th>Vendor subtotal</th><th>Fulfillment</th><th>Payment</th><th>Action</th></tr></thead>
                 <tbody>
                     @forelse($orders as $order)
                         @php
@@ -168,72 +197,45 @@
                                     && in_array($item->fulfillment_status, $eligibleStatuses, true)
                                     && ! $order->deliveries->contains('order_item_id', $item->id))->values()
                                 : $vendorItems->values();
-                            $primaryItem = $items->first();
                             $orderUrl = route('vendor.orders.show', $order->reference);
-                            $vendorCanPrepareDelivery = $tab === 'paid'
-                                && in_array($order->fulfillment_status, $deliveryStatuses, true)
-                                && $vendorItems->isNotEmpty()
-                                && $vendorItems->every(fn ($item) => $item->assignment_status === 'accepted'
-                                    && $item->fulfillment_status === 'ready_for_dispatch'
-                                    && ! $order->deliveries->contains('order_item_id', $item->id));
-                            $vendorCanAcceptAssignment = in_array($order->fulfillment_status, $deliveryStatuses, true)
-                                && $vendorItems->contains(fn ($item) => $item->assignment_status === 'assigned'
-                                    && in_array($item->fulfillment_status, [
-                                        'pending_confirmation', 'confirmed', 'processing', 'awaiting_stock', 'ready_for_dispatch',
-                                    ], true)
-                                    && ! $order->deliveries->contains('order_item_id', $item->id));
                             $total = (float) $items->sum('line_total');
-                            $productSummary = $primaryItem
-                                ? $primaryItem->product_name.($items->count() > 1 ? ' + '.($items->count() - 1).' more' : '')
-                                : 'No eligible products';
+                            $vendorCanSendToDelivery = $tab === 'paid'
+                                && $order->payment_status === 'paid'
+                                && $vendorItems->isNotEmpty()
+                                && $vendorItems->every(fn ($item) => in_array($item->assignment_status, ['assigned', 'accepted'], true)
+                                    && in_array($item->fulfillment_status, $eligibleStatuses, true)
+                                    && ! $order->deliveries->contains('order_item_id', $item->id))
+                                && ! $order->deliveries->contains(
+                                    fn ($delivery) => $delivery->order_item_id === null
+                                );
                         @endphp
                         <tr>
-                            <td>
-                                <a class="orders-ref" href="{{ $orderUrl }}">{{ $order->reference }}</a>
+                            <td data-label="Order">
+                                <span class="orders-ref">{{ $order->reference }}</span>
                                 <div class="orders-secondary">{{ $order->created_at?->format('M j, Y') }}</div>
-                                <div class="orders-secondary">{{ $sourceLabel($order->source) }}</div>
                             </td>
-                            @if($tab === 'pending')
-                                <td><div class="fw-semibold">{{ $order->customer_name }}</div><div class="orders-secondary">{{ $order->phone }}{{ $order->email ? ' · '.$order->email : '' }}</div></td>
-                                <td><div>{{ $productSummary }}</div>@if($primaryItem)<div class="orders-secondary">Qty {{ $primaryItem->quantity }}@if($items->count() > 1) · {{ $items->sum('quantity') }} total @endif</div>@endif</td>
-                                <td class="fw-semibold text-nowrap">{{ number_format($total, 0, '.', ',') }} RWF</td>
-                                <td>
-                                    <span class="orders-status orders-status-{{ $statusTone($order->fulfillment_status) }}">{{ $statusLabel($order->fulfillment_status) }}</span>
-                                    @if($order->fulfillment_status === 'pending_confirmation')
-                                        <div class="orders-secondary mt-1">Awaiting administrator confirmation</div>
-                                    @endif
-                                </td>
-                                <td><span class="orders-status orders-status-{{ $statusTone($order->payment_status) }}">{{ match ($order->payment_status) {
-                                    'pending' => 'Awaiting payment',
-                                    'partially_paid' => 'Partially paid',
-                                    'failed' => 'Payment failed',
-                                    default => \Illuminate\Support\Str::headline($order->payment_status),
-                                } }}</span></td>
-                            @else
-                                <td><div class="fw-semibold">{{ $order->customer_name }}</div><div class="orders-secondary">{{ $productSummary }}</div></td>
-                                <td>
-                                    @foreach($items as $item)
-                                        <div>{{ $item->product_name }} <span class="orders-secondary">× {{ $item->quantity }}</span></div>
-                                    @endforeach
-                                </td>
-                                <td class="fw-semibold text-nowrap">{{ number_format($total, 0, '.', ',') }} RWF</td>
-                                <td><span class="orders-status orders-status-{{ $statusTone($order->fulfillment_status) }}">{{ $statusLabel($order->fulfillment_status) }}</span></td>
-                                <td><span class="orders-status orders-status-{{ $statusTone($order->payment_status) }}">{{ \Illuminate\Support\Str::headline($order->payment_status) }}</span></td>
-                            @endif
-                            <td class="text-end">
-                                @if($vendorCanAcceptAssignment)
-                                    <a href="{{ $orderUrl }}"
-                                       class="btn btn-sm btn-outline-primary orders-action"
-                                       onclick="return confirm('Open this order to review and accept only the products assigned to your business?');">Accept Order</a>
-                                @elseif($tab === 'paid' && $vendorCanPrepareDelivery)
-                                    <a href="{{ route('vendor.orders.deliveries.prepare', $order->reference) }}" class="btn btn-sm btn-primary orders-action">Prepare Delivery</a>
-                                @else
-                                    <a href="{{ $orderUrl }}" class="btn btn-sm btn-outline-primary orders-action">View Order</a>
+                            <td data-label="Customer"><span class="fw-semibold">{{ $order->customer_name ?: 'Not provided' }}</span></td>
+                            <td data-label="Vendor subtotal" class="fw-semibold text-nowrap">{{ number_format($total, 0, '.', ',') }} RWF</td>
+                            <td data-label="Fulfillment"><span class="orders-status orders-status-{{ $statusTone($order->fulfillment_status) }}">{{ $statusLabel($order->fulfillment_status) }}</span></td>
+                            <td data-label="Payment"><span class="orders-status orders-status-{{ $statusTone($order->payment_status) }}">{{ match ($order->payment_status) {
+                                'pending' => 'Awaiting payment',
+                                'partially_paid' => 'Partially paid',
+                                'failed' => 'Payment failed',
+                                default => \Illuminate\Support\Str::headline($order->payment_status),
+                            } }}</span></td>
+                            <td data-label="Action" class="text-end">
+                                @if($tab === 'pending')
+                                    <a href="{{ $orderUrl }}" class="btn btn-sm btn-outline-primary orders-action">Review Order</a>
+                                @elseif($vendorCanSendToDelivery)
+                                    <form method="POST" action="{{ route('vendor.orders.create-delivery', $order->reference) }}" class="d-inline" data-orders-live-form>
+                                        @csrf
+                                        <button type="submit" class="btn btn-sm btn-primary orders-action">Send to Delivery</button>
+                                    </form>
                                 @endif
                             </td>
                         </tr>
                     @empty
-                        <tr><td colspan="7" class="text-center py-5">
+                        <tr class="orders-empty-row"><td colspan="6" class="text-center py-5">
                             <div class="fw-semibold mb-1">No orders found</div>
                             <div class="text-muted small">
                                 @if(($filters['q'] ?? '') || ($filters['status'] ?? '') || ($filters['payment'] ?? '') || ($filters['date_from'] ?? '') || ($filters['date_to'] ?? ''))
@@ -253,4 +255,5 @@
         @endif
     </section>
 </div>
+@include('marketplace.orders.partials.live-updates')
 @endsection

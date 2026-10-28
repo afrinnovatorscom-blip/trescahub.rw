@@ -99,7 +99,10 @@
                 @endif
 
                 @if(!Auth::guard('customers')->check())
-                    <livewire:public-login-modal />
+                    <livewire:public-login-modal
+                        :open-on-load="request()->boolean('auth_required')"
+                        notice="Please sign in first to continue with your order."
+                    />
                 @else
                     @php
                         $customerAccount = Auth::guard('customers')->user();
@@ -280,7 +283,7 @@
             const thumbEl = document.createElement('div');
             thumbEl.className = 'search-result-thumb';
             if (item.thumbnail) {
-                const imgSrc = PUBLIC_ASSETS + item.thumbnail.replace(/^.*\/public\/assets\//, '').replace(/^.*\/assets\//, '');
+                const imgSrc = PUBLIC_ASSETS + item.thumbnail.replace(/^.*\/assets\//, '').replace(/^.*\/assets\//, '');
                 thumbEl.innerHTML = `<img src="${imgSrc}" alt="${item.title}">`;
             } else {
                 thumbEl.innerHTML = item.type === 'service'

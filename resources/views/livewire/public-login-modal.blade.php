@@ -1,4 +1,4 @@
-<div class="public-login" x-data="{ open: false, showPassword: false }">
+<div class="public-login" x-data="{ open: @js($openOnLoad), showPassword: false }">
     <style>
         [x-cloak] { display: none !important; }
         .public-login-backdrop {
@@ -96,6 +96,13 @@
                 <h2 id="public-login-title" class="h4 fw-bold mb-1">Welcome back</h2>
                 <p class="text-muted small mb-0">Sign in to your Tresca Hub account</p>
             </div>
+
+            @if($notice !== '')
+                <div class="alert alert-info border-0 small mb-3" role="alert">
+                    <i class="bi bi-info-circle me-1" aria-hidden="true"></i>
+                    {{ $notice }}
+                </div>
+            @endif
 
             <form wire:submit="login" novalidate>
                 <div class="mb-3">

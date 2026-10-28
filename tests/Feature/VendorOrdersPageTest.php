@@ -66,9 +66,14 @@ class VendorOrdersPageTest extends TestCase
             ->assertSee('Orders')
             ->assertSee('Pending Orders')
             ->assertSee('Paid Orders')
+            ->assertSee('Review Order')
+            ->assertDontSee('Send to Delivery')
             ->assertSee('orders-table')
+            ->assertSee('table-layout: fixed', false)
+            ->assertSee('grid-template-columns: repeat(2, minmax(0, 1fr))', false)
             ->assertSee('flex-wrap: nowrap', false)
             ->assertSee('overflow-x: auto', false)
+            ->assertSee(route('vendor.orders.show', $pendingOrder->reference), false)
             ->assertSee('Vendor subtotal')
             ->assertSee('VENDOR-PENDING-ORDER')
             ->assertDontSee('VENDOR-MIXED-WORK')
@@ -83,14 +88,20 @@ class VendorOrdersPageTest extends TestCase
         $paidList = $this->actingAs($userA)->get(route('vendor.orders.index', ['tab' => 'paid']));
         $paidList->assertOk()
             ->assertSee('VENDOR-PAID-ORDER')
-            ->assertSee('Paid Vendor Product')
+            ->assertDontSee('Paid Vendor Product')
             ->assertDontSee('Private Vendor B Product')
             ->assertDontSee('VENDOR-COMPLETED')
             ->assertDontSee('OTHER-VENDOR-ORDER')
-            ->assertSee('Prepare Delivery')
+            ->assertSee('Send to Delivery')
+            ->assertDontSee('Review Order')
+            ->assertDontSee('Prepare Delivery')
             ->assertDontSee('Record Payment');
         $this->assertSame(['pending' => 2, 'paid' => 1], $paidList->viewData('tabCounts'));
         $this->assertSame(['pending', 'paid'], array_keys($paidList->viewData('tabCounts')));
+        $this->actingAs($userA)->get(route('vendor.orders.show', $paidOrder->reference))
+            ->assertOk()
+            ->assertSee('Paid Vendor Product')
+            ->assertDontSee('Private Vendor B Product');
         $this->actingAs($userA)->post(route('marketplace.orders.save-changes', $paidOrder), [])
             ->assertForbidden();
 
@@ -171,8 +182,9 @@ class VendorOrdersPageTest extends TestCase
 
         $this->actingAs($user)->get(route('vendor.orders.index', ['tab' => 'pending']))
             ->assertOk()
-            ->assertSee('Accept Order')
-            ->assertSee('onclick="return confirm(', false);
+            ->assertSee('Review Order')
+            ->assertSee(route('vendor.orders.show', $order->reference), false)
+            ->assertDontSee('Accept Order');
 
         $this->actingAs($user)->get(route('vendor.orders.show', $order->reference))
             ->assertOk()
@@ -235,11 +247,13 @@ class VendorOrdersPageTest extends TestCase
 
         $paidOrder = $this->order('PAID-ASSIGNMENT-ACCEPT', 'Paid Assignment Customer');
         $paidOrder->update(['payment_status' => 'paid']);
-        $paidItem = $this->item($paidOrder, $vendor, 'Paid Assignment Product', 'processing', 'assigned');
+        $paidItem = $this->item($paidOrder, $vendor, 'Paid Assignment Product', 'processing', 'accepted');
         $this->actingAs($user)->get(route('vendor.orders.index', ['tab' => 'paid']))
             ->assertOk()
             ->assertSee('PAID-ASSIGNMENT-ACCEPT')
-            ->assertSee('Accept Order');
+            ->assertDontSee('Review Order')
+            ->assertSee('Send to Delivery')
+            ->assertDontSee('Accept Order');
 
         $this->actingAs($user)->post(route('vendor.orders.respond', $paidItem), [
             'decision' => 'accept',
@@ -249,6 +263,8 @@ class VendorOrdersPageTest extends TestCase
         $this->actingAs($user)->get(route('vendor.orders.index', ['tab' => 'paid']))
             ->assertOk()
             ->assertSee('PAID-ASSIGNMENT-ACCEPT')
+            ->assertDontSee('Review Order')
+            ->assertSee('Send to Delivery')
             ->assertDontSee('Accept Order');
 
         $cancelledWorkflowOrder = $this->order('CANCELLED-ASSIGNMENT-ACCEPT', 'Cancellation Customer');
@@ -322,7 +338,9 @@ class VendorOrdersPageTest extends TestCase
 
         $this->actingAs($user)->get(route('vendor.orders.index', ['tab' => 'paid']))
             ->assertOk()
-            ->assertSee('Prepare Delivery')
+            ->assertSee('Send to Delivery')
+            ->assertDontSee('Review Order')
+            ->assertDontSee('Prepare Delivery')
             ->assertSee('CREATE-VENDOR-DELIVERY');
 
         $this->actingAs($user)->get(route('vendor.orders.show', $order->reference))
@@ -612,6 +630,113 @@ class VendorOrdersPageTest extends TestCase
         $this->assertSame('assigned', $item->fresh()->assignment_status);
     }
 
+    public function test_vendor_review_accepts_or_cancels_the_complete_assigned_order(): void
+    {
+        $vendor = $this->vendor('Professional Review Vendor');
+        $user = $this->vendorUser($vendor);
+        $order = $this->order('VENDOR-PRO-REVIEW', 'Professional Review Customer');
+        $first = $this->item($order, $vendor, 'Professional Review One', 'confirmed', 'assigned');
+        $second = $this->item($order, $vendor, 'Professional Review Two', 'confirmed', 'assigned');
+
+        $this->actingAs($user)->get(route('vendor.orders.show', $order->reference))
+            ->assertOk()
+            ->assertSee('Ordered products')
+            ->assertSee('Professional Review One')
+            ->assertSee('Professional Review Two')
+            ->assertSee('Accept order')
+            ->assertSee('Cancel order')
+            ->assertSee('Cancellation reason')
+            ->assertDontSee('Who will handle this order?')
+            ->assertSee('Payment information')
+            ->assertSee('Has the customer paid?')
+            ->assertSee('Full payment')
+            ->assertSee('Partial payment');
+
+        $this->actingAs($user)->postJson(route('vendor.orders.respond-order', $order->reference), [
+            'decision' => 'decline',
+        ])->assertUnprocessable()
+            ->assertJsonValidationErrors('note');
+
+        $this->actingAs($user)->postJson(route('vendor.orders.respond-order', $order->reference), [
+            'decision' => 'accept',
+            'has_paid' => 'no',
+            'submission_key' => (string) \Illuminate\Support\Str::uuid(),
+        ])->assertOk()
+            ->assertJsonPath('message', 'Order accepted successfully and moved to Paid Orders.')
+            ->assertJsonPath('redirect_url', route('vendor.orders.index', ['tab' => 'paid']));
+
+        $this->assertSame('accepted', $first->fresh()->assignment_status);
+        $this->assertSame('accepted', $second->fresh()->assignment_status);
+
+        $cancelOrder = $this->order('VENDOR-CANCEL-REVIEW', 'Cancel Review Customer');
+        $cancelItem = $this->item($cancelOrder, $vendor, 'Cancel Review Item', 'confirmed', 'assigned');
+        $this->actingAs($user)->postJson(route('vendor.orders.respond-order', $cancelOrder->reference), [
+            'decision' => 'decline',
+            'note' => 'The requested product is unavailable.',
+        ])->assertOk()
+            ->assertJsonPath('redirect_url', route('vendor.orders.index', ['tab' => 'pending']));
+
+        $this->assertSame('unassigned', $cancelItem->fresh()->assignment_status);
+        $this->assertNull($cancelItem->fresh()->vendor_id);
+        $this->assertStringContainsString('The requested product is unavailable.', (string) $cancelItem->fresh()->internal_notes);
+    }
+
+    public function test_vendor_review_records_full_and_partial_payment_without_duplicate_entries(): void
+    {
+        $vendor = $this->vendor('Paid Review Vendor');
+        $user = $this->vendorUser($vendor);
+
+        $partialOrder = $this->order('VENDOR-PARTIAL-PAYMENT', 'Partial Payment Customer');
+        $this->item($partialOrder, $vendor, 'Partial Payment Item', 'confirmed', 'assigned');
+        $partialKey = (string) \Illuminate\Support\Str::uuid();
+
+        $this->actingAs($user)->postJson(route('vendor.orders.respond-order', $partialOrder->reference), [
+            'decision' => 'accept',
+            'has_paid' => 'yes',
+            'payment_type' => 'partial',
+            'payment_method' => 'bank_transfer',
+            'partial_amount' => '30000.00',
+            'submission_key' => $partialKey,
+        ])->assertUnprocessable()->assertJsonValidationErrors('partial_amount');
+
+        $this->actingAs($user)->postJson(route('vendor.orders.respond-order', $partialOrder->reference), [
+            'decision' => 'accept',
+            'has_paid' => 'yes',
+            'payment_type' => 'partial',
+            'payment_method' => 'bank_transfer',
+            'partial_amount' => '10000.00',
+            'submission_key' => $partialKey,
+        ])->assertOk();
+
+        $this->assertSame('partially_paid', $partialOrder->fresh()->payment_status);
+        $this->assertSame('10000.00', $partialOrder->payments()->sole()->amount);
+
+        $fullOrder = $this->order('VENDOR-FULL-PAYMENT', 'Full Payment Customer');
+        $this->item($fullOrder, $vendor, 'Full Payment Item', 'confirmed', 'assigned');
+        $fullKey = (string) \Illuminate\Support\Str::uuid();
+
+        $payload = [
+            'decision' => 'accept',
+            'has_paid' => 'yes',
+            'payment_type' => 'full',
+            'payment_method' => 'cash_on_delivery',
+            'submission_key' => $fullKey,
+        ];
+        $this->actingAs($user)->postJson(route('vendor.orders.respond-order', $fullOrder->reference), $payload)
+            ->assertOk()
+            ->assertJsonPath('message', 'Order accepted successfully and moved to Paid Orders.')
+            ->assertJsonPath('redirect_url', route('vendor.orders.index', ['tab' => 'paid']));
+        $this->actingAs($user)->postJson(route('vendor.orders.respond-order', $fullOrder->reference), $payload)->assertOk();
+
+        $this->assertSame('paid', $fullOrder->fresh()->payment_status);
+        $this->actingAs($user)->get(route('vendor.orders.index', ['tab' => 'pending']))
+            ->assertDontSee($fullOrder->reference);
+        $this->actingAs($user)->get(route('vendor.orders.index', ['tab' => 'paid']))
+            ->assertSee($fullOrder->reference);
+        $this->assertSame(1, $fullOrder->payments()->count());
+        $this->assertSame('30000.00', $fullOrder->payments()->sole()->amount);
+    }
+
     public function test_completed_vendor_assignments_are_read_only_in_the_ui_and_backend(): void
     {
         $vendor = $this->vendor('Completed Workflow Vendor');
@@ -639,6 +764,85 @@ class VendorOrdersPageTest extends TestCase
         $this->assertSame('delivered', $item->fresh()->fulfillment_status);
         $this->assertSame('accepted', $item->fresh()->assignment_status);
         $this->assertNull($item->fresh()->internal_notes);
+    }
+
+    public function test_vendor_send_to_delivery_returns_live_destination_and_rejects_unpaid_or_duplicate_orders(): void
+    {
+        $vendor = $this->vendor('Live Delivery Vendor');
+        $user = $this->vendorUser($vendor);
+        $order = $this->order('LIVE-VENDOR-DELIVERY', 'Live Delivery Customer');
+        $order->update(['payment_status' => 'paid']);
+        $item = $this->item($order, $vendor, 'Live Delivery Product', 'ready_for_dispatch', 'assigned');
+
+        $this->actingAs($user)->get(route('vendor.orders.index', ['tab' => 'paid']))
+            ->assertOk()
+            ->assertSee($order->reference)
+            ->assertSee('Send to Delivery')
+            ->assertSee(route('vendor.orders.create-delivery', $order->reference), false);
+
+        $this->actingAs($user)
+            ->postJson(route('vendor.orders.create-delivery', $order->reference))
+            ->assertOk()
+            ->assertJsonPath('message', 'Order sent to Delivery successfully. Status: Pending.')
+            ->assertJsonPath('redirect_url', route('vendor.deliveries.index', ['status' => 'assigned']))
+            ->assertJsonCount(1, 'delivery_references');
+
+        $task = DeliveryTask::query()->where('order_id', $order->id)->firstOrFail();
+        $this->assertSame('accepted', $item->fresh()->assignment_status);
+        $this->assertSame($item->id, $task->order_item_id);
+        $this->assertSame($vendor->id, $task->vendor_id);
+        $this->assertSame('assigned', $task->status);
+        $this->assertNull($task->dispatched_at);
+        $this->actingAs($user)->get(route('vendor.deliveries.index', ['status' => 'assigned']))
+            ->assertOk()
+            ->assertSee($task->reference);
+        $this->actingAs($user)->get(route('vendor.orders.index', ['tab' => 'paid']))
+            ->assertOk()
+            ->assertDontSee($order->reference);
+
+        $this->actingAs($user)
+            ->postJson(route('vendor.orders.create-delivery', $order->reference))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('delivery');
+        $this->assertDatabaseCount('delivery_tasks', 1);
+
+        $processingOrder = $this->order('LIVE-PROCESSING-DELIVERY', 'Processing Delivery Customer');
+        $processingOrder->update(['payment_status' => 'paid']);
+        $processingItem = $this->item($processingOrder, $vendor, 'Processing Delivery Product', 'processing', 'accepted');
+        $this->actingAs($user)->get(route('vendor.orders.index', ['tab' => 'paid']))
+            ->assertOk()
+            ->assertSee('Send to Delivery');
+        $this->actingAs($user)->postJson(route('vendor.orders.create-delivery', $processingOrder->reference))
+            ->assertOk();
+        $this->assertSame('ready_for_dispatch', $processingItem->fresh()->fulfillment_status);
+        $this->assertSame('assigned', DeliveryTask::query()->where('order_id', $processingOrder->id)->sole()->status);
+        $this->assertDatabaseCount('delivery_tasks', 2);
+
+        $unpaidOrder = $this->order('LIVE-UNPAID-DELIVERY', 'Unpaid Delivery Customer');
+        $this->item($unpaidOrder, $vendor, 'Unpaid Delivery Product', 'ready_for_dispatch', 'accepted');
+        $this->actingAs($user)
+            ->postJson(route('vendor.orders.create-delivery', $unpaidOrder->reference))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('delivery');
+        $this->assertDatabaseCount('delivery_tasks', 2);
+
+        $legacyOrder = $this->order('LIVE-LEGACY-DELIVERY', 'Legacy Delivery Customer');
+        $legacyOrder->update(['payment_status' => 'paid']);
+        $this->item($legacyOrder, $vendor, 'Legacy Delivery Product', 'ready_for_dispatch', 'accepted');
+        DeliveryTask::query()->create([
+            'reference' => 'LIVE-LEGACY-TASK',
+            'order_id' => $legacyOrder->id,
+            'vendor_id' => $vendor->id,
+            'status' => 'assigned',
+        ]);
+        $this->actingAs($user)->get(route('vendor.orders.index', ['tab' => 'paid']))
+            ->assertOk()
+            ->assertDontSee($legacyOrder->reference);
+        $this->actingAs($user)
+            ->postJson(route('vendor.orders.create-delivery', $legacyOrder->reference))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('delivery');
+        $this->assertDatabaseCount('delivery_tasks', 3);
     }
 
     private function vendor(string $name): Vendor

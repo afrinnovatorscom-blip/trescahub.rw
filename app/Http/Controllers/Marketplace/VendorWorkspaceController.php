@@ -199,6 +199,9 @@ class VendorWorkspaceController extends Controller
         $paidOrders = fn ($query) => $query
             ->where('payment_status', 'paid')
             ->whereIn('fulfillment_status', $confirmedFulfillmentStatuses)
+            ->whereDoesntHave('deliveries', fn ($deliveries) => $deliveries
+                ->whereNull('order_item_id')
+                ->where('vendor_id', $vendorId))
             ->whereHas('items', $vendorItemsWithoutDelivery);
         $tabCounts = [
             'pending' => $pendingOrders(clone $makeQuery())->count(),
@@ -247,6 +250,8 @@ class VendorWorkspaceController extends Controller
             ->orderBy('id')
             ->get();
         abort_if($items->isEmpty(), 404);
+        $recordedAmount = (int) round((float) $order->payments()->sum('amount') * 100);
+        $outstandingBalance = max(0, (int) round((float) $order->total * 100) - $recordedAmount);
         $assignmentHistory = AuditLog::query()
             ->where('auditable_type', (new OrderItem)->getMorphClass())
             ->whereIn('auditable_id', $items->modelKeys())
@@ -262,7 +267,7 @@ class VendorWorkspaceController extends Controller
             ->limit(50)
             ->get();
 
-        return view('vendor.orders.show', compact('order', 'items', 'assignmentHistory'));
+        return view('vendor.orders.show', compact('order', 'items', 'assignmentHistory', 'outstandingBalance'));
     }
 
     public function markOrderReadyForDelivery(Request $request, string $reference)
@@ -277,7 +282,15 @@ class VendorWorkspaceController extends Controller
             ->firstOrFail();
         $this->orders->markVendorAssignmentReady($order, (int) $user->vendor_id, $user);
 
-        return back()->with('success', 'Your assigned products are marked Ready for Delivery.');
+        $message = 'Your assigned products are marked Ready for Delivery.';
+        if ($request->expectsJson()) {
+            return response()->json([
+                'message' => $message,
+                'redirect_url' => route('vendor.orders.show', $order->reference),
+            ]);
+        }
+
+        return back()->with('success', $message);
     }
 
     public function createOrderDelivery(Request $request, string $reference)
@@ -290,6 +303,11 @@ class VendorWorkspaceController extends Controller
             ->where('reference', $reference)
             ->whereHas('items', fn ($items) => $items->ownedByVendor($user->vendor_id))
             ->firstOrFail();
+        if ($order->payment_status !== 'paid') {
+            throw ValidationException::withMessages([
+                'delivery' => 'The order must be paid before it can be sent to delivery.',
+            ]);
+        }
         abort_if(in_array($order->fulfillment_status, [
             'pending_confirmation', 'delivered', 'completed', 'cancelled', 'returned',
         ], true), 404);
@@ -300,9 +318,10 @@ class VendorWorkspaceController extends Controller
             ->get();
         abort_if($items->isEmpty(), 404);
         foreach ($items as $item) {
-            if ($item->assignment_status !== 'accepted' || $item->fulfillment_status !== 'ready_for_dispatch') {
+            if (! in_array($item->assignment_status, ['assigned', 'accepted'], true)
+                || ! in_array($item->fulfillment_status, ['confirmed', 'processing', 'awaiting_stock', 'ready_for_dispatch'], true)) {
                 throw ValidationException::withMessages([
-                    'delivery' => 'Every product assigned to your business must be accepted and Ready for Delivery.',
+                    'delivery' => 'Every product assigned to your business must be accepted and eligible for delivery.',
                 ]);
             }
         }
@@ -311,7 +330,7 @@ class VendorWorkspaceController extends Controller
         $proofPath = $request->file('dispatch_proof')?->store('delivery-dispatch-proofs', 'local');
         $saved = false;
         try {
-            $this->orders->prepareDelivery(
+            $tasks = $this->orders->prepareDelivery(
                 $order,
                 $items->modelKeys(),
                 (int) $user->vendor_id,
@@ -326,10 +345,17 @@ class VendorWorkspaceController extends Controller
             }
         }
 
-        return redirect()->route('vendor.deliveries.index', ['status' => 'assigned'])->with(
-            'success',
-            'Delivery prepared. It remains Pending until it is dispatched.'
-        );
+        $message = 'Order sent to Delivery successfully. Status: Pending.';
+        $redirectUrl = route('vendor.deliveries.index', ['status' => 'assigned']);
+        if ($request->expectsJson()) {
+            return response()->json([
+                'message' => $message,
+                'redirect_url' => route('vendor.deliveries.index', ['status' => 'assigned']),
+                'delivery_references' => $tasks->pluck('reference')->values(),
+            ]);
+        }
+
+        return redirect()->to($redirectUrl)->with('success', $message);
     }
 
     public function prepareOrderDelivery(Request $request, string $reference)
@@ -341,6 +367,7 @@ class VendorWorkspaceController extends Controller
             ->where('reference', $reference)
             ->whereHas('items', fn ($items) => $items->ownedByVendor($user->vendor_id))
             ->firstOrFail();
+        abort_unless($order->payment_status === 'paid', 404);
         abort_if(in_array($order->fulfillment_status, [
             'pending_confirmation', 'delivered', 'completed', 'cancelled', 'returned',
         ], true), 404);
@@ -400,7 +427,7 @@ class VendorWorkspaceController extends Controller
     {
         $user = $request->user();
         abort_unless($user->hasPermission('orders.view_assigned') && $user->vendor_id, 403);
-        $data = $this->deliveryPreparationData($request);
+        $data = $this->deliveryPreparationData($request, true);
         $newProofPath = $request->file('dispatch_proof')?->store('delivery-dispatch-proofs', 'local');
         $saved = false;
         $oldProofPath = null;
@@ -449,6 +476,25 @@ class VendorWorkspaceController extends Controller
             ->with('success', 'Delivery information saved and delivery moved to In Transit.');
     }
 
+    public function markDeliveryDelivered(Request $request, string $reference)
+    {
+        $user = $request->user();
+        abort_unless($user->hasPermission('orders.view_assigned') && $user->vendor_id, 403);
+        $task = $this->vendorDeliveryTasks((int) $user->vendor_id)
+            ->where('reference', $reference)
+            ->firstOrFail();
+        $this->orders->markDeliveryDelivered($task, $user);
+
+        if ($request->expectsJson()) {
+            return response()->json([
+                'message' => 'Delivery marked as Delivered successfully.',
+                'status' => 'delivered',
+            ]);
+        }
+
+        return back()->with('success', 'Delivery marked as Delivered successfully.');
+    }
+
     public function respondOrder(Request $request, OrderItem $item)
     {
         $data = $request->validate([
@@ -457,13 +503,87 @@ class VendorWorkspaceController extends Controller
         ]);
         $this->orders->vendorDecision($item, $request->user(), $data['decision'], $data['note'] ?? null);
 
-        if ($data['decision'] === 'accept') {
-            $tab = $item->order()->value('payment_status') === 'paid' ? 'paid' : 'pending';
+        $order = $item->order()->firstOrFail();
+        $tab = $order->payment_status === 'paid' ? 'paid' : 'pending';
+        $message = $data['decision'] === 'accept'
+            ? 'Your assignment was accepted.'
+            : 'Response recorded.';
+        $redirectUrl = $data['decision'] === 'accept'
+            ? route('vendor.orders.index', ['tab' => $tab])
+            : route('vendor.orders.show', $order->reference);
 
-            return redirect()->route('vendor.orders.index', ['tab' => $tab])->with('success', 'Your assignment was accepted.');
+        if ($request->expectsJson()) {
+            return response()->json([
+                'message' => $message,
+                'redirect_url' => $redirectUrl,
+            ]);
         }
 
-        return back()->with('success', 'Response recorded.');
+        return redirect()->to($redirectUrl)->with('success', $message);
+    }
+
+    public function respondOrderForOrder(Request $request, string $reference)
+    {
+        $user = $request->user();
+        abort_unless($user->hasPermission('orders.view_assigned') && $user->vendor_id, 403);
+
+        $order = Order::query()
+            ->where('reference', $reference)
+            ->whereHas('items', fn ($items) => $items->ownedByVendor($user->vendor_id))
+            ->firstOrFail();
+
+        $data = $request->validate([
+            'decision' => ['required', 'in:accept,decline'],
+            'note' => ['nullable', 'required_if:decision,decline', 'string', 'max:230'],
+            'has_paid' => ['required_if:decision,accept', 'nullable', 'in:no,yes'],
+            'payment_type' => ['nullable', 'in:full,partial'],
+            'payment_method' => ['nullable', 'in:cash_on_delivery,bank_transfer'],
+            'partial_amount' => ['nullable', 'numeric', 'gt:0'],
+            'submission_key' => ['required_if:decision,accept', 'nullable', 'uuid'],
+        ]);
+
+        if (($data['decision'] === 'accept') && (($data['has_paid'] ?? null) === 'yes')) {
+            if (! isset($data['payment_type'], $data['payment_method'])) {
+                throw ValidationException::withMessages([
+                    'payment_type' => 'Choose a payment type and method when the customer has paid.',
+                ]);
+            }
+            if (($data['payment_type'] === 'partial') && ! isset($data['partial_amount'])) {
+                throw ValidationException::withMessages([
+                    'partial_amount' => 'Enter the amount paid for a partial payment.',
+                ]);
+            }
+        }
+
+        $this->orders->vendorDecisionForOrder(
+            $order,
+            $user,
+            $data['decision'],
+            $data['note'] ?? null,
+            $data['decision'] === 'accept' && ($data['has_paid'] ?? 'no') === 'yes',
+            $data['payment_type'] ?? null,
+            $data['payment_method'] ?? null,
+            isset($data['partial_amount']) ? (float) $data['partial_amount'] : null,
+            $data['submission_key'] ?? null,
+        );
+
+        $message = $data['decision'] === 'accept'
+            ? 'Order accepted successfully and moved to Paid Orders.'
+            : 'Order cancelled and returned for reassignment.';
+
+        if ($request->expectsJson()) {
+            return response()->json([
+                'message' => $message,
+                'redirect_url' => $data['decision'] === 'accept'
+                    ? route('vendor.orders.index', ['tab' => 'paid'])
+                    : route('vendor.orders.index', ['tab' => 'pending']),
+            ]);
+        }
+
+        return redirect()->to($data['decision'] === 'accept'
+            ? route('vendor.orders.index', ['tab' => 'paid'])
+            : route('vendor.orders.index', ['tab' => 'pending']))
+            ->with('success', $message);
     }
 
     public function progressOrder(Request $request, OrderItem $item)
@@ -479,7 +599,15 @@ class VendorWorkspaceController extends Controller
             throw ValidationException::withMessages(['fulfillment_status' => $exception->getMessage()]);
         }
 
-        return back()->with('success', 'Fulfillment updated.');
+        $message = 'Fulfillment updated.';
+        if ($request->expectsJson()) {
+            return response()->json([
+                'message' => $message,
+                'redirect_url' => route('vendor.orders.show', $item->order()->value('reference')),
+            ]);
+        }
+
+        return back()->with('success', $message);
     }
 
     public function deliveriesIndex(Request $request)
@@ -569,11 +697,11 @@ class VendorWorkspaceController extends Controller
         return Storage::disk('local')->download($task->dispatch_proof_path);
     }
 
-    private function deliveryPreparationData(Request $request): array
+    private function deliveryPreparationData(Request $request, bool $forDispatch = false): array
     {
         return $request->validate([
-            'courier_name' => ['required', 'string', 'max:150'],
-            'delivery_phone' => ['required', 'string', 'max:40', 'regex:/^[0-9+().\-\s]+$/'],
+            'courier_name' => [$forDispatch ? 'required' : 'nullable', 'string', 'max:150'],
+            'delivery_phone' => [$forDispatch ? 'required' : 'nullable', 'string', 'max:40', 'regex:/^[0-9+().\-\s]+$/'],
             'vehicle_registration' => ['nullable', 'string', 'max:40'],
             'expected_delivery_at' => ['nullable', 'date', 'after_or_equal:today'],
             'tracking_reference' => ['nullable', 'string', 'max:100'],

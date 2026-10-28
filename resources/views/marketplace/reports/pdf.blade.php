@@ -424,6 +424,44 @@
             @endforelse
         </tbody>
     </table>
+
+    <div class="section-title" style="margin-top: 14px;">Delivery Activity</div>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th style="width: 16%;">Delivery / Order</th>
+                <th style="width: 22%;">Customer / Item</th>
+                <th style="width: 16%;">Owner / Officer</th>
+                <th style="width: 14%;">Delivery / Tracking</th>
+                <th style="width: 16%;">Completed</th>
+            </tr>
+        </thead>
+        <tbody>
+            @forelse($report['orders']['delivery_tasks'] as $delivery)
+                <tr>
+                    <td>
+                        <div class="fw-bold">{{ $delivery->reference }}</div>
+                        <div class="small text-muted">{{ $delivery->order?->reference ?? '—' }}</div>
+                    </td>
+                    <td>
+                        <div>{{ $delivery->order?->customer_name ?? 'Customer unavailable' }}</div>
+                        <div class="small text-muted">{{ $delivery->item?->product_name ?? 'Order item unavailable' }}</div>
+                    </td>
+                    <td>
+                        <div>{{ $delivery->vendor?->business_name ?? 'In-House / Admin' }}</div>
+                        <div class="small text-muted">{{ $delivery->officer?->name ?? 'Not assigned' }}</div>
+                    </td>
+                    <td>
+                        <div>{{ $delivery->delivery_method ? (config('marketplace.delivery_methods.'.$delivery->delivery_method) ?? Str::headline($delivery->delivery_method)) : 'Method not recorded' }}</div>
+                        <div class="small text-muted">{{ $delivery->tracking_reference ?: 'No tracking reference' }}</div>
+                    </td>
+                    <td>{{ $delivery->delivered_at?->format('d M Y, H:i') ?? '—' }}</td>
+                </tr>
+            @empty
+                <tr class="empty-row"><td colspan="6">No delivery activity recorded within this date range.</td></tr>
+            @endforelse
+        </tbody>
+    </table>
     @endif
 
     {{-- SECTION 5: INVENTORY AND STOCK MOVEMENT --}}

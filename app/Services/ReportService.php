@@ -44,7 +44,12 @@ class ReportService
         $serviceRequestsQuery = Servicerequest::query()->whereBetween('created_at', [$fromBound, $toBound]);
         $inventoryMovementsQuery = InventoryMovement::query()->whereBetween('created_at', [$fromBound, $toBound]);
         $paymentsQuery = OrderPayment::query()->whereBetween('created_at', [$fromBound, $toBound]);
-        $deliveryTasksQuery = DeliveryTask::query()->whereBetween('created_at', [$fromBound, $toBound]);
+        // Reports must describe completed deliveries from the Deliveries page.
+        // Use completion time (rather than creation time) so a delivery completed
+        // in this period remains visible even if it was created earlier.
+        $deliveryTasksQuery = DeliveryTask::query()
+            ->where('status', 'delivered')
+            ->whereBetween('delivered_at', [$fromBound, $toBound]);
 
         // ── 2. Executive Summary Metrics ──
         $ordersTotal = (clone $ordersQuery)->count();
@@ -281,11 +286,9 @@ class ReportService
             ->count();
 
         $deliveryTasksTotal = (clone $deliveryTasksQuery)->count();
-        $deliveryTasksDelivered = (clone $deliveryTasksQuery)->where('status', 'delivered')->count();
-        $deliveryTasksInTransit = (clone $deliveryTasksQuery)->whereIn('status', ['assigned', 'in_transit'])->count();
-        $deliverySuccessRate = $deliveryTasksTotal > 0
-            ? round(($deliveryTasksDelivered / $deliveryTasksTotal) * 100, 1)
-            : ($ordersDelivered > 0 && $ordersTotal > 0 ? round(($ordersDelivered / $ordersTotal) * 100, 1) : 0);
+        $deliveryTasksDelivered = (clone $deliveryTasksQuery)->count();
+        $deliveryTasksInTransit = 0;
+        $deliverySuccessRate = $deliveryTasksDelivered > 0 ? 100.0 : 0.0;
 
         // Average fulfillment duration calculation from completed deliveries where timestamps are available
         $completedDeliveryTasks = (clone $deliveryTasksQuery)
@@ -314,6 +317,17 @@ class ReportService
             ->limit(30)
             ->get();
 
+        $detailedDeliveries = (clone $deliveryTasksQuery)
+            ->with([
+                'order',
+                'item',
+                'vendor',
+                'officer',
+            ])
+            ->latest('delivered_at')
+            ->limit(30)
+            ->get();
+
         $ordersData = [
             'by_fulfillment_status' => $ordersByFulfillmentStatus,
             'by_payment_status' => $ordersByPaymentStatus,
@@ -328,6 +342,7 @@ class ReportService
             'delivery_success_rate' => $deliverySuccessRate,
             'average_fulfillment_days' => $averageFulfillmentDays,
             'recent_orders' => $detailedOrders,
+            'delivery_tasks' => $detailedDeliveries,
         ];
 
         // ── 6. Inventory & Stock Movement ──

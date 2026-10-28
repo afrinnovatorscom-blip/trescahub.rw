@@ -226,6 +226,68 @@ class PublicSignInModalTest extends TestCase
         $this->assertAuthenticatedAs($admin, 'web');
     }
 
+    public function test_guest_order_routes_open_the_existing_modal_with_the_required_message(): void
+    {
+        $requestProduct = $this->get(route('product-requests.create'))
+            ->assertRedirectContains('auth_required=1');
+        $this->assertSame(route('shop').'?auth_required=1', $requestProduct->headers->get('Location'));
+        $this->assertSame(route('product-requests.create'), session('customer.auth_redirect'));
+
+        $checkout = $this->get(route('checkout'))
+            ->assertRedirectContains('auth_required=1');
+        $this->assertSame(route('checkout'), session('customer.auth_redirect'));
+        $this->assertSame(route('cart').'?auth_required=1', $checkout->headers->get('Location'));
+
+        $this->get($checkout->headers->get('Location'))
+            ->assertOk()
+            ->assertSee('Please sign in first to continue with your order.')
+            ->assertSee('open: true', false);
+
+        $response = $this->get(route('home').'?auth_required=1');
+
+        $response
+            ->assertOk()
+            ->assertSee('Please sign in first to continue with your order.')
+            ->assertSee('open: true', false);
+    }
+
+    public function test_guests_can_add_to_cart_but_must_sign_in_before_checkout(): void
+    {
+        $this->from('/shop/example-product')
+            ->post(route('cart.add'), ['product' => 'example-product', 'quantity' => 1])
+            ->assertRedirect('/shop/example-product')
+            ->assertSessionMissing('customer.auth_redirect');
+
+        $this->from('/shop/example-product')
+            ->post(route('checkout.place'), [])
+            ->assertRedirectContains('auth_required=1')
+            ->assertSessionHas('url.intended', url('/shop/example-product'));
+
+        $this->from('/shop/example-product')
+            ->post(route('product-requests.store'), [])
+            ->assertRedirectContains('auth_required=1')
+            ->assertSessionHas('url.intended', url('/shop/example-product'));
+    }
+
+    public function test_customer_login_returns_to_the_intended_order_page(): void
+    {
+        $customer = $this->customer([
+            'email' => 'intended-order@example.com',
+            'password' => 'valid-password',
+        ]);
+        $intended = route('checkout').'?source=product';
+
+        session(['customer.auth_redirect' => $intended]);
+
+        Livewire::test(PublicLoginModal::class)
+            ->set('email', $customer->email)
+            ->set('password', 'valid-password')
+            ->call('login')
+            ->assertRedirect($intended);
+
+        $this->assertAuthenticatedAs($customer, 'customers');
+    }
+
     public function test_authenticated_customer_registration_page_redirects_to_existing_customer_account(): void
     {
         $customer = $this->customer();

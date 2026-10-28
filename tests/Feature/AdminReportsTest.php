@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\DeliveryTask;
 use App\Models\InventoryAdjustmentRequest;
 use App\Models\InventoryMovement;
 use App\Models\Order;
@@ -116,6 +117,55 @@ class AdminReportsTest extends TestCase
         $response->assertOk()
             ->assertSee('CURR-ORD-1')
             ->assertDontSee('OLD-ORD-1');
+    }
+
+    public function test_reports_use_real_order_and_delivery_records(): void
+    {
+        $now = Carbon::now();
+        $order = $this->createOrder('REAL-DELIVERY-ORDER', 750000, 'dispatched', 'paid', $now);
+        $item = $this->createItem($order, $this->product, 1, 750000, $this->vendor->id, 'accepted');
+
+        DeliveryTask::query()->create([
+            'reference' => 'DT-REAL-0001',
+            'order_id' => $order->id,
+            'order_item_id' => $item->id,
+            'vendor_id' => $this->vendor->id,
+            'delivery_officer_id' => $this->admin->id,
+            'status' => 'delivered',
+            'delivery_method' => 'courier',
+            'tracking_reference' => 'TRACK-REAL-001',
+            'created_at' => $now->copy()->subDays(3),
+            'updated_at' => $now,
+            'delivered_at' => $now,
+        ]);
+
+        DeliveryTask::query()->create([
+            'reference' => 'DT-PENDING-0001',
+            'order_id' => $order->id,
+            'order_item_id' => $item->id,
+            'vendor_id' => $this->vendor->id,
+            'delivery_officer_id' => $this->admin->id,
+            'status' => 'in_transit',
+            'tracking_reference' => 'TRACK-PENDING-001',
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+
+        $response = $this->actingAs($this->admin)->get(route('marketplace.reports.index', [
+            'from' => $now->format('Y-m-d'),
+            'to' => $now->format('Y-m-d'),
+            'category' => 'orders',
+        ]));
+
+        $response->assertOk()
+            ->assertSee('REAL-DELIVERY-ORDER')
+            ->assertSee('DT-REAL-0001')
+            ->assertSee('Test Customer')
+            ->assertSee('ThinkPad T14')
+            ->assertSee('Alpha Supplier')
+            ->assertSee('TRACK-REAL-001')
+            ->assertDontSee('TRACK-PENDING-001')
+            ->assertSee('1 completed deliveries in this period');
     }
 
     public function test_invalid_date_range_where_to_is_before_from_fails_validation(): void

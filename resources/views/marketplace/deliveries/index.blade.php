@@ -85,6 +85,11 @@
                             <td class="text-end text-nowrap">
                                 @if($status === 'assigned')
                                     <a class="btn btn-sm btn-primary" href="{{ route('marketplace.deliveries.prepare.existing', $task) }}">Prepare Delivery</a>
+                                @elseif($status === 'in_transit')
+                                    <form method="POST" action="{{ route('marketplace.deliveries.delivered', $task) }}" class="d-inline" data-delivery-complete-form>
+                                        @csrf
+                                        <button type="submit" class="btn btn-sm btn-success">Mark as Delivered</button>
+                                    </form>
                                 @endif
                             </td>
                         </tr>
@@ -118,4 +123,5 @@
         @endif
     </section>
 </div>
+@include('marketplace.deliveries.partials.live-completion')
 @endsection

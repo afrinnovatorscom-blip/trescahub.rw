@@ -332,7 +332,7 @@
                                 <span class="fw-semibold">Total</span>
                                 <span class="fs-5 fw-bold text-nowrap" data-cart-total>RWF {{ number_format($cartSubtotal, 0, '.', ',') }}</span>
                             </div>
-                            <a href="{{ route('checkout') }}" class="cart-checkout btn btn-success d-inline-flex align-items-center justify-content-center gap-2 rounded-pill" data-cart-checkout>
+                            <a href="{{ route('checkout', Auth::guard('customers')->check() ? [] : ['auth_required' => 1]) }}" class="cart-checkout btn btn-success d-inline-flex align-items-center justify-content-center gap-2 rounded-pill" data-cart-checkout>
                                 Proceed to Checkout <i class="bi bi-arrow-right" aria-hidden="true"></i>
                             </a>
                             <p id="cart-save-feedback" class="small mt-3 mb-0" role="status" aria-live="polite"></p>
