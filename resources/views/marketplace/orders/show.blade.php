@@ -135,6 +135,128 @@
     .order-detail .balance-summary div { display: flex; justify-content: space-between; gap: 12px; padding-top: 8px; }
     .order-detail .balance-summary dt { color: #64748b; }
     .order-detail .balance-summary dd { font-weight: 600; margin: 0; }
+    .admin-review-order { font-family: 'DM Sans', sans-serif; }
+    .admin-review-order h1,
+    .admin-review-order h2,
+    .admin-review-order h3,
+    .admin-review-order .review-section-heading strong {
+        font-family: 'DM Sans', sans-serif;
+    }
+    .admin-review-order h1.h3 { font-size: 1.25rem; font-weight: 700; letter-spacing: -.01em; }
+    .admin-review-order .h5 { font-size: 1rem; font-weight: 700; }
+    .admin-review-order .h6 { font-size: .875rem; font-weight: 700; }
+    .admin-review-order .detail-panel,
+    .admin-review-order .review-section { border-color: #e8ecf2; border-radius: 10px; box-shadow: 0 1px 2px rgba(15, 23, 42, .03); }
+    .admin-review-order .detail-panel { padding: 16px !important; }
+    .admin-review-order .detail-label { font-size: .72rem; }
+    .admin-review-order .detail-value { font-size: .84rem; }
+    .admin-review-order .status-badge {
+        border: 0;
+        background: #eef2ff;
+        color: #4338ca;
+        font-size: .68rem;
+        line-height: 1.2;
+    }
+    .admin-review-order .review-notice {
+        background: #fffbeb;
+        border-color: #fde68a;
+        border-radius: 8px;
+        font-size: .82rem;
+        padding: 10px 12px;
+    }
+    .admin-review-order .order-items-table thead th {
+        font-size: .68rem;
+        letter-spacing: .02em;
+        padding: 9px 12px;
+        text-transform: uppercase;
+    }
+    .admin-review-order .order-items-table tbody td { font-size: .82rem; padding: 10px 12px; }
+    .admin-review-order .review-section { padding: 16px; }
+    .admin-review-order .review-section-heading { align-items: center; gap: 10px; }
+    .admin-review-order .review-section-icon {
+        background: #f1f5f9;
+        border: 0;
+        border-radius: 8px;
+        color: #475569;
+        flex-basis: 34px;
+        height: 34px;
+    }
+    .admin-review-order .review-section-heading .text-muted,
+    .admin-review-order .review-section + .text-muted { font-size: .78rem; }
+    .admin-review-order .allocation-options,
+    .admin-review-order .decision-options { gap: 8px; margin-top: 12px; }
+    .admin-review-order .allocation-choice,
+    .admin-review-order .decision-choice {
+        min-height: 62px;
+        border-color: #dfe5ed;
+        border-radius: 8px;
+        padding: 10px;
+        transition: border-color .15s ease, background-color .15s ease;
+    }
+    .admin-review-order .allocation-choice strong,
+    .admin-review-order .decision-choice strong { font-size: .84rem; }
+    .admin-review-order .allocation-choice small,
+    .admin-review-order .decision-choice small { font-size: .72rem; line-height: 1.35; }
+    .admin-review-order .allocation-choice.is-selected,
+    .admin-review-order .decision-choice.is-selected {
+        border-width: 1px;
+        border-color: #14b8a6;
+        background: #f0fdfa;
+        box-shadow: inset 0 0 0 1px #14b8a6;
+        color: #115e59;
+    }
+    .admin-review-order .cancel-choice.is-selected { border-color: #ef4444; background: #fef2f2; box-shadow: inset 0 0 0 1px #ef4444; }
+    .admin-review-order .allocation-choice-mark,
+    .admin-review-order .decision-choice-icon {
+        border: 0;
+        background: #f1f5f9;
+        border-radius: 7px;
+        flex-basis: 32px;
+        height: 32px;
+    }
+    .admin-review-order .allocation-choice.is-selected .allocation-choice-mark,
+    .admin-review-order .decision-choice.is-selected .decision-choice-icon { background: #ccfbf1; }
+    .admin-review-order .vendor-allocation-field { margin-top: 12px; padding-top: 12px; }
+    .admin-review-order .form-label,
+    .admin-review-order legend.form-label { color: #334155; font-size: .78rem; font-weight: 600; margin-bottom: 6px; }
+    .admin-review-order .form-control,
+    .admin-review-order .form-select {
+        border-color: #d8dee8;
+        border-radius: 7px;
+        font-family: 'DM Sans', sans-serif;
+        font-size: .82rem;
+        min-height: 38px;
+    }
+    .admin-review-order textarea.form-control { min-height: 82px; }
+    .admin-review-order .form-control:focus,
+    .admin-review-order .form-select:focus { border-color: #14b8a6; outline: 0; box-shadow: 0 0 0 3px rgba(20, 184, 166, .12); }
+    .admin-review-order .segmented-control,
+    .admin-review-order .payment-options { gap: 6px; }
+    .admin-review-order .segmented-control span,
+    .admin-review-order .payment-options span {
+        border-color: #dfe5ed;
+        border-radius: 7px;
+        font-size: .78rem;
+        padding: 8px 9px;
+    }
+    .admin-review-order .segmented-control input:checked + span,
+    .admin-review-order .payment-options input:checked + span {
+        border-width: 1px;
+        border-color: #14b8a6;
+        background: #f0fdfa;
+        box-shadow: inset 0 0 0 1px #14b8a6;
+        color: #115e59;
+    }
+    .admin-review-order .btn { border-radius: 7px; font-family: 'DM Sans', sans-serif; font-size: .8rem; font-weight: 600; min-height: 38px; }
+    .admin-review-order .btn-primary { background: #0f766e; border-color: #0f766e; }
+    .admin-review-order .btn-primary:hover,
+    .admin-review-order .btn-primary:focus { background: #115e59; border-color: #115e59; }
+    .admin-review-order .btn-light { background: #fff; border-color: #dfe5ed; color: #475569; }
+    .admin-review-order .btn-outline-secondary { border-color: #dfe5ed; }
+    .admin-review-order .balance-summary { font-size: .78rem; }
+    .admin-review-order .review-actions { gap: 6px; margin-top: 12px; }
+    .admin-review-order .review-decision { border-radius: 8px; }
+
     @media (max-width: 767.98px) {
         .order-detail .allocation-options { grid-template-columns: 1fr; }
         .order-detail .review-section { padding: 14px; }
@@ -190,7 +312,7 @@
     $customerPhone = $order->customer?->phone ?: $order->phone;
     $customerEmail = $order->customer?->email ?: $order->email;
 @endphp
-<div class="container-fluid py-4 order-detail">
+<div class="container-fluid py-4 order-detail{{ $reviewMode ? ' admin-review-order' : '' }}">
     @include('marketplace.partials.flash')
 
     <a href="{{ route('marketplace.orders.index', ['tab' => 'pending']) }}" class="text-decoration-none">
