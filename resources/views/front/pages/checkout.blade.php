@@ -6,7 +6,13 @@
     <ul class="list-group mb-4">
         @foreach($lines as $line)
             <li class="list-group-item d-flex justify-content-between">
-                <span>{{ $line['product']->product_name }} × {{ $line['quantity'] }}</span>
+                <span>
+                    {{ $line['product']->product_name }}
+                    @if($line['variation'])
+                        <small class="d-block text-muted">{{ $line['variation']->feature_label }}: {{ $line['variation']->variation_value }}</small>
+                    @endif
+                    × {{ $line['quantity'] }}
+                </span>
                 <strong>RWF {{ number_format($line['line'], 0, '.', ',') }}</strong>
             </li>
         @endforeach

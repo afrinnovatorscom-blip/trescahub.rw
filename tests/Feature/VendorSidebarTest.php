@@ -38,7 +38,6 @@ class VendorSidebarTest extends TestCase
             'vendor.dashboard' => 'Overview',
             'vendor.products.index' => 'My Products',
             'vendor.products.create' => 'Submit Product',
-            'vendor.requests.index' => 'Assigned Requests',
             'vendor.orders.index' => 'Orders',
             'vendor.deliveries.index' => 'Deliveries',
             'vendor.inventory' => 'Inventory',
@@ -50,6 +49,7 @@ class VendorSidebarTest extends TestCase
             $response = $this->actingAs($user)->get(route($routeName));
             $content = $response->assertOk()
                 ->assertSee('Vendor Panel')
+                ->assertDontSee('Assigned Requests')
                 ->assertSee($label)
                 ->getContent();
 

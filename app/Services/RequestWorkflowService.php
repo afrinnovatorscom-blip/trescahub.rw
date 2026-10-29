@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Customer;
 use App\Models\Order;
+use App\Models\ProductVariation;
 use App\Models\ProductRequest;
 use App\Models\RequestStatusHistory;
 use App\Models\ShopProduct;
@@ -46,6 +47,31 @@ class RequestWorkflowService
             }
         }
 
+        $variation = null;
+        if ($product) {
+            $variationId = isset($data['variation_id']) ? (int) $data['variation_id'] : null;
+            $hasVariations = ProductVariation::query()->where('shop_product_id', $product->id)->exists();
+
+            if ($hasVariations && $variationId === null) {
+                throw ValidationException::withMessages([
+                    'variation_id' => 'Choose a variation for this product.',
+                ]);
+            }
+
+            if ($variationId !== null) {
+                $variation = ProductVariation::query()
+                    ->where('shop_product_id', $product->id)
+                    ->whereKey($variationId)
+                    ->first();
+
+                if (! $variation) {
+                    throw ValidationException::withMessages([
+                        'variation_id' => 'The selected variation is not available for this product.',
+                    ]);
+                }
+            }
+        }
+
         if ($product && ($data['request_type'] ?? 'purchase') === 'purchase') {
             return $this->orders->place([
                 'name' => $data['customer_name'],
@@ -55,7 +81,11 @@ class RequestWorkflowService
                 'delivery_notes' => $data['instructions'] ?? null,
                 'payment_method' => 'cash_on_delivery',
             ], [
-                ['product' => $product, 'quantity' => (int) $data['quantity']],
+                [
+                    'product' => $product,
+                    'quantity' => (int) $data['quantity'],
+                    'variation_id' => $variation?->id,
+                ],
             ], $customer instanceof User ? $customer : null,
                 $customer instanceof Customer ? $customer : null,
                 'request_product',
@@ -67,6 +97,10 @@ class RequestWorkflowService
             'user_id' => $customer instanceof User ? $customer->id : null,
             'customer_id' => $customer instanceof Customer ? $customer->id : null,
             'shop_product_id' => $product?->id,
+            'product_variation_id' => $variation?->id,
+            'variation_label' => $variation?->feature_label,
+            'variation_value' => $variation?->variation_value,
+            'variation_price' => $variation?->price,
             'customer_name' => $data['customer_name'],
             'email' => $data['email'] ?? null,
             'phone' => $data['phone'],

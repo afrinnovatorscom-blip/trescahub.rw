@@ -42,23 +42,34 @@ class ProductManagementTest extends TestCase
             ->assertSee('Additional Product Images (Optional)')
             ->assertSee('Additional Settings')
             ->assertSee('Assign to Vendor')
+            ->assertSee('Unit of Measurement')
             ->assertSee('Initial Stock Quantity')
+            ->assertDontSee('Track physical stock')
             ->assertSee('Create Product')
+            ->assertDontSee('Enable Discount')
+            ->assertDontSee('Delivery Time (working days)')
+            ->assertSee('name="working_days" value="1"', false)
             ->assertDontSee('Approve Now')
             ->assertSee('Publish after saving')
             ->assertDontSee('SKU (Automatically Assigned)')
             ->assertDontSee('Current Stock');
 
-        $this->actingAs($admin)->post(route('admin.shop-products.store'), $this->payload([
+        $standardPayload = $this->payload([
             'product_name' => 'Standard product without discount',
-        ]))->assertRedirect(route('admin.shop-products.index'));
+        ]);
+        unset($standardPayload['working_days']);
+        $standardPayload['working_days'] = '1';
+        $this->actingAs($admin)->post(route('admin.shop-products.store'), $standardPayload)
+            ->assertRedirect(route('admin.shop-products.index'));
         $standard = ShopProduct::query()->where('product_name', 'Standard product without discount')->firstOrFail();
         $this->assertSame('approved', $standard->approval_status);
         $this->assertSame('unpublished', $standard->publication_status);
         $this->assertSame('TH-PROD-'.str_pad((string) $standard->id, 4, '0', STR_PAD_LEFT), $standard->sku);
         $this->assertFalse($standard->is_popular);
         $this->assertFalse($standard->discount_enabled);
+        $this->assertFalse($standard->tracks_inventory);
         $this->assertFalse($standard->hasValidDiscount());
+        $this->assertSame(1, (int) $standard->working_days);
 
         $this->actingAs($admin)->post(route('admin.shop-products.store'), $this->payload([
             'product_name' => 'Unpublished promoted product',
@@ -91,12 +102,117 @@ class ProductManagementTest extends TestCase
         $this->get(route('shop-products.show', $published))->assertOk()
             ->assertSee('RWF 1,000')
             ->assertSee('RWF 1,250')
-            ->assertSee('20% off');
+            ->assertSee('20% off')
+            ->assertDontSee('Choose your preferred option')
+            ->assertDontSee('id="productVariationSelector"', false)
+            ->assertSee('Request this product');
         $this->getJson('/api/shop-products')->assertOk()->assertJsonFragment(['percentage' => 20]);
-        $this->actingAs($admin)->get(route('admin.shop-products.edit', $published))
-            ->assertOk()
+        $editResponse = $this->actingAs($admin)->get(route('admin.shop-products.edit', $published));
+        $editResponse->assertOk()
             ->assertSee('Edit Product')
+            ->assertDontSee('Delivery Time (working days)')
+            ->assertSee('Enable Discount')
+            ->assertSee('Track physical stock')
+            ->assertSee('aria-labelledby="stock-heading"', false)
             ->assertSee('Promote on Homepage');
+        $editHtml = $editResponse->getContent();
+        $this->assertLessThan(
+            strpos($editHtml, 'aria-labelledby="promotion-heading"'),
+            strpos($editHtml, 'aria-labelledby="stock-heading"')
+        );
+        $this->assertStringNotContainsString('Pricing and Inventory', $editHtml);
+    }
+
+    public function test_admin_can_create_and_edit_price_variations_with_the_default_price_synced(): void
+    {
+        $admin = $this->admin();
+
+        $this->actingAs($admin)
+            ->get(route('admin.shop-products.create'))
+            ->assertOk()
+            ->assertSee('Enable Price Variations')
+            ->assertSee('Add Variation');
+
+        $this->actingAs($admin)
+            ->from(route('admin.shop-products.create'))
+            ->post(route('admin.shop-products.store'), $this->payload([
+                'discount_enabled' => 1,
+                'original_price' => 1500,
+                'price_variations_enabled' => 1,
+                'price_variations' => [[
+                    'feature_label' => 'Package',
+                    'variation_value' => 'Standard',
+                    'price' => 1200,
+                    'is_default' => 1,
+                ]],
+            ]))
+            ->assertRedirect(route('admin.shop-products.create'))
+            ->assertSessionHasErrors('discount_enabled');
+
+        $this->actingAs($admin)->post(route('admin.shop-products.store'), $this->payload([
+            'product_name' => 'Product with options',
+            'price_variations_enabled' => 1,
+            'price_variations' => [
+                [
+                    'feature_label' => 'Package',
+                    'variation_value' => 'Standard',
+                    'price' => 1200,
+                    'is_default' => 1,
+                ],
+                [
+                    'feature_label' => 'Package',
+                    'variation_value' => 'Premium',
+                    'price' => 1800,
+                    'is_default' => 0,
+                ],
+            ],
+            'publish_now' => 1,
+        ]))->assertRedirect(route('admin.shop-products.index'));
+
+        $product = ShopProduct::query()->where('product_name', 'Product with options')->firstOrFail();
+        $variations = $product->variations()->orderBy('id')->get();
+        $this->assertCount(2, $variations);
+        $this->assertSame(1200.0, (float) $product->price);
+        $this->assertTrue($variations[0]->is_default);
+        $this->assertFalse($variations[1]->is_default);
+
+        $this->get(route('shop-products.show', $product))
+            ->assertOk()
+            ->assertSee('Choose your preferred option')
+            ->assertSee('Standard')
+            ->assertSee('Premium')
+            ->assertSee('RWF 1,800')
+            ->assertSee('data-product-variation-choice', false)
+            ->assertSee('id="selectedProductPrice"', false)
+            ->assertSee('name="variation_id" value="'.$variations[0]->id.'"', false)
+            ->assertSee('variation_id='.$variations[0]->id, false)
+            ->assertSee('checked', false);
+
+        $this->actingAs($admin)->put(route('admin.shop-products.update', $product), $this->payload([
+            'product_name' => $product->product_name,
+            'price_variations_enabled' => 1,
+            'price_variations' => [
+                [
+                    'id' => $variations[0]->id,
+                    'feature_label' => 'Package',
+                    'variation_value' => 'Standard',
+                    'price' => 1200,
+                    'is_default' => 0,
+                ],
+                [
+                    'id' => $variations[1]->id,
+                    'feature_label' => 'Package',
+                    'variation_value' => 'Premium',
+                    'price' => 2000,
+                    'is_default' => 1,
+                ],
+            ],
+            'publish_now' => 1,
+        ]))->assertRedirect(route('admin.shop-products.index'));
+
+        $this->assertSame(2000.0, (float) $product->fresh()->price);
+        $this->assertTrue($variations[1]->fresh()->is_default);
+        $this->assertSame(2000.0, (float) $variations[1]->fresh()->price);
     }
 
     public function test_generated_sku_is_immutable_when_editing_a_product(): void

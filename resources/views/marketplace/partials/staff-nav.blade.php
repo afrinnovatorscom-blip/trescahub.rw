@@ -1,7 +1,7 @@
 @php $user = auth()->user(); @endphp
 <div class="nav-section-label mt-3">Marketplace</div>
 @if($user->hasPermission('products.approve'))
-    <a href="{{ route('marketplace.approvals.index') }}" class="nav-item-link {{ request()->routeIs('marketplace.approvals.*') ? 'active' : '' }}"><i class="bi bi-check2-square"></i> Approvals</a>
+    <a href="{{ route('marketplace.approvals.index') }}" class="nav-item-link {{ request()->routeIs('marketplace.approvals.*') ? 'active' : '' }}"><i class="bi bi-check2-square"></i> Product Approvals</a>
 @endif
 @if($user->hasPermission('vendors.view'))
     <a href="{{ route('marketplace.vendors.index') }}" class="nav-item-link {{ request()->routeIs('marketplace.vendors.*') ? 'active' : '' }}"><i class="bi bi-shop"></i> Vendors</a>

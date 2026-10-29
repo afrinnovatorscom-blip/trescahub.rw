@@ -270,7 +270,10 @@
                                             <a href="{{ route('shop-products.show', $product) }}" class="cart-product__name">
                                                 {{ $product->product_name }}
                                             </a>
-                                            <div class="mt-1 text-muted small">{{ $product->formatted_price }} each</div>
+                                            @if($line['variation'])
+                                                <div class="mt-1 text-muted small">{{ $line['variation']->feature_label }}: {{ $line['variation']->variation_value }}</div>
+                                            @endif
+                                            <div class="mt-1 text-muted small">RWF {{ number_format($line['unit_price'], 0, '.', ',') }} each</div>
                                             <div class="cart-line__controls">
                                                 <div class="d-flex align-items-center gap-2 text-muted small">
                                                     Qty
@@ -282,16 +285,16 @@
                                                             aria-label="Decrease quantity of {{ $product->product_name }}"
                                                         >−</button>
                                                         <input
-                                                            id="quantity-{{ $product->slug }}"
+                                                            id="quantity-{{ $line['key'] }}"
                                                             class="form-control cart-quantity"
                                                             type="number"
                                                             min="0"
                                                             max="100"
                                                             inputmode="numeric"
-                                                            name="quantities[{{ $product->slug }}]"
+                                                            name="quantities[{{ $line['key'] }}]"
                                                             value="{{ $line['quantity'] }}"
                                                             data-cart-quantity
-                                                            data-unit-price="{{ $product->price }}"
+                                                            data-unit-price="{{ $line['unit_price'] }}"
                                                             aria-label="Quantity of {{ $product->product_name }}"
                                                         >
                                                         <button
@@ -305,7 +308,7 @@
                                                 <button
                                                     type="button"
                                                     class="btn btn-link link-danger text-decoration-none p-0 small"
-                                                    data-cart-remove="{{ $product->slug }}"
+                                                    data-cart-remove="{{ $line['key'] }}"
                                                 >
                                                     <i class="bi bi-trash3 me-1" aria-hidden="true"></i>Remove
                                                 </button>

@@ -9,6 +9,7 @@ class OrderItem extends Model
 {
     protected $fillable = [
         'order_id', 'shop_product_id', 'vendor_id', 'product_location_id', 'product_name', 'sku',
+        'product_variation_id', 'variation_label', 'variation_value',
         'unit_price', 'quantity', 'line_total', 'fulfillment_status', 'assignment_status',
         'inventory_state', 'fulfillment_instructions', 'internal_notes',
     ];
@@ -36,6 +37,11 @@ class OrderItem extends Model
     public function location(): BelongsTo
     {
         return $this->belongsTo(ProductLocation::class, 'product_location_id');
+    }
+
+    public function variation(): BelongsTo
+    {
+        return $this->belongsTo(ProductVariation::class, 'product_variation_id');
     }
 
     public function scopeOwnedByVendor($query, ?int $vendorId)

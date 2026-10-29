@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Vendor;
+use App\Models\Partner;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\File;
 use Tests\TestCase;
@@ -173,6 +174,42 @@ class HomepagePartnersTest extends TestCase
         $this->get('/')
             ->assertOk()
             ->assertSee('Our Partners')
-            ->assertSee('Partner logos will appear here as businesses are approved for public display.');
+            ->assertSee('Partner listings will appear here when approved vendors or active partners are enabled for public display.');
+    }
+
+    public function test_homepage_shows_active_registered_partners_only_when_website_visibility_is_enabled(): void
+    {
+        Partner::create([
+            'title' => 'Website Partner',
+            'slug' => 'website-partner',
+            'description' => 'This description must stay off the homepage.',
+            'website_url' => 'https://partner.example',
+            'show_on_website' => true,
+            'status' => 'active',
+        ]);
+
+        Partner::create([
+            'title' => 'Hidden Partner',
+            'slug' => 'hidden-partner',
+            'description' => '',
+            'show_on_website' => false,
+            'status' => 'active',
+        ]);
+
+        Partner::create([
+            'title' => 'Inactive Partner',
+            'slug' => 'inactive-partner',
+            'description' => '',
+            'show_on_website' => true,
+            'status' => 'inactive',
+        ]);
+
+        $this->get('/')
+            ->assertOk()
+            ->assertSee('Website Partner')
+            ->assertDontSee('This description must stay off the homepage.')
+            ->assertSee('href="https://partner.example"', false)
+            ->assertDontSee('Hidden Partner')
+            ->assertDontSee('Inactive Partner');
     }
 }

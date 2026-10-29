@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Marketplace;
 use App\Exceptions\InventoryException;
 use App\Http\Controllers\Controller;
 use App\Models\Order;
+use App\Models\ProductVariation;
 use App\Models\ShopProduct;
 use App\Services\OrderService;
 use App\Services\RequestWorkflowService;
@@ -31,16 +32,24 @@ class StorefrontCommerceController extends Controller
         $data = $request->validate([
             'product' => ['required', 'string'],
             'quantity' => ['required', 'integer', 'min:1', 'max:100'],
+            'variation_id' => ['nullable', 'integer'],
         ]);
 
-        $product = ShopProduct::query()->publicCatalog()->where('slug', $data['product'])->first();
+        $product = ShopProduct::query()->publicCatalog()->with('variations')->where('slug', $data['product'])->first();
 
         if (! $product || ! $product->canPurchase((int) $data['quantity'])) {
             return back()->withErrors(['product' => 'That product is not available in the requested quantity.']);
         }
 
+        $variation = $this->resolveVariation($product, isset($data['variation_id']) ? (int) $data['variation_id'] : null);
+        $lineKey = $variation ? $product->slug.'|variation|'.$variation->id : $product->slug;
         $cart = session('marketplace.cart', []);
-        $cart[$product->slug] = min(100, ($cart[$product->slug] ?? 0) + (int) $data['quantity']);
+        $existing = $cart[$lineKey] ?? 0;
+        $existingQuantity = is_array($existing) ? (int) ($existing['quantity'] ?? 0) : (int) $existing;
+        $quantity = min(100, $existingQuantity + (int) $data['quantity']);
+        $cart[$lineKey] = $variation
+            ? ['quantity' => $quantity, 'variation_id' => $variation->id]
+            : $quantity;
         session(['marketplace.cart' => $cart]);
 
         return redirect()->route('shop')->with('success', 'Added to cart.');
@@ -54,9 +63,14 @@ class StorefrontCommerceController extends Controller
         ]);
         $cart = [];
 
-        foreach ($data['quantities'] ?? [] as $slug => $quantity) {
-            if ($quantity > 0 && is_string($slug)) {
-                $cart[$slug] = (int) $quantity;
+        $existingCart = session('marketplace.cart', []);
+        foreach ($data['quantities'] ?? [] as $lineKey => $quantity) {
+            if ($quantity > 0 && is_string($lineKey) && array_key_exists($lineKey, $existingCart)) {
+                $entry = $existingCart[$lineKey];
+                $variationId = is_array($entry) ? ($entry['variation_id'] ?? null) : null;
+                $cart[$lineKey] = $variationId
+                    ? ['quantity' => (int) $quantity, 'variation_id' => $variationId]
+                    : (int) $quantity;
             }
         }
 
@@ -67,11 +81,13 @@ class StorefrontCommerceController extends Controller
 
             return response()->json([
                 'message' => 'Cart updated.',
-                'quantities' => $cart,
+                'quantities' => collect($cart)->map(
+                    fn ($entry): int => is_array($entry) ? (int) ($entry['quantity'] ?? 0) : (int) $entry
+                )->all(),
                 'item_count' => count($cart),
                 'subtotal' => $lines->sum('line'),
                 'lines' => $lines->mapWithKeys(fn (array $line) => [
-                    $line['product']->slug => $line['line'],
+                    $line['key'] => $line['line'],
                 ]),
             ]);
         }
@@ -123,7 +139,11 @@ class StorefrontCommerceController extends Controller
                 'delivery_address' => $data['delivery_address'],
                 'delivery_notes' => $data['delivery_notes'] ?? null,
                 'payment_method' => $data['payment_method'],
-            ], $lines->map(fn ($line) => ['product' => $line['product'], 'quantity' => $line['quantity']])->all(), null, Auth::guard('customers')->user(),
+            ], $lines->map(fn ($line) => [
+                'product' => $line['product'],
+                'quantity' => $line['quantity'],
+                'variation_id' => $line['variation']?->id,
+            ])->all(), null, Auth::guard('customers')->user(),
                 'cart_checkout',
                 $data['submission_key'] ?? null);
         } catch (InventoryException $exception) {
@@ -184,12 +204,19 @@ class StorefrontCommerceController extends Controller
     public function requestForm(Request $request)
     {
         $product = null;
+        $variation = null;
         if ($request->filled('product')) {
-            $product = ShopProduct::query()->publicCatalog()->where('slug', $request->product)->first();
+            $product = ShopProduct::query()->publicCatalog()->with('variations')->where('slug', $request->product)->first();
+            if ($product) {
+                $requestedVariationId = $request->integer('variation_id') ?: null;
+                $variation = $this->resolveVariation($product, $requestedVariationId, false)
+                    ?? $product->variations->firstWhere('is_default', true);
+            }
         }
 
         return view('front.pages.product-request', [
             'product' => $product,
+            'selectedVariation' => $variation,
             'defaultAddress' => Auth::guard('customers')->user()?->defaultAddress(),
             'submissionKey' => (string) Str::uuid(),
         ]);
@@ -207,6 +234,7 @@ class StorefrontCommerceController extends Controller
             'instructions' => ['nullable', 'string', 'max:2000'],
             'delivery_location' => ['nullable', 'string', 'max:255'],
             'request_type' => ['nullable', 'in:purchase,quote'],
+            'variation_id' => ['nullable', 'integer'],
             'submission_key' => ['nullable', 'uuid'],
         ]);
 
@@ -246,7 +274,7 @@ class StorefrontCommerceController extends Controller
     {
         $orders = $request->user()->orders()
             ->with([
-                'items:id,order_id,product_name,quantity,line_total',
+                'items:id,order_id,product_name,variation_label,variation_value,quantity,line_total',
                 'payments:id,order_id,amount',
                 'deliveries:id,order_id,status',
             ])
@@ -287,19 +315,100 @@ class StorefrontCommerceController extends Controller
     private function lines(bool $purchaseCheck = false)
     {
         $cart = session('marketplace.cart', []);
-        $products = ShopProduct::query()->publicCatalog()->whereIn('slug', array_keys($cart))->get()->keyBy('slug');
+        $slugs = collect(array_keys($cart))->map(fn (string $key) => $this->cartProductSlug($key))->unique()->all();
+        $products = ShopProduct::query()->publicCatalog()->with('variations')->whereIn('slug', $slugs)->get()->keyBy('slug');
 
-        return collect($cart)->map(function ($quantity, $slug) use ($products, $purchaseCheck) {
+        return collect($cart)->map(function ($entry, $key) use ($products, $purchaseCheck) {
+            [$slug, $keyVariationId] = $this->cartKey($key);
+            $quantity = is_array($entry) ? (int) ($entry['quantity'] ?? 0) : (int) $entry;
+            $variationId = is_array($entry) && ! empty($entry['variation_id'])
+                ? (int) $entry['variation_id']
+                : $keyVariationId;
             $product = $products->get($slug);
             if (! $product) {
                 return null;
             }
-            if ($purchaseCheck && ! $product->canPurchase((int) $quantity)) {
+
+            $variation = $this->resolveVariation($product, $variationId, false);
+            if ($product->variations->isNotEmpty() && ! $variation && $variationId === null) {
+                $variation = $product->variations->firstWhere('is_default', true);
+            }
+
+            if (($product->variations->isNotEmpty() && ! $variation)
+                || ($variationId && ! $variation)
+                || ($purchaseCheck && ! $product->canPurchase($quantity))) {
                 return null;
             }
 
-            return ['product' => $product, 'quantity' => (int) $quantity, 'line' => (float) $product->price * (int) $quantity];
+            $unitPrice = (float) ($variation?->price ?? $product->price);
+
+            return [
+                'key' => $key,
+                'product' => $product,
+                'variation' => $variation,
+                'quantity' => $quantity,
+                'unit_price' => $unitPrice,
+                'line' => $unitPrice * $quantity,
+            ];
         })->filter()->values();
+    }
+
+    private function resolveVariation(ShopProduct $product, ?int $variationId, bool $requireSelection = true): ?ProductVariation
+    {
+        $variations = $product->relationLoaded('variations')
+            ? $product->variations
+            : $product->variations()->get();
+
+        if ($variations->isEmpty()) {
+            if ($variationId !== null) {
+                if (! $requireSelection) {
+                    return null;
+                }
+
+                throw ValidationException::withMessages([
+                    'variation_id' => 'That variation is not available for this product.',
+                ]);
+            }
+
+            return null;
+        }
+
+        if ($variationId === null) {
+            if ($requireSelection) {
+                throw ValidationException::withMessages([
+                    'variation_id' => 'Choose a product variation before continuing.',
+                ]);
+            }
+
+            return null;
+        }
+
+        $variation = $variations->firstWhere('id', $variationId);
+        if (! $variation) {
+            if (! $requireSelection) {
+                return null;
+            }
+
+            throw ValidationException::withMessages([
+                'variation_id' => 'That variation is not available for this product.',
+            ]);
+        }
+
+        return $variation;
+    }
+
+    private function cartKey(string $key): array
+    {
+        if (preg_match('/^(.*)\|variation\|(\d+)$/', $key, $matches)) {
+            return [$matches[1], (int) $matches[2]];
+        }
+
+        return [$key, null];
+    }
+
+    private function cartProductSlug(string $key): string
+    {
+        return $this->cartKey($key)[0];
     }
 
     private function digits(string $value): string
@@ -312,7 +421,7 @@ class StorefrontCommerceController extends Controller
         return $request->user()->orders()
             ->where('reference', $reference)
             ->with([
-                'items:id,order_id,product_name,sku,unit_price,quantity,line_total,fulfillment_status,assignment_status',
+                'items:id,order_id,product_name,sku,product_variation_id,variation_label,variation_value,unit_price,quantity,line_total,fulfillment_status,assignment_status',
                 'payments:id,order_id,amount,type,method,created_at',
                 'histories:id,order_id,from_status,to_status,customer_message,created_at',
                 'deliveries:id,order_id,order_item_id,reference,status,customer_message,dispatched_at,delivered_at,created_at',

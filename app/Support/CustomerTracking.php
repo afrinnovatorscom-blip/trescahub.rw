@@ -158,6 +158,8 @@ class CustomerTracking
             'timeline' => self::timeline($trackingStatus),
             'items' => $order->items->map(fn ($item) => [
                 'name' => $item->product_name,
+                'variation_label' => $item->variation_label,
+                'variation_value' => $item->variation_value,
                 'quantity' => $item->quantity,
                 'unit_price' => $item->unit_price,
                 'line_total' => $item->line_total,

@@ -14,9 +14,14 @@ class Partner extends Model
         'title',
         'slug',
         'description',
+        'logo_path',
+        'website_url',
+        'show_on_website',
+        'status',
     ];
 
     protected $casts = [
+        'show_on_website' => 'boolean',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];

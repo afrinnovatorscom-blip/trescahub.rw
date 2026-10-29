@@ -20,8 +20,10 @@
                             && ! str_contains($logoPath, '..')
                             && \Illuminate\Support\Facades\File::isFile(public_path('assets/'.$logoPath));
                         $initial = \Illuminate\Support\Str::upper(
-                            \Illuminate\Support\Str::substr(trim($partner->business_name), 0, 1)
+                            \Illuminate\Support\Str::substr(trim((string) $partner->business_name), 0, 1)
                         );
+                        $description = trim((string) ($partner->partner_description ?? ''));
+                        $websiteUrl = trim((string) ($partner->website_url ?? ''));
                     @endphp
                     <div class="col-6 col-sm-4 col-lg-3">
                         <div class="d-flex h-100 flex-column align-items-center text-center">
@@ -42,15 +44,27 @@
                             </div>
                             <h3 class="fw-semibold mb-0"
                                 style="font-family:'DM Sans',sans-serif;font-size:1rem;line-height:1.4;overflow-wrap:anywhere;">
-                                {{ $partner->business_name }}
+                                @if($websiteUrl !== '')
+                                    <a href="{{ $websiteUrl }}" target="_blank" rel="noopener noreferrer" class="text-reset text-decoration-none">
+                                        {{ $partner->business_name }}
+                                    </a>
+                                @else
+                                    {{ $partner->business_name }}
+                                @endif
                             </h3>
+                            @if($description !== '')
+                                <p class="text-muted small mt-2 mb-0"
+                                   style="font-family:'DM Sans',sans-serif;line-height:1.5;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;">
+                                    {{ $description }}
+                                </p>
+                            @endif
                         </div>
                     </div>
                 @endforeach
             </div>
         @else
             <p class="text-center text-muted mb-0">
-                Partner logos will appear here as businesses are approved for public display.
+                Partner listings will appear here when approved vendors or active partners are enabled for public display.
             </p>
         @endif
     </div>

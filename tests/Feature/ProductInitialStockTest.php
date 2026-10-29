@@ -42,7 +42,10 @@ class ProductInitialStockTest extends TestCase
             ->assertDontSee('Acquisition Cost')
             ->assertDontSee('Internal Notes')
             ->assertDontSee('SKU (Automatically Assigned)')
-            ->assertSee('Initial Stock Quantity');
+            ->assertSee('Initial Stock Quantity')
+            ->assertSee('Unit of Measurement')
+            ->assertSee('Enter an initial quantity to enable inventory tracking')
+            ->assertDontSee('Track physical stock');
 
         $this->actingAs($admin)->post(route('admin.shop-products.store'), $this->payload([
             'product_name' => 'Admin Stocked Product',

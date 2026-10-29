@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Str;
 
 class ShopProduct extends Model
@@ -150,6 +151,16 @@ class ShopProduct extends Model
     public function locations(): HasMany
     {
         return $this->hasMany(ProductLocation::class);
+    }
+
+    public function variations(): HasMany
+    {
+        return $this->hasMany(ProductVariation::class, 'shop_product_id')->orderBy('id');
+    }
+
+    public function defaultVariation(): HasOne
+    {
+        return $this->hasOne(ProductVariation::class, 'shop_product_id')->where('is_default', true);
     }
 
     public function approvalHistories(): HasMany

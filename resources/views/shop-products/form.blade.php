@@ -10,7 +10,22 @@
     $assetUrl = fn ($path) => asset('assets/'.ltrim(str_replace('public/assets/', '', $path), '/'));
     $specifications = old('specifications', $shopProduct->specifications ?? []);
     $features = old('features', $shopProduct->features ?? []);
+    $savedVariations = $shopProduct->pending_payload['price_variations']
+        ?? $shopProduct->variations->map(fn ($variation) => [
+            'id' => $variation->id,
+            'feature_label' => $variation->feature_label,
+            'variation_value' => $variation->variation_value,
+            'price' => $variation->price,
+            'is_default' => $variation->is_default,
+        ])->all();
+    $priceVariations = old('price_variations', $savedVariations);
+    $priceVariationsEnabled = (bool) old(
+        'price_variations_enabled',
+        $shopProduct->pending_payload['price_variations_enabled'] ?? count($savedVariations) > 0
+    );
     $tracksInventory = (bool) old('tracks_inventory', $shopProduct->tracks_inventory ?? false);
+    $productCreate = ! $editing;
+    $initialStockValue = old('initial_stock_quantity', $productCreate ? '' : 0);
     $inventoryEnabled = $vendorMode && $editing
         ? (bool) $shopProduct->tracks_inventory
         : $tracksInventory;
@@ -36,6 +51,9 @@
         .product-form-field { margin-bottom: 16px; }
         .product-form-field:last-child { margin-bottom: 0; }
         .product-form-option { min-height: 42px; }
+        .variation-card { border: 1px solid #e2e8f0; border-radius: 9px; padding: 14px; background: #fff; }
+        .variation-card + .variation-card { margin-top: 10px; }
+        .variation-card-heading { color: #0f172a; font-size: .875rem; font-weight: 600; }
         .product-thumbnail-preview {
             display: flex;
             width: 160px;
@@ -153,43 +171,47 @@
                                       placeholder="Describe the product">{{ old('description', $shopProduct->description) }}</textarea>
                             @error('description')<div class="invalid-feedback">{{ $message }}</div>@enderror
                         </div>
-                        <div class="col-md-6 product-form-field">
-                            <label for="working_days" class="form-label">Delivery Time (working days) <span class="text-danger">*</span></label>
-                            <input id="working_days" name="working_days" type="number" min="1" required
-                                   class="form-control @error('working_days') is-invalid @enderror"
-                                   value="{{ old('working_days', $shopProduct->working_days ?: 1) }}">
-                            @error('working_days')<div class="invalid-feedback">{{ $message }}</div>@enderror
-                        </div>
+                        @if($productCreate)
+                            <input type="hidden" name="working_days" value="{{ old('working_days', 1) }}">
+                        @elseif($vendorMode)
+                            <div class="col-md-6 product-form-field">
+                                <label for="working_days" class="form-label">Delivery Time (working days) <span class="text-danger">*</span></label>
+                                <input id="working_days" name="working_days" type="number" min="1" required
+                                       class="form-control @error('working_days') is-invalid @enderror"
+                                       value="{{ old('working_days', $shopProduct->working_days ?: 1) }}">
+                                @error('working_days')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                            </div>
+                        @endif
                     </div>
                 </section>
 
                 <section class="product-form-section" aria-labelledby="pricing-heading">
-                    <div class="product-form-section-heading"><h2 id="pricing-heading">Pricing and Inventory</h2></div>
+                    <div class="product-form-section-heading"><h2 id="pricing-heading">Pricing</h2></div>
                     <div class="row gx-3">
                         <div class="col-md-6 product-form-field">
                             <label for="price" class="form-label">Selling Price (RWF) <span class="text-danger">*</span></label>
                             <div class="input-group">
                                 <span class="input-group-text">RWF</span>
                                 <input id="price" name="price" type="number" min="0" step="0.01" required
-                                       class="form-control @error('price') is-invalid @enderror" value="{{ old('price', $shopProduct->price) }}">
+                                       class="form-control @error('price') is-invalid @enderror" value="{{ old('price', $shopProduct->pending_payload['price'] ?? $shopProduct->price) }}"
+                                       @disabled($priceVariationsEnabled)>
                             </div>
                             @error('price')<div class="text-danger small mt-1">{{ $message }}</div>@enderror
                         </div>
-                        @if(!$vendorMode || !$editing)
-                            <div class="col-md-6 product-form-field">
-                                <div class="form-check form-switch product-form-option">
-                                    <input class="form-check-input" type="checkbox" role="switch" name="tracks_inventory"
-                                           value="1" id="tracks_inventory" @checked($tracksInventory)>
-                                    <label class="form-check-label fw-semibold" for="tracks_inventory">Track physical stock</label>
-                                </div>
-                                <div class="form-text">Leave off for digital services and products without physical inventory.</div>
+                        <div class="col-md-6 product-form-field">
+                            <div class="form-check form-switch product-form-option">
+                                <input class="form-check-input" type="checkbox" role="switch" name="price_variations_enabled"
+                                       value="1" id="price_variations_enabled" @checked($priceVariationsEnabled)>
+                                <label class="form-check-label fw-semibold" for="price_variations_enabled">Enable Price Variations</label>
                             </div>
-                        @elseif($shopProduct->tracks_inventory)
-                            <div class="col-md-6 product-form-field align-self-center">
+                            <div class="form-text">Set different prices for choices such as storage, size, or package.</div>
+                        </div>
+                        @if($vendorMode && $editing && $shopProduct->tracks_inventory)
+                            <div class="col-md-6 product-form-field">
                                 <div class="form-text">Stock changes are managed through approved inventory operations.</div>
                             </div>
                         @endif
-                        @if($editing && $shopProduct->tracks_inventory)
+                        @if($vendorMode && $editing && $shopProduct->tracks_inventory)
                             <div class="col-md-6 product-form-field">
                                 <label class="form-label">Current Stock</label>
                                 <div class="form-control bg-light" aria-readonly="true">
@@ -198,6 +220,7 @@
                                 <div class="form-text">Change stock through the Inventory workflow.</div>
                             </div>
                         @endif
+                        @if($vendorMode && $editing)
                         <div class="col-md-6 product-form-field {{ $inventoryEnabled ? '' : 'd-none' }}" id="stockUnitGroup">
                             <label for="stock_unit" class="form-label">Unit of Measurement</label>
                             <input id="stock_unit" name="stock_unit" maxlength="32"
@@ -206,31 +229,18 @@
                                    placeholder="e.g. pieces, kg, litre">
                             @error('stock_unit')<div class="invalid-feedback">{{ $message }}</div>@enderror
                         </div>
-                        @unless($editing)
-                            <div class="col-md-6 product-form-field {{ $inventoryEnabled ? '' : 'd-none' }}" id="initialStockGroup">
-                                <label for="initial_stock_quantity" class="form-label">
-                                    Initial Stock Quantity
-                                    <span class="text-muted fw-normal">(<span id="initialStockUnit">{{ old('stock_unit', $shopProduct->stock_unit ?? '') ?: 'units' }}</span>)</span>
-                                    <span class="text-danger">*</span>
-                                </label>
-                                <input id="initial_stock_quantity" name="initial_stock_quantity" type="number"
-                                       min="0" max="2147483647" step="1" value="{{ old('initial_stock_quantity', 0) }}"
-                                       @if($inventoryEnabled) required @else disabled @endif
-                                       class="form-control @error('initial_stock_quantity') is-invalid @enderror"
-                                       aria-describedby="initialStockHelp">
-                                <div id="initialStockHelp" class="form-text">
-                                    {{ $vendorMode ? 'This quantity stays pending until an administrator approves the product.' : 'This quantity is registered as an initial stock transaction when the product is approved.' }}
+                        @endif
+                        @if($editing)
+                            <div class="col-md-6 product-form-field">
+                                <div class="form-check form-switch product-form-option">
+                                    <input class="form-check-input" type="checkbox" role="switch" id="discount_enabled" name="discount_enabled" value="1"
+                                           @checked(old('discount_enabled', $shopProduct->discount_enabled))>
+                                    <label class="form-check-label fw-semibold" for="discount_enabled">Enable Discount</label>
                                 </div>
-                                @error('initial_stock_quantity')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                                <div class="form-text">Disable product-level discounts before enabling price variations.</div>
+                                @error('discount_enabled')<div class="text-danger small mt-1">{{ $message }}</div>@enderror
                             </div>
-                        @endunless
-                        <div class="col-md-6 product-form-field">
-                            <div class="form-check form-switch product-form-option">
-                                <input class="form-check-input" type="checkbox" role="switch" id="discount_enabled" name="discount_enabled" value="1"
-                                       @checked(old('discount_enabled', $shopProduct->discount_enabled))>
-                                <label class="form-check-label fw-semibold" for="discount_enabled">Enable Discount</label>
-                            </div>
-                        </div>
+                        @endif
                         <div class="col-md-6 product-form-field {{ old('discount_enabled', $shopProduct->discount_enabled) ? '' : 'd-none' }}" id="originalPriceGroup">
                             <label for="original_price" class="form-label">Original Price (RWF) <span class="text-danger">*</span></label>
                             <div class="input-group">
@@ -245,6 +255,133 @@
                         </div>
                     </div>
                 </section>
+
+                <section id="priceVariationsSection" class="product-form-section {{ $priceVariationsEnabled ? '' : 'd-none' }}" aria-labelledby="price-variations-heading">
+                    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 product-form-section-heading">
+                        <div>
+                            <h2 id="price-variations-heading">Price Variations</h2>
+                            <p class="form-text mt-1 mb-0">Add each available choice and select one default price.</p>
+                        </div>
+                        <button id="addPriceVariation" type="button" class="btn btn-sm btn-outline-primary">
+                            <i class="bi bi-plus-lg me-1" aria-hidden="true"></i>Add Variation
+                        </button>
+                    </div>
+                    <div id="priceVariationsContainer">
+                        @foreach($priceVariations as $index => $variation)
+                            <div class="variation-card" data-variation-card>
+                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                    <span class="variation-card-heading">Variation {{ $loop->iteration }}</span>
+                                    <button type="button" class="btn btn-sm btn-outline-danger" data-remove-variation aria-label="Remove variation {{ $loop->iteration }}">
+                                        <i class="bi bi-trash3 me-1" aria-hidden="true"></i>Remove
+                                    </button>
+                                </div>
+                                @if(!empty($variation['id']))
+                                    <input type="hidden" name="price_variations[{{ $index }}][id]" value="{{ $variation['id'] }}">
+                                @endif
+                                <input type="hidden" name="price_variations[{{ $index }}][is_default]" value="{{ !empty($variation['is_default']) ? '1' : '0' }}" data-variation-default-value>
+                                <div class="row gx-3 gy-2">
+                                    <div class="col-md-4">
+                                        <label class="form-label" for="variation-feature-{{ $index }}">Feature Label <span class="text-danger">*</span></label>
+                                        <input id="variation-feature-{{ $index }}" name="price_variations[{{ $index }}][feature_label]" required maxlength="255"
+                                               value="{{ $variation['feature_label'] ?? '' }}" class="form-control @error("price_variations.$index.feature_label") is-invalid @enderror">
+                                        @error("price_variations.$index.feature_label")<div class="invalid-feedback">{{ $message }}</div>@enderror
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label" for="variation-value-{{ $index }}">Variation Value <span class="text-danger">*</span></label>
+                                        <input id="variation-value-{{ $index }}" name="price_variations[{{ $index }}][variation_value]" required maxlength="255"
+                                               value="{{ $variation['variation_value'] ?? '' }}" class="form-control @error("price_variations.$index.variation_value") is-invalid @enderror">
+                                        @error("price_variations.$index.variation_value")<div class="invalid-feedback">{{ $message }}</div>@enderror
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label" for="variation-price-{{ $index }}">Selling Price (RWF) <span class="text-danger">*</span></label>
+                                        <div class="input-group">
+                                            <span class="input-group-text">RWF</span>
+                                            <input id="variation-price-{{ $index }}" name="price_variations[{{ $index }}][price]" type="number" min="0" step="0.01" required
+                                                   value="{{ $variation['price'] ?? '' }}" class="form-control @error("price_variations.$index.price") is-invalid @enderror" data-variation-price>
+                                        </div>
+                                        @error("price_variations.$index.price")<div class="text-danger small mt-1">{{ $message }}</div>@enderror
+                                    </div>
+                                    <div class="col-12">
+                                        <div class="form-check">
+                                            <input type="radio" name="default_variation" value="{{ $index }}" class="form-check-input" data-default-variation @checked(!empty($variation['is_default']))>
+                                            <label class="form-check-label small">Default variation</label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        @endforeach
+                    </div>
+                    @error('price_variations')<div class="text-danger small mt-2">{{ $message }}</div>@enderror
+                    <div class="form-text mt-2">The default variation price is used in product listings and as the starting price.</div>
+                </section>
+
+                @if($productCreate)
+                    <section class="product-form-section" aria-labelledby="stock-heading">
+                        <div class="product-form-section-heading">
+                            <h2 id="stock-heading">Stock</h2>
+                            <p class="form-text mt-1 mb-0">Enter an initial quantity to enable inventory tracking. Leave it blank for products without tracked stock.</p>
+                        </div>
+                        <input type="hidden" name="tracks_inventory" id="tracks_inventory" value="{{ old('tracks_inventory', $initialStockValue !== '' ? 1 : 0) }}" data-track-from-quantity>
+                        <div class="row gx-3">
+                            <div class="col-md-6 product-form-field" id="stockUnitGroup">
+                                <label for="stock_unit" class="form-label">Unit of Measurement</label>
+                                <input id="stock_unit" name="stock_unit" maxlength="32"
+                                       class="form-control @error('stock_unit') is-invalid @enderror"
+                                       value="{{ old('stock_unit', $shopProduct->stock_unit ?? '') }}"
+                                       placeholder="e.g. pieces, kg, litre">
+                                @error('stock_unit')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                            </div>
+                            <div class="col-md-6 product-form-field" id="initialStockGroup">
+                                <label for="initial_stock_quantity" class="form-label">
+                                    Initial Stock Quantity
+                                    <span class="text-muted fw-normal">(<span id="initialStockUnit">{{ old('stock_unit', $shopProduct->stock_unit ?? '') ?: 'units' }}</span>)</span>
+                                </label>
+                                <input id="initial_stock_quantity" name="initial_stock_quantity" type="number"
+                                       min="0" max="2147483647" step="1" value="{{ $initialStockValue }}"
+                                       class="form-control @error('initial_stock_quantity') is-invalid @enderror"
+                                       aria-describedby="initialStockHelp">
+                                <div id="initialStockHelp" class="form-text">
+                                    {{ $vendorMode ? 'This quantity stays pending until an administrator approves the product.' : 'The quantity is registered as an initial stock transaction when the product is approved.' }}
+                                </div>
+                                @error('initial_stock_quantity')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                            </div>
+                        </div>
+                    </section>
+                @elseif(!$vendorMode)
+                    <section class="product-form-section" aria-labelledby="stock-heading">
+                        <div class="product-form-section-heading">
+                            <h2 id="stock-heading">Stock</h2>
+                            <p class="form-text mt-1 mb-0">Manage inventory tracking separately from product pricing. Stock quantity changes remain in the Inventory workflow.</p>
+                        </div>
+                        <div class="row gx-3">
+                            <div class="col-md-6 product-form-field">
+                                <div class="form-check form-switch product-form-option">
+                                    <input class="form-check-input" type="checkbox" role="switch" name="tracks_inventory"
+                                           value="1" id="tracks_inventory" @checked($tracksInventory)>
+                                    <label class="form-check-label fw-semibold" for="tracks_inventory">Track physical stock</label>
+                                </div>
+                                <div class="form-text">Leave off for digital services and products without physical inventory.</div>
+                            </div>
+                            @if($shopProduct->tracks_inventory)
+                                <div class="col-md-6 product-form-field">
+                                    <label class="form-label">Current Stock</label>
+                                    <div class="form-control bg-light" aria-readonly="true">
+                                        {{ number_format($shopProduct->stock_quantity) }} {{ $shopProduct->stock_unit ?: 'units' }}
+                                    </div>
+                                    <div class="form-text">Change stock through the Inventory workflow.</div>
+                                </div>
+                            @endif
+                            <div class="col-md-6 product-form-field {{ $inventoryEnabled ? '' : 'd-none' }}" id="stockUnitGroup">
+                                <label for="stock_unit" class="form-label">Unit of Measurement</label>
+                                <input id="stock_unit" name="stock_unit" maxlength="32"
+                                       class="form-control @error('stock_unit') is-invalid @enderror"
+                                       value="{{ old('stock_unit', $shopProduct->stock_unit ?? '') }}"
+                                       placeholder="e.g. pieces, kg, litre">
+                                @error('stock_unit')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                            </div>
+                        </div>
+                    </section>
+                @endif
 
                 @unless($vendorMode)
                 <section class="product-form-section" aria-labelledby="promotion-heading">
@@ -418,6 +555,10 @@ document.addEventListener('DOMContentLoaded', function () {
     const originalPriceGroup = document.getElementById('originalPriceGroup');
     const priceInput = document.getElementById('price');
     const originalPriceInput = document.getElementById('original_price');
+    const priceVariationsToggle = document.getElementById('price_variations_enabled');
+    const priceVariationsSection = document.getElementById('priceVariationsSection');
+    const priceVariationsContainer = document.getElementById('priceVariationsContainer');
+    const addPriceVariationButton = document.getElementById('addPriceVariation');
     const discountPreview = document.getElementById('discountPreview');
     const mainInput = document.getElementById('thumbnail');
     const mainPreview = document.getElementById('mainImagePreview');
@@ -440,6 +581,7 @@ document.addEventListener('DOMContentLoaded', function () {
     let uploads = [];
     let uploadId = 0;
     let specIndex = {{ count($specifications) }};
+    let variationIndex = {{ count($priceVariations) ? max(array_map('intval', array_keys($priceVariations))) + 1 : 0 }};
     let thumbnailPreviewUrl = null;
 
     function loadSubcategories() {
@@ -456,7 +598,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function updateDiscount() {
-        const enabled = discountToggle.checked;
+        const enabled = discountToggle?.checked ?? false;
         originalPriceGroup.classList.toggle('d-none', !enabled);
         originalPriceInput.required = enabled;
         const price = Number(priceInput.value);
@@ -466,8 +608,100 @@ document.addEventListener('DOMContentLoaded', function () {
             : '';
     }
 
+    function syncDefaultVariation() {
+        const cards = Array.from(priceVariationsContainer.querySelectorAll('[data-variation-card]'));
+        let selected = priceVariationsContainer.querySelector('[data-default-variation]:checked');
+        if (!selected && cards.length) {
+            selected = cards[0].querySelector('[data-default-variation]');
+            selected.checked = true;
+        }
+
+        cards.forEach(function (card) {
+            const radio = card.querySelector('[data-default-variation]');
+            card.querySelector('[data-variation-default-value]').value = radio.checked ? '1' : '0';
+        });
+
+        if (selected) {
+            const selectedCard = selected.closest('[data-variation-card]');
+            priceInput.value = selectedCard.querySelector('[data-variation-price]').value;
+        }
+
+        updateDiscount();
+    }
+
+    function updatePriceVariationMode() {
+        const enabled = priceVariationsToggle.checked;
+        priceVariationsSection.classList.toggle('d-none', !enabled);
+        priceInput.disabled = enabled;
+        priceInput.required = !enabled;
+        priceVariationsContainer.querySelectorAll('input').forEach(function (input) {
+            input.disabled = !enabled;
+        });
+
+        if (enabled && !priceVariationsContainer.querySelector('[data-variation-card]')) {
+            addPriceVariation();
+        }
+        syncDefaultVariation();
+    }
+
+    function addPriceVariation() {
+        const first = priceVariationsContainer.querySelectorAll('[data-variation-card]').length === 0;
+        const index = variationIndex++;
+        const card = document.createElement('div');
+        card.className = 'variation-card';
+        card.dataset.variationCard = '';
+        card.innerHTML = `
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <span class="variation-card-heading">Variation</span>
+                <button type="button" class="btn btn-sm btn-outline-danger" data-remove-variation aria-label="Remove variation">
+                    <i class="bi bi-trash3 me-1" aria-hidden="true"></i>Remove
+                </button>
+            </div>
+            <input type="hidden" name="price_variations[${index}][is_default]" value="${first ? '1' : '0'}" data-variation-default-value>
+            <div class="row gx-3 gy-2">
+                <div class="col-md-4">
+                    <label class="form-label" for="variation-feature-${index}">Feature Label <span class="text-danger">*</span></label>
+                    <input id="variation-feature-${index}" name="price_variations[${index}][feature_label]" required maxlength="255" class="form-control">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label" for="variation-value-${index}">Variation Value <span class="text-danger">*</span></label>
+                    <input id="variation-value-${index}" name="price_variations[${index}][variation_value]" required maxlength="255" class="form-control">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label" for="variation-price-${index}">Selling Price (RWF) <span class="text-danger">*</span></label>
+                    <div class="input-group">
+                        <span class="input-group-text">RWF</span>
+                        <input id="variation-price-${index}" name="price_variations[${index}][price]" type="number" min="0" step="0.01" required class="form-control" data-variation-price>
+                    </div>
+                </div>
+                <div class="col-12">
+                    <div class="form-check">
+                        <input type="radio" name="default_variation" value="${index}" class="form-check-input" data-default-variation ${first ? 'checked' : ''}>
+                        <label class="form-check-label small">Default variation</label>
+                    </div>
+                </div>
+            </div>`;
+        priceVariationsContainer.appendChild(card);
+        card.querySelector('input[name$="[feature_label]"]').disabled = !priceVariationsToggle.checked;
+        card.querySelector('input[name$="[variation_value]"]').disabled = !priceVariationsToggle.checked;
+        card.querySelector('[data-variation-price]').disabled = !priceVariationsToggle.checked;
+        card.querySelector('[data-default-variation]').disabled = !priceVariationsToggle.checked;
+        syncDefaultVariation();
+        card.querySelector('input[name$="[feature_label]"]').focus();
+    }
+
     function updateStockInput() {
         if (!trackingInput) return;
+        if (trackingInput.hasAttribute('data-track-from-quantity')) {
+            const hasInitialStock = initialStockInput.value.trim() !== '';
+            trackingInput.value = hasInitialStock ? '1' : '0';
+            initialStockInput.required = hasInitialStock;
+            if (initialStockUnit && stockUnitInput) {
+                initialStockUnit.textContent = stockUnitInput.value.trim() || 'units';
+            }
+            return;
+        }
+
         const enabled = trackingInput.checked;
         if (stockUnitGroup) {
             stockUnitGroup.classList.toggle('d-none', !enabled);
@@ -584,12 +818,43 @@ document.addEventListener('DOMContentLoaded', function () {
         loadSubcategories();
     });
     loadSubcategories();
-    discountToggle.addEventListener('change', updateDiscount);
+    discountToggle?.addEventListener('change', updateDiscount);
     priceInput.addEventListener('input', updateDiscount);
     originalPriceInput.addEventListener('input', updateDiscount);
     updateDiscount();
+    priceVariationsToggle.addEventListener('change', updatePriceVariationMode);
+    addPriceVariationButton.addEventListener('click', addPriceVariation);
+    priceVariationsContainer.addEventListener('change', function (event) {
+        if (event.target.matches('[data-default-variation], [data-variation-price]')) {
+            syncDefaultVariation();
+        }
+    });
+    priceVariationsContainer.addEventListener('input', function (event) {
+        if (event.target.matches('[data-variation-price]')) {
+            syncDefaultVariation();
+        }
+    });
+    priceVariationsContainer.addEventListener('click', function (event) {
+        const removeButton = event.target.closest('[data-remove-variation]');
+        if (!removeButton) return;
+
+        const cards = priceVariationsContainer.querySelectorAll('[data-variation-card]');
+        if (priceVariationsToggle.checked && cards.length <= 1) return;
+
+        const wasDefault = removeButton.closest('[data-variation-card]').querySelector('[data-default-variation]').checked;
+        removeButton.closest('[data-variation-card]').remove();
+        if (wasDefault) {
+            const nextDefault = priceVariationsContainer.querySelector('[data-default-variation]');
+            if (nextDefault) nextDefault.checked = true;
+        }
+        syncDefaultVariation();
+    });
+    updatePriceVariationMode();
     if (trackingInput) {
         trackingInput.addEventListener('change', updateStockInput);
+    }
+    if (initialStockInput) {
+        initialStockInput.addEventListener('input', updateStockInput);
     }
     if (stockUnitInput) {
         stockUnitInput.addEventListener('input', updateStockInput);
@@ -687,6 +952,7 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 
     form.addEventListener('submit', function () {
+        syncDefaultVariation();
         const saveButton = document.getElementById('saveProductButton');
         saveButton.disabled = true;
         document.getElementById('saveProductLabel').textContent = 'Saving...';

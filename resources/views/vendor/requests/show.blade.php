@@ -4,7 +4,12 @@
 <div class="container py-4" style="max-width: 760px;">
     @include('marketplace.partials.flash')
     <h1 class="h3">{{ $record->reference }}</h1>
-    <p>{{ $record->product_name }} × {{ $record->quantity }}</p>
+    <p>{{ $record->product_name }} × {{ $record->quantity }}
+        @if($record->variation_label && $record->variation_value)
+            · {{ $record->variation_label }}: {{ $record->variation_value }}
+            @if($record->variation_price) · RWF {{ number_format((float) $record->variation_price, 0, '.', ',') }} @endif
+        @endif
+    </p>
     <p>{{ $record->delivery_location }}</p>
     <p>{{ $record->instructions }}</p>
     <p>Customer: {{ $record->customer_name }} · {{ $record->phone }}</p>

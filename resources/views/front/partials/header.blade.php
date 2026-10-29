@@ -101,7 +101,7 @@
                 @if(!Auth::guard('customers')->check())
                     <livewire:public-login-modal
                         :open-on-load="request()->boolean('auth_required')"
-                        notice="Please sign in first to continue with your order."
+                        :notice="request()->boolean('auth_required') ? 'Please sign in first to continue with your order.' : ''"
                     />
                 @else
                     @php

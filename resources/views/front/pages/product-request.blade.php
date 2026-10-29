@@ -8,7 +8,20 @@
         <input type="hidden" name="submission_key" value="{{ $submissionKey }}">
         @if($product)
             <input type="hidden" name="product_slug" value="{{ $product->slug }}">
-            <div class="col-12"><div class="alert alert-light">Requesting <strong>{{ $product->product_name }}</strong> · RWF {{ number_format((float) $product->price, 0, '.', ',') }}</div></div>
+            @if($product->variations->isNotEmpty())
+                <input type="hidden" name="variation_id" value="{{ $selectedVariation?->id }}">
+                <div class="col-12">
+                    <div class="alert alert-light">
+                        Requesting <strong>{{ $product->product_name }}</strong>
+                        @if($selectedVariation)
+                            · {{ $selectedVariation->feature_label }}: {{ $selectedVariation->variation_value }}
+                            · RWF {{ number_format((float) $selectedVariation->price, 0, '.', ',') }}
+                        @endif
+                    </div>
+                </div>
+            @else
+                <div class="col-12"><div class="alert alert-light">Requesting <strong>{{ $product->product_name }}</strong> · RWF {{ number_format((float) $product->price, 0, '.', ',') }}</div></div>
+            @endif
             <div class="col-12">
                 <label class="form-label" for="request_type">How would you like to proceed?</label>
                 <select id="request_type" name="request_type" class="form-select">

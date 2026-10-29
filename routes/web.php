@@ -15,6 +15,7 @@ use App\Http\Controllers\ShopProductController;
 use App\Http\Controllers\TestimonialController;
 use App\Http\Controllers\WorkController;
 use App\Models\Cta;
+use App\Models\Partner;
 use App\Models\ShopProduct;
 use App\Models\Vendor;
 use Illuminate\Support\Facades\Route;
@@ -37,12 +38,35 @@ Route::get('/', function () {
         ->get();
 
     $ctas = Cta::with('category')->get();
-    $partners = Vendor::query()
+    $vendorPartners = Vendor::query()
         ->publishedOnWebsite()
         ->orderBy('display_order')
         ->orderBy('business_name')
         ->orderBy('id')
-        ->get(['id', 'business_name', 'business_logo_path', 'display_order']);
+        ->get(['id', 'business_name', 'business_logo_path', 'partner_description', 'website_url', 'display_order'])
+        ->map(static fn (Vendor $vendor): object => (object) [
+            'business_name' => $vendor->business_name,
+            'business_logo_path' => $vendor->business_logo_path,
+            'partner_description' => $vendor->partner_description,
+            'website_url' => $vendor->website_url,
+            'display_order' => $vendor->display_order,
+        ]);
+
+    $registeredPartners = Partner::query()
+        ->where('status', 'active')
+        ->where('show_on_website', true)
+        ->orderBy('title')
+        ->orderBy('id')
+        ->get(['title', 'logo_path', 'description', 'website_url'])
+        ->map(static fn (Partner $partner): object => (object) [
+            'business_name' => $partner->title,
+            'business_logo_path' => $partner->logo_path,
+            'partner_description' => null,
+            'website_url' => $partner->website_url,
+            'display_order' => null,
+        ]);
+
+    $partners = $vendorPartners->concat($registeredPartners);
 
     return view('welcome', compact('popularProducts', 'ctas', 'partners'));
 })->name('home');

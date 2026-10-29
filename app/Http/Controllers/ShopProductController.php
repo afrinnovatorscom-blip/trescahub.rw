@@ -99,7 +99,7 @@ class ShopProductController extends Controller
     {
         abort_unless($shopProduct->isPubliclyVisible(), 404);
 
-        $shopProduct->load(['category', 'subcategory']);
+        $shopProduct->load(['category', 'subcategory', 'variations']);
 
         $related = ShopProduct::query()->publicCatalog()
             ->with(['category', 'subcategory'])
@@ -165,7 +165,7 @@ class ShopProductController extends Controller
     {
         $this->authorize('create', ShopProduct::class);
 
-        $validated = ProductPayload::normalize($request->validate(ProductPayload::rules(true)));
+        $validated = ProductPayload::normalize(ProductPayload::validate($request, true));
         [$validated, $newUploads, $obsoleteUploads] = $this->images->withUploads($request, $validated, null);
         $user = $request->user();
 
@@ -206,7 +206,7 @@ class ShopProductController extends Controller
     public function edit(ShopProduct $shopProduct)
     {
         $this->authorize('update', $shopProduct);
-        $shopProduct->load(['category', 'subcategory']);
+        $shopProduct->load(['category', 'subcategory', 'variations']);
         $parentCategories = $this->categories();
         $vendors = $this->vendorOptions();
 
@@ -217,7 +217,7 @@ class ShopProductController extends Controller
     {
         $this->authorize('update', $shopProduct);
 
-        $validated = ProductPayload::normalize($request->validate(ProductPayload::rules()));
+        $validated = ProductPayload::normalize(ProductPayload::validate($request, false, $shopProduct));
         [$validated, $newUploads, $obsoleteUploads] = $this->images->withUploads($request, $validated, $shopProduct);
         $user = $request->user();
 

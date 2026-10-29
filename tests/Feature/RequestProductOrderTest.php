@@ -99,7 +99,6 @@ class RequestProductOrderTest extends TestCase
 
         $this->actingAs($this->admin, 'web')->get(route('marketplace.orders.index'))
             ->assertOk()
-            ->assertSee('Request Product')
             ->assertSee($order->reference);
         $this->get(route('marketplace.orders.show', $order))
             ->assertOk()
@@ -142,8 +141,106 @@ class RequestProductOrderTest extends TestCase
 
         $this->actingAs($this->admin, 'web')->get(route('marketplace.orders.index'))
             ->assertOk()
-            ->assertSee('Cart Checkout')
             ->assertSee($order->reference);
+        $this->get(route('marketplace.orders.show', $order))
+            ->assertOk()
+            ->assertSee('Cart Checkout');
+    }
+
+    public function test_selected_product_variation_price_and_snapshot_are_used_for_cart_orders_and_quotes(): void
+    {
+        $customer = $this->customer();
+        $product = $this->product(['product_name' => 'Variable Product', 'price' => 10000]);
+        $standard = $product->variations()->create([
+            'feature_label' => 'Package',
+            'variation_value' => 'Standard',
+            'price' => 10000,
+            'is_default' => true,
+        ]);
+        $premium = $product->variations()->create([
+            'feature_label' => 'Package',
+            'variation_value' => 'Premium',
+            'price' => 15000,
+            'is_default' => false,
+        ]);
+
+        $this->get(route('shop-products.show', $product))
+            ->assertOk()
+            ->assertSee('Standard')
+            ->assertSee('Premium')
+            ->assertSee('RWF 15,000');
+
+        $foreignProduct = $this->product(['product_name' => 'Unrelated Product']);
+        $foreignVariation = $foreignProduct->variations()->create([
+            'feature_label' => 'Package',
+            'variation_value' => 'Foreign',
+            'price' => 99999,
+            'is_default' => true,
+        ]);
+        $this->from(route('shop-products.show', $product))
+            ->post(route('cart.add'), [
+                'product' => $product->slug,
+                'quantity' => 1,
+                'variation_id' => $foreignVariation->id,
+            ])
+            ->assertRedirect(route('shop-products.show', $product))
+            ->assertSessionHasErrors('variation_id');
+
+        $lineKey = $product->slug.'|variation|'.$premium->id;
+        $this->actingAs($customer, 'customers')
+            ->withSession(['marketplace.cart' => [
+                $lineKey => ['quantity' => 2, 'variation_id' => $premium->id],
+            ]])
+            ->get(route('cart'))
+            ->assertOk()
+            ->assertSee('Package: Premium')
+            ->assertSee('RWF 30,000');
+
+        $this->patchJson(route('cart.update'), ['quantities' => [$lineKey => 2]])
+            ->assertOk()
+            ->assertJsonPath('quantities.'.$lineKey, 2)
+            ->assertJsonPath('subtotal', 30000);
+
+        $this->post(route('checkout.place'), [
+            'customer_name' => $customer->name,
+            'email' => $customer->email,
+            'phone' => $customer->phone,
+            'delivery_address' => 'Kigali',
+            'payment_method' => 'cash_on_delivery',
+        ])->assertRedirect();
+
+        $order = Order::query()->with('items')->firstOrFail();
+        $item = $order->items->firstOrFail();
+        $this->assertSame(30000.0, (float) $order->total);
+        $this->assertSame($premium->id, $item->product_variation_id);
+        $this->assertSame('Package', $item->variation_label);
+        $this->assertSame('Premium', $item->variation_value);
+        $this->assertSame(15000.0, (float) $item->unit_price);
+        $this->assertSame(2, $item->quantity);
+
+        $this->get(route('account.orders'))
+            ->assertOk()
+            ->assertSee('Package: Premium');
+        $this->get(route('account.orders.show', $order->reference))
+            ->assertOk()
+            ->assertSee('Package: Premium');
+
+        $this->post(route('product-requests.store'), [
+            'product_slug' => $product->slug,
+            'request_type' => 'quote',
+            'variation_id' => $standard->id,
+            'customer_name' => $customer->name,
+            'phone' => $customer->phone,
+            'quantity' => 1,
+        ])->assertRedirect();
+
+        $this->assertDatabaseHas('product_requests', [
+            'shop_product_id' => $product->id,
+            'product_variation_id' => $standard->id,
+            'variation_label' => 'Package',
+            'variation_value' => 'Standard',
+            'variation_price' => 10000,
+        ]);
     }
 
     public function test_quote_and_free_text_product_requests_remain_in_the_request_workflow(): void

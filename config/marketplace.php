@@ -72,6 +72,8 @@ return [
         'shop_category_id',
         'subcategory_id',
         'is_popular',
+        'price_variations_enabled',
+        'price_variations',
     ],
 
 ];

@@ -41,12 +41,46 @@ class VendorWorkspaceController extends Controller
     public function dashboard()
     {
         $vendorId = auth()->user()->vendor_id;
+        $ownedProducts = ShopProduct::query()->ownedByVendor($vendorId);
+        $confirmedFulfillmentStatuses = ['confirmed', 'processing', 'awaiting_stock', 'ready_for_dispatch'];
+        $ordersToFulfill = Order::query()
+            ->where('payment_status', 'paid')
+            ->whereIn('fulfillment_status', $confirmedFulfillmentStatuses)
+            ->whereDoesntHave('deliveries', fn ($deliveries) => $deliveries
+                ->whereNull('order_item_id')
+                ->where('vendor_id', $vendorId))
+            ->whereHas('items', fn ($items) => $items
+                ->ownedByVendor($vendorId)
+                ->whereIn('assignment_status', ['assigned', 'accepted'])
+                ->whereIn('fulfillment_status', $confirmedFulfillmentStatuses)
+                ->whereNotIn('id', DeliveryTask::query()
+                    ->select('order_item_id')
+                    ->whereNotNull('order_item_id')))
+            ->count();
+        $assignedOrders = Order::query()
+            ->whereHas('items', fn ($items) => $items->ownedByVendor($vendorId));
+        $rejectedProducts = (clone $ownedProducts)->where('approval_status', 'rejected')->count();
+        $requests = ProductRequest::query()->ownedByVendor($vendorId)
+            ->where('status', 'awaiting_vendor_response')->count();
 
         return view('vendor.dashboard', [
-            'products' => ShopProduct::query()->ownedByVendor($vendorId)->count(),
-            'pending' => ShopProduct::query()->ownedByVendor($vendorId)->where('approval_status', 'pending_approval')->count(),
-            'requests' => ProductRequest::query()->ownedByVendor($vendorId)->where('status', 'awaiting_vendor_response')->count(),
-            'orders' => OrderItem::query()->ownedByVendor($vendorId)->distinct('order_id')->count('order_id'),
+            'products' => (clone $ownedProducts)->count(),
+            'approved' => (clone $ownedProducts)->where('approval_status', 'approved')->count(),
+            'pending' => (clone $ownedProducts)->where(function ($query) {
+                $query->where('approval_status', 'pending_approval')
+                    ->orWhere('revision_status', 'pending_approval');
+            })->count(),
+            'rejected' => $rejectedProducts,
+            'requests' => $requests,
+            'orders' => (clone $assignedOrders)->distinct()->count('orders.id'),
+            'ordersToFulfill' => $ordersToFulfill,
+            'completedOrders' => (clone $assignedOrders)->where('fulfillment_status', 'completed')->count(),
+            'recentOrders' => (clone $assignedOrders)
+                ->with(['items' => fn ($items) => $items->ownedByVendor($vendorId)])
+                ->latest('orders.created_at')
+                ->limit(5)
+                ->get(),
+            'recentProducts' => (clone $ownedProducts)->latest()->limit(5)->get(),
         ]);
     }
 
@@ -93,6 +127,7 @@ class VendorWorkspaceController extends Controller
     public function editProduct(string $slug)
     {
         $product = $this->findProduct($slug);
+        $product->load('variations');
 
         return view('vendor.products.form', [
             'product' => $product,
@@ -104,7 +139,7 @@ class VendorWorkspaceController extends Controller
     public function updateProduct(Request $request, string $slug)
     {
         $product = $this->findProduct($slug);
-        $validated = $this->payload($request);
+        $validated = $this->payload($request, false, $product);
         [$validated, $newUploads, $obsoleteUploads] = $this->productImages->withUploads($request, $validated, $product);
         try {
             $this->products->updateVendor($product, $request->user(), $validated, $request->boolean('submit_for_review'));
@@ -849,9 +884,13 @@ class VendorWorkspaceController extends Controller
         return ShopProduct::query()->ownedByVendor(auth()->user()->vendor_id)->where('slug', $slug)->firstOrFail();
     }
 
-    private function payload(Request $request, bool $creating = false): array
+    private function payload(Request $request, bool $creating = false, ?ShopProduct $product = null): array
     {
-        $validated = ProductPayload::normalize($request->validate(ProductPayload::rules($creating)));
+        $validated = ProductPayload::normalize(ProductPayload::validate(
+            $request,
+            $creating,
+            $product,
+        ));
         unset($validated['vendor_id'], $validated['acquisition_cost'], $validated['internal_notes'], $validated['publish_now'], $validated['submit_for_review']);
 
         return $validated;

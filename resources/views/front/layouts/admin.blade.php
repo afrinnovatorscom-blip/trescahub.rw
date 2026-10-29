@@ -386,7 +386,7 @@
 
         @if(auth()->user()->hasPermission('cms.manage'))
             <a href="{{ route('partners.index') }}" class="nav-item-link {{ request()->routeIs('partners.*') ? 'active' : '' }}">
-                <i class="bi bi-handshake"></i>
+                <i class="bi bi-people"></i>
                 Partners
             </a>
             <a href="{{ route('works.index') }}" class="nav-item-link {{ request()->routeIs('works.*') ? 'active' : '' }}">

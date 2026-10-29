@@ -76,7 +76,8 @@ class PublicLoginModal extends Component
 
     private function redirectAfterLogin(): void
     {
-        $intended = session()->pull('customer.auth_redirect', session()->pull('url.intended'));
+        $intended = session('customer.auth_redirect') ?? session('url.intended');
+        session()->forget(['customer.auth_redirect', 'url.intended']);
 
         if (is_string($intended)) {
             $parts = parse_url($intended);
@@ -92,7 +93,7 @@ class PublicLoginModal extends Component
             }
         }
 
-        $this->redirectRoute('account.orders');
+        $this->redirectRoute('home');
     }
 
     public function render()

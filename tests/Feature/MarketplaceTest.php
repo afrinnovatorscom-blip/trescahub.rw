@@ -230,15 +230,26 @@ class MarketplaceTest extends TestCase
         $this->actingAs($vendorUser)->get(route('vendor.products.create'))
             ->assertOk()
             ->assertSee('Product Information')
+            ->assertSee('Pricing')
+            ->assertSee('Price Variations')
+            ->assertSee('Stock')
             ->assertSee('Main Product Image (Thumbnail)')
             ->assertSee('Additional Product Images (Optional)')
+            ->assertSee('Product Specifications and Features')
+            ->assertSee('Add Specification')
+            ->assertSee('Add Feature')
             ->assertSee('Submit Product')
             ->assertDontSee('name="sku"', false)
             ->assertDontSee('Additional Settings')
             ->assertDontSee('Assign to Vendor')
-            ->assertSee('Track physical stock')
+            ->assertDontSee('Track physical stock')
+            ->assertDontSee('Enable Discount')
+            ->assertDontSee('Delivery Time (working days)')
+            ->assertSee('name="working_days" value="1"', false)
+            ->assertSee('This quantity stays pending until an administrator approves the product.')
             ->assertDontSee('Approve Now')
-            ->assertDontSee('Publish Now');
+            ->assertDontSee('Publish Now')
+            ->assertDontSee('Publish after saving');
 
         $imageContent = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lXcAAAAASUVORK5CYII=');
         $thumbnail = UploadedFile::fake()->createWithContent('vendor-main.png', $imageContent);
@@ -318,6 +329,141 @@ class MarketplaceTest extends TestCase
         $this->actingAs($vendorUser)->get(route('vendor.products.edit', $foreign->slug))->assertNotFound();
 
         \App\Support\PublicAsset::delete($galleryPath);
+    }
+
+    public function test_vendor_product_submission_supports_images_features_specifications_and_variations(): void
+    {
+        $vendor = $this->vendor('Full Product Vendor');
+        $vendorUser = $this->user('vendor', $vendor);
+        $admin = $this->user('administrator');
+        $imageContent = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lXcAAAAASUVORK5CYII=');
+        $thumbnail = UploadedFile::fake()->createWithContent('vendor-product.png', $imageContent);
+        $galleryImage = UploadedFile::fake()->createWithContent('vendor-product-side.png', $imageContent.'side');
+
+        $this->actingAs($vendorUser)->post(route('vendor.products.store'), [
+            'product_name' => 'Vendor Product With Options',
+            'description' => 'A vendor submitted product with selectable options.',
+            'status' => 'active',
+            'price_variations_enabled' => 1,
+            'price_variations' => [
+                [
+                    'feature_label' => 'Package',
+                    'variation_value' => 'Standard',
+                    'price' => 20000,
+                    'is_default' => 1,
+                ],
+                [
+                    'feature_label' => 'Package',
+                    'variation_value' => 'Premium',
+                    'price' => 25000,
+                    'is_default' => 0,
+                ],
+            ],
+            'working_days' => 1,
+            'shop_category_id' => $this->category->id,
+            'tracks_inventory' => 0,
+            'thumbnail' => $thumbnail,
+            'images' => [$galleryImage],
+            'gallery_order_present' => 1,
+            'gallery_order' => ['upload:0'],
+            'specifications' => [
+                ['label' => 'Brand', 'value' => 'Vendor Brand'],
+            ],
+            'features' => ['Durable', 'Easy to install'],
+            'publish_now' => 1,
+        ])->assertRedirect(route('vendor.products.index'));
+
+        $product = ShopProduct::query()->where('product_name', 'Vendor Product With Options')->firstOrFail();
+        $this->assertSame($vendor->id, $product->vendor_id);
+        $this->assertSame('pending_approval', $product->approval_status);
+        $this->assertSame('unpublished', $product->publication_status);
+        $this->assertSame(1, (int) $product->working_days);
+        $this->assertSame('Vendor Brand', $product->specifications[0]['value']);
+        $this->assertSame(['Durable', 'Easy to install'], $product->features);
+        $this->assertSame(20000.0, (float) $product->price);
+        $this->assertCount(2, $product->variations);
+        $this->assertSame('Standard', $product->variations->firstWhere('is_default', true)->variation_value);
+        $this->assertFileExists(public_path('assets/'.$product->thumbnail));
+        $this->assertFileExists(public_path('assets/'.$product->images[0]));
+
+        $this->actingAs($admin)->post(route('marketplace.products.approve', $product), [
+            'note' => 'Product submission reviewed.',
+        ])->assertRedirect();
+        $this->assertSame('approved', $product->fresh()->approval_status);
+        $this->assertSame('unpublished', $product->fresh()->publication_status);
+        $this->assertCount(2, $product->fresh()->variations);
+
+        foreach (array_filter([$product->thumbnail, ...($product->images ?? [])]) as $path) {
+            \App\Support\PublicAsset::delete($path);
+        }
+    }
+
+    public function test_vendor_price_variation_edits_stay_pending_until_product_approval(): void
+    {
+        $vendor = $this->vendor('Variation Supplier');
+        $vendorUser = $this->user('vendor', $vendor);
+        $admin = $this->user('administrator');
+        $product = $this->product([
+            'product_name' => 'Vendor option product',
+            'price' => 10000,
+            'vendor_id' => $vendor->id,
+        ]);
+        $standard = $product->variations()->create([
+            'feature_label' => 'Package',
+            'variation_value' => 'Standard',
+            'price' => 10000,
+            'is_default' => true,
+        ]);
+        $premium = $product->variations()->create([
+            'feature_label' => 'Package',
+            'variation_value' => 'Premium',
+            'price' => 15000,
+            'is_default' => false,
+        ]);
+
+        $this->actingAs($vendorUser)->put(route('vendor.products.update', $product->slug), [
+            'product_name' => $product->product_name,
+            'description' => $product->description,
+            'working_days' => $product->working_days,
+            'status' => 'in_stock',
+            'shop_category_id' => $this->category->id,
+            'price_variations_enabled' => 1,
+            'price_variations' => [
+                [
+                    'id' => $standard->id,
+                    'feature_label' => 'Package',
+                    'variation_value' => 'Standard',
+                    'price' => 10000,
+                    'is_default' => false,
+                ],
+                [
+                    'id' => $premium->id,
+                    'feature_label' => 'Package',
+                    'variation_value' => 'Premium',
+                    'price' => 18000,
+                    'is_default' => true,
+                ],
+            ],
+        ])->assertRedirect(route('vendor.products.index'));
+
+        $product->refresh();
+        $this->assertSame('pending_approval', $product->revision_status);
+        $this->assertSame(10000.0, (float) $product->price);
+        $this->assertSame(18000.0, (float) $product->pending_payload['price']);
+        $this->assertSame(15000.0, (float) $premium->fresh()->price);
+
+        $this->actingAs($admin)->get(route('shop-products.show', $product))
+            ->assertOk()
+            ->assertSee('RWF 15,000');
+
+        $this->actingAs($admin)->post(route('marketplace.products.approve', $product), [
+            'note' => 'Approved price changes.',
+        ])->assertRedirect();
+
+        $this->assertNull($product->fresh()->revision_status);
+        $this->assertSame(18000.0, (float) $product->fresh()->price);
+        $this->assertSame(18000.0, (float) $premium->fresh()->price);
+        $this->assertTrue($premium->fresh()->is_default);
     }
 
     public function test_vendor_inventory_requests_are_pending_until_an_admin_approves_once(): void

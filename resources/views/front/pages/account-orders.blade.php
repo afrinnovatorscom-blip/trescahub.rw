@@ -10,7 +10,7 @@
                 <span class="small text-muted">{{ $order->created_at?->format('M j, Y') }}</span>
                 <span class="d-block small mt-1">
                     @foreach($order->items as $item)
-                        {{ $item->product_name }} × {{ $item->quantity }}@if(!$loop->last), @endif
+                        {{ $item->product_name }}@if($item->variation_label && $item->variation_value) ({{ $item->variation_label }}: {{ $item->variation_value }})@endif × {{ $item->quantity }}@if(!$loop->last), @endif
                     @endforeach
                 </span>
                 <span class="d-block small mt-1">Payment: {{ ucfirst(str_replace('_', ' ', $order->payment_status)) }} via {{ ucfirst(str_replace('_', ' ', $order->payment_method ?? 'not specified')) }} · Delivery: {{ $order->deliveries->isEmpty() ? 'Not created' : $order->deliveries->map(fn ($delivery) => \App\Support\CustomerTracking::deliveryLabel($delivery->status))->unique()->join(', ') }}</span>

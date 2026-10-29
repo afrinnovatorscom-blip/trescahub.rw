@@ -207,7 +207,7 @@
                 <div><strong>OPERATIONAL REPORT</strong></div>
                 <div class="pdf-period-badge">{{ $report['period']['formatted'] }}</div>
                 <div class="small text-muted" style="margin-top: 3px;">
-                    Generated: {{ now()->format('d M Y, H:i') }} UTC
+                    Generated: {{ now()->format('d M Y, H:i') }} Africa/Kigali
                 </div>
             </td>
         </tr>
@@ -558,4 +558,3 @@
 
 </body>
 </html>
-

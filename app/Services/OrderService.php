@@ -9,6 +9,7 @@ use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\OrderPayment;
 use App\Models\OrderStatusHistory;
+use App\Models\ProductVariation;
 use App\Models\ShopProduct;
 use App\Models\User;
 use App\Models\Vendor;
@@ -76,8 +77,29 @@ class OrderService
                     throw new InventoryException($product->product_name.' is not available in the requested quantity.');
                 }
 
+                $variationId = isset($line['variation_id']) ? (int) $line['variation_id'] : null;
+                $hasVariations = ProductVariation::query()->where('shop_product_id', $product->id)->exists();
+                $variation = null;
+                if ($hasVariations && $variationId === null) {
+                    throw ValidationException::withMessages([
+                        'variation_id' => 'Choose a variation for '.$product->product_name.'.',
+                    ]);
+                }
+                if ($variationId !== null) {
+                    $variation = ProductVariation::query()
+                        ->where('shop_product_id', $product->id)
+                        ->whereKey($variationId)
+                        ->first();
+
+                    if (! $variation) {
+                        throw ValidationException::withMessages([
+                            'variation_id' => 'The selected variation is not available for '.$product->product_name.'.',
+                        ]);
+                    }
+                }
+
                 $estimateDays = max($estimateDays, (int) $product->working_days);
-                $prepared[] = [$product, $quantity];
+                $prepared[] = [$product, $quantity, $variation];
             }
 
             $order = Order::query()->create([
@@ -102,9 +124,10 @@ class OrderService
 
             $subtotal = 0;
 
-            foreach ($prepared as [$product, $quantity]) {
+            foreach ($prepared as [$product, $quantity, $variation]) {
                 $location = $this->inventory->reserve($product, $quantity, $order, $user);
-                $lineTotal = round((float) $product->price * $quantity, 2);
+                $unitPrice = (float) ($variation?->price ?? $product->price);
+                $lineTotal = round($unitPrice * $quantity, 2);
                 $subtotal += $lineTotal;
 
                 OrderItem::query()->create([
@@ -114,7 +137,10 @@ class OrderService
                     'product_location_id' => $location?->id,
                     'product_name' => $product->product_name,
                     'sku' => $product->sku,
-                    'unit_price' => $product->price,
+                    'product_variation_id' => $variation?->id,
+                    'variation_label' => $variation?->feature_label,
+                    'variation_value' => $variation?->variation_value,
+                    'unit_price' => $unitPrice,
                     'quantity' => $quantity,
                     'line_total' => $lineTotal,
                     'fulfillment_status' => 'pending_confirmation',

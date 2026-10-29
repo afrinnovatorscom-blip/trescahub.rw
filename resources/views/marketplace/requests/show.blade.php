@@ -4,7 +4,12 @@
 <div class="container-fluid py-4">
     @include('marketplace.partials.flash')
     <h1 class="h3">{{ $record->reference }}</h1>
-    <p>{{ $record->customer_name }} · {{ $record->phone }} · {{ $record->product_name }} × {{ $record->quantity }}</p>
+    <p>{{ $record->customer_name }} · {{ $record->phone }} · {{ $record->product_name }} × {{ $record->quantity }}
+        @if($record->variation_label && $record->variation_value)
+            · {{ $record->variation_label }}: {{ $record->variation_value }}
+            @if($record->variation_price) · RWF {{ number_format((float) $record->variation_price, 0, '.', ',') }} @endif
+        @endif
+    </p>
     <p>Status: {{ str_replace('_',' ',$record->status) }}</p>
     <p>Customer message: {{ $record->customer_message }}</p>
     @if(auth()->user()->hasPermission('locations.view'))

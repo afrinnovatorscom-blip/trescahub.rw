@@ -3,6 +3,10 @@
 namespace App\Support;
 
 use Illuminate\Validation\Rule;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\ValidationException;
+use App\Models\ShopProduct;
 
 class ProductPayload
 {
@@ -13,9 +17,16 @@ class ProductPayload
             'status' => ['required', 'in:active,in_stock,out_of_stock,finished'],
             'is_popular' => ['nullable', 'boolean'],
             'discount_enabled' => ['nullable', 'boolean'],
-            'original_price' => ['exclude_unless:discount_enabled,1', 'required', 'numeric', 'gt:price'],
+            'original_price' => ['exclude_unless:discount_enabled,1', 'required', 'numeric', 'min:0'],
             'description' => ['nullable', 'string', 'max:10000'],
-            'price' => ['required', 'numeric', 'min:0'],
+            'price_variations_enabled' => ['nullable', 'boolean'],
+            'price' => ['exclude_if:price_variations_enabled,1', 'required', 'numeric', 'min:0'],
+            'price_variations' => ['exclude_unless:price_variations_enabled,1', 'required', 'array', 'min:1', 'max:50'],
+            'price_variations.*.id' => ['nullable', 'integer'],
+            'price_variations.*.feature_label' => ['required', 'string', 'max:255'],
+            'price_variations.*.variation_value' => ['required', 'string', 'max:255'],
+            'price_variations.*.price' => ['required', 'numeric', 'min:0'],
+            'price_variations.*.is_default' => ['required', 'boolean'],
             'acquisition_cost' => ['nullable', 'numeric', 'min:0'],
             'working_days' => ['required', 'integer', 'min:1'],
             'initial_stock_quantity' => $creating
@@ -51,8 +62,74 @@ class ProductPayload
         ];
     }
 
+    public static function validate(Request $request, bool $creating = false, ?ShopProduct $product = null): array
+    {
+        $validator = Validator::make($request->all(), self::rules($creating));
+        $validator->after(function ($validator) use ($request, $product): void {
+            $variationsEnabled = $request->boolean('price_variations_enabled');
+            $variations = $request->input('price_variations', []);
+            $defaultPrice = $request->input('price');
+
+            if ($variationsEnabled && is_array($variations)) {
+                if ($request->boolean('discount_enabled')) {
+                    $validator->errors()->add(
+                        'discount_enabled',
+                        'Product-level discounts cannot be combined with price variations.'
+                    );
+                }
+
+                $defaultCount = collect($variations)->filter(
+                    static fn ($variation): bool => is_array($variation) && filter_var($variation['is_default'] ?? false, FILTER_VALIDATE_BOOLEAN)
+                )->count();
+
+                if ($defaultCount !== 1) {
+                    $validator->errors()->add('price_variations', 'Select exactly one default variation.');
+                }
+
+                foreach ($variations as $index => $variation) {
+                    if (! is_array($variation) || empty($variation['id'])) {
+                        continue;
+                    }
+
+                    if (! $product || ! $product->variations()->whereKey($variation['id'])->exists()) {
+                        $validator->errors()->add("price_variations.{$index}.id", 'This variation does not belong to this product.');
+                    }
+                }
+
+                $defaultPrice = collect($variations)->first(
+                    static fn ($variation): bool => is_array($variation) && filter_var($variation['is_default'] ?? false, FILTER_VALIDATE_BOOLEAN)
+                )['price'] ?? null;
+            }
+
+            if ($request->boolean('discount_enabled')
+                && is_numeric($request->input('original_price'))
+                && is_numeric($defaultPrice)
+                && (float) $request->input('original_price') <= (float) $defaultPrice) {
+                $validator->errors()->add('original_price', 'The original price must be higher than the selling price.');
+            }
+        });
+
+        return $validator->validate();
+    }
+
     public static function normalize(array $validated): array
     {
+        $validated['price_variations_enabled'] = (bool) ($validated['price_variations_enabled'] ?? false);
+        $validated['price_variations'] = $validated['price_variations_enabled']
+            ? array_values(array_map(static function (array $variation): array {
+                return [
+                    'id' => $variation['id'] ?? null,
+                    'feature_label' => trim($variation['feature_label']),
+                    'variation_value' => trim($variation['variation_value']),
+                    'price' => $variation['price'],
+                    'is_default' => (bool) $variation['is_default'],
+                ];
+            }, $validated['price_variations'] ?? []))
+            : [];
+        if ($validated['price_variations_enabled']) {
+            $default = collect($validated['price_variations'])->firstWhere('is_default', true);
+            $validated['price'] = $default['price'];
+        }
         $validated['features'] = array_values(array_filter($validated['features'] ?? [], fn ($feature) => trim((string) $feature) !== ''));
         $validated['specifications'] = array_values(array_filter(
             $validated['specifications'] ?? [],

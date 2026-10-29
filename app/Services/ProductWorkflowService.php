@@ -14,6 +14,7 @@ class ProductWorkflowService
     public function __construct(
         private MarketplaceNotifier $notifier,
         private InventoryService $inventory,
+        private ProductVariationService $variations,
     ) {}
 
     public function createStaff(User $actor, array $data, bool $publishNow): ShopProduct
@@ -27,6 +28,11 @@ class ProductWorkflowService
             $product->slug = ShopProduct::uniqueSlug($product->product_name);
             $product->save();
             $this->assignSku($product);
+            $this->variations->sync(
+                $product,
+                (bool) ($data['price_variations_enabled'] ?? false),
+                $data['price_variations'] ?? [],
+            );
 
             $this->history($product, $actor, 'created', null, 'pending_approval', null);
             AuditLogger::log($actor, 'product.created', $product, ['name' => $product->product_name]);
@@ -75,6 +81,11 @@ class ProductWorkflowService
 
             $product->save();
             $this->assignSku($product);
+            $this->variations->sync(
+                $product,
+                (bool) ($data['price_variations_enabled'] ?? false),
+                $data['price_variations'] ?? [],
+            );
             $this->history($product, $actor, 'submitted', null, $product->approval_status, null);
             $this->notifier->productSubmitted($product);
 
@@ -139,6 +150,9 @@ class ProductWorkflowService
 
             $pendingPayload = $product->pending_payload ?? [];
             $initialStock = $pendingPayload['initial_stock_quantity'] ?? null;
+            $hasPendingVariations = array_key_exists('price_variations_enabled', $pendingPayload);
+            $pendingVariationsEnabled = (bool) ($pendingPayload['price_variations_enabled'] ?? false);
+            $pendingVariations = $pendingPayload['price_variations'] ?? [];
             if ($initialStock !== null) {
                 if (! $product->tracks_inventory) {
                     throw ValidationException::withMessages([
@@ -157,7 +171,9 @@ class ProductWorkflowService
                     $product->images ?? [],
                 ));
                 $previousName = $product->product_name;
-                $product->fill($this->onlyCritical($pendingPayload));
+                $criticalAttributes = $this->onlyCritical($pendingPayload);
+                unset($criticalAttributes['price_variations_enabled'], $criticalAttributes['price_variations']);
+                $product->fill($criticalAttributes);
                 if ($product->product_name !== $previousName) {
                     $product->slug = ShopProduct::uniqueSlug($product->product_name, $product->id);
                 }
@@ -187,6 +203,9 @@ class ProductWorkflowService
             $product->approved_by = $actor->id;
             $product->approved_at = now();
             $product->save();
+            if ($hasPendingVariations) {
+                $this->variations->sync($product, $pendingVariationsEnabled, $pendingVariations);
+            }
 
             $this->history($product, $actor, 'approved', $from, 'approved', $note);
             AuditLogger::log($actor, 'product.approved', $product, ['note' => $note]);
@@ -299,6 +318,9 @@ class ProductWorkflowService
         $critical = config('marketplace.critical_product_fields');
         $live = $product->exists && $product->isPubliclyListed();
         $canApplyLive = ! $vendorMode && $actor->hasPermission('products.approve');
+        $variationsEnabled = (bool) ($attributes['price_variations_enabled'] ?? false);
+        $variations = $attributes['price_variations'] ?? [];
+        unset($attributes['price_variations_enabled'], $attributes['price_variations']);
         $previousPendingAssets = array_filter(array_merge(
             [$product->pending_payload['thumbnail'] ?? null],
             $product->pending_payload['images'] ?? [],
@@ -314,6 +336,8 @@ class ProductWorkflowService
                 }
             }
 
+            $pending['price_variations_enabled'] = $variationsEnabled;
+            $pending['price_variations'] = $variations;
             $attributes['pending_payload'] = $pending;
             $attributes['revision_status'] = 'pending_approval';
         }
@@ -324,6 +348,9 @@ class ProductWorkflowService
 
         $product->fill($attributes);
         $product->save();
+        if (! ($live && ! $canApplyLive)) {
+            $this->variations->sync($product, $variationsEnabled, $variations);
+        }
 
         if (($attributes['revision_status'] ?? null) === 'pending_approval') {
             $this->history($product, $actor, 'revision_submitted', $product->approval_status, 'pending_approval', null);
@@ -337,6 +364,8 @@ class ProductWorkflowService
     private function staffAttributes(User $actor, array $data, ?ShopProduct $existing = null): array
     {
         $attributes = $this->publicAttributes($data);
+        $attributes['price_variations_enabled'] = (bool) ($data['price_variations_enabled'] ?? false);
+        $attributes['price_variations'] = $data['price_variations'] ?? [];
 
         if ($actor->hasPermission('products.assign_vendor')) {
             $attributes['vendor_id'] = $data['vendor_id'] ?? $existing?->vendor_id;
@@ -364,6 +393,8 @@ class ProductWorkflowService
     {
         $attributes = $this->publicAttributes($data);
         unset($attributes['is_popular']);
+        $attributes['price_variations_enabled'] = (bool) ($data['price_variations_enabled'] ?? false);
+        $attributes['price_variations'] = $data['price_variations'] ?? [];
 
         return $attributes;
     }

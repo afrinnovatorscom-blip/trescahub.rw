@@ -125,7 +125,7 @@
                         <tbody>
                             @foreach($items as $item)
                                 <tr>
-                                    <td><strong>{{ $item->product_name }}</strong>@if($item->sku)<div class="small text-muted">SKU: {{ $item->sku }}</div>@endif</td>
+                                    <td><strong>{{ $item->product_name }}</strong>@if($item->variation_label && $item->variation_value)<div class="small text-muted">{{ $item->variation_label }}: {{ $item->variation_value }}</div>@endif @if($item->sku)<div class="small text-muted">SKU: {{ $item->sku }}</div>@endif</td>
                                     <td data-label="Quantity">{{ number_format($item->quantity) }}</td>
                                     <td data-label="Unit price" class="text-end">{{ number_format((float) $item->unit_price, 2, '.', ',') }} RWF</td>
                                     <td data-label="Subtotal" class="text-end fw-semibold">{{ number_format((float) $item->line_total, 2, '.', ',') }} RWF</td>
@@ -200,6 +200,9 @@
                         <div class="d-flex flex-wrap justify-content-between gap-2">
                             <div>
                                 <h3 class="h6 mb-1">{{ $item->product_name }}</h3>
+                                @if($item->variation_label && $item->variation_value)
+                                    <div class="text-muted small">{{ $item->variation_label }}: {{ $item->variation_value }}</div>
+                                @endif
                                 @if($item->sku)<div class="text-muted small">SKU: {{ $item->sku }}</div>@endif
                                 <div class="text-muted small">Quantity: {{ number_format($item->quantity) }} · {{ number_format((float) $item->unit_price, 0, '.', ',') }} RWF each</div>
                             </div>

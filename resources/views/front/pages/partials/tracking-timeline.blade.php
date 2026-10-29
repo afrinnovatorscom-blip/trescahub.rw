@@ -19,7 +19,7 @@
         <h2 class="h6 mt-3">Products</h2>
         <ul class="mt-2 mb-0" data-tracking-items>
             @foreach($tracking['items'] as $item)
-                <li>{{ $item['name'] }} × {{ $item['quantity'] }} — {{ $tracking['currency'] }} {{ number_format($item['line_total'], 0, '.', ',') }} · {{ $item['fulfillment_label'] }} · {{ $item['assignment_label'] }}</li>
+                <li>{{ $item['name'] }}@if($item['variation_label'] && $item['variation_value']) ({{ $item['variation_label'] }}: {{ $item['variation_value'] }})@endif × {{ $item['quantity'] }} — {{ $tracking['currency'] }} {{ number_format($item['line_total'], 0, '.', ',') }} · {{ $item['fulfillment_label'] }} · {{ $item['assignment_label'] }}</li>
             @endforeach
         </ul>
         <h2 class="h6 mt-3" data-deliveries-heading @if(!count($tracking['deliveries'])) hidden @endif>Deliveries</h2>

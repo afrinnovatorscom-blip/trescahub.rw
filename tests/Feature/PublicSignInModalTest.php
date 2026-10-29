@@ -21,6 +21,7 @@ class PublicSignInModalTest extends TestCase
             ->assertOk()
             ->assertSee('Sign In')
             ->assertSee('Welcome back')
+            ->assertDontSee('Please sign in first to continue with your order.')
             ->assertSee(route('customer.password.request'), false)
             ->assertSee(route('register'), false)
             ->assertSee('Don\'t have an account?', false)
@@ -173,7 +174,7 @@ class PublicSignInModalTest extends TestCase
         $this->assertGuest('customers');
     }
 
-    public function test_livewire_sign_in_authenticates_only_customers_and_redirects_to_orders(): void
+    public function test_livewire_sign_in_authenticates_only_customers_and_redirects_home(): void
     {
         $customer = $this->customer([
             'email' => 'sign-in@example.com',
@@ -184,7 +185,7 @@ class PublicSignInModalTest extends TestCase
             ->set('email', 'sign-in@example.com')
             ->set('password', 'valid-password')
             ->call('login')
-            ->assertRedirect(route('account.orders'));
+            ->assertRedirect(route('home'));
 
         $this->assertAuthenticatedAs($customer, 'customers');
         $this->assertGuest('web');
@@ -204,7 +205,7 @@ class PublicSignInModalTest extends TestCase
             ->set('email', 'sign-in-with-staff@example.com')
             ->set('password', 'valid-password')
             ->call('login')
-            ->assertRedirect(route('account.orders'));
+            ->assertRedirect(route('home'));
 
         $this->assertAuthenticatedAs($customer, 'customers');
         $this->assertAuthenticatedAs($admin, 'web');
@@ -285,6 +286,29 @@ class PublicSignInModalTest extends TestCase
             ->call('login')
             ->assertRedirect($intended);
 
+        $this->assertNull(session('customer.auth_redirect'));
+        $this->assertNull(session('url.intended'));
+
+        $this->assertAuthenticatedAs($customer, 'customers');
+    }
+
+    public function test_customer_login_returns_to_the_intended_product_request_form(): void
+    {
+        $customer = $this->customer([
+            'email' => 'intended-request@example.com',
+            'password' => 'valid-password',
+        ]);
+        $intended = route('product-requests.create');
+
+        session(['customer.auth_redirect' => $intended]);
+
+        Livewire::test(PublicLoginModal::class)
+            ->set('email', $customer->email)
+            ->set('password', 'valid-password')
+            ->call('login')
+            ->assertRedirect($intended);
+
+        $this->assertNull(session('customer.auth_redirect'));
         $this->assertAuthenticatedAs($customer, 'customers');
     }
 

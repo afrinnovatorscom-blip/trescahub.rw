@@ -6,6 +6,13 @@
         $shopProduct->images ?? []
     ))));
     $productGalleryUrl = fn ($path) => asset('assets/' . ltrim(str_replace('public/assets/', '', $path), '/'));
+    $productVariations = $shopProduct->variations->filter(fn ($variation) =>
+        filled($variation->feature_label)
+        && filled($variation->variation_value)
+        && is_numeric($variation->price)
+        && (float) $variation->price >= 0
+    )->values();
+    $selectedProductVariation = $productVariations->firstWhere('is_default', true) ?? $productVariations->first();
 @endphp
 
 <main class="py-5 py-md-20">
@@ -94,9 +101,34 @@
 
                 {{-- Price & Order Section --}}
                 <div class="mt-5 rounded-3 p-4 shadow-sm" style="background-color: #f8f9fa;">
+                    @if($productVariations->isNotEmpty())
+                        <fieldset id="productVariationSelector" class="mb-3 border-0 p-0">
+                            <legend class="h6 fw-semibold mb-2">Choose your preferred option</legend>
+                            <div class="product-variation-options">
+                                @foreach($productVariations as $variation)
+                                    <label class="product-variation-option {{ $variation->id === $selectedProductVariation->id ? 'is-selected' : '' }}">
+                                        <input
+                                            type="radio"
+                                            name="product_variation_choice"
+                                            value="{{ $variation->id }}"
+                                            data-product-variation-choice
+                                            data-variation-price="{{ $variation->price }}"
+                                            @checked($variation->id === $selectedProductVariation->id)
+                                            aria-label="{{ $variation->feature_label }}: {{ $variation->variation_value }}, RWF {{ number_format((float) $variation->price, 0, '.', ',') }}"
+                                        >
+                                        <span class="product-variation-description">
+                                            <span class="product-variation-label">{{ $variation->feature_label }}</span>
+                                            <span class="product-variation-value">{{ $variation->variation_value }}</span>
+                                        </span>
+                                        <span class="product-variation-price">RWF {{ number_format((float) $variation->price, 0, '.', ',') }}</span>
+                                    </label>
+                                @endforeach
+                            </div>
+                        </fieldset>
+                    @endif
                     <div class="d-flex align-items-end gap-2">
-                        <span class="fw-bold" style="font-size: 2.5rem; color: #16a34a;">
-                            RWF {{ number_format($shopProduct->price, 0, '.', ',') }}
+                        <span @if($productVariations->isNotEmpty()) id="selectedProductPrice" @endif class="fw-bold" style="font-size: 2.5rem; color: #16a34a;">
+                            RWF {{ number_format($selectedProductVariation ? (float) $selectedProductVariation->price : $shopProduct->price, 0, '.', ',') }}
                         </span>
                         @if($shopProduct->hasValidDiscount())
                             <span class="badge bg-danger mb-2">{{ $shopProduct->discount_percentage }}% off</span>
@@ -131,10 +163,17 @@
                         <form method="POST" action="{{ route('cart.add') }}" class="d-flex gap-2">
                             @csrf
                             <input type="hidden" name="product" value="{{ $shopProduct->slug }}">
+                            @if($productVariations->isNotEmpty())
+                                <input id="selectedVariationId" type="hidden" name="variation_id" value="{{ $selectedProductVariation->id }}">
+                            @endif
                             <input type="number" name="quantity" value="1" min="1" max="100" class="form-control" style="max-width: 110px;" aria-label="Quantity">
                             <button class="btn btn-primary btn-lg flex-grow-1" type="submit" @if($shopProduct->customerAvailability() !== 'in_stock') disabled @endif>Add to cart</button>
                         </form>
-                        <a href="{{ route('product-requests.create', ['product' => $shopProduct->slug]) }}" class="btn btn-outline-dark btn-lg">Request this product</a>
+                        <a
+                            id="requestProductButton"
+                            href="{{ route('product-requests.create', ['product' => $shopProduct->slug] + ($selectedProductVariation ? ['variation_id' => $selectedProductVariation->id] : [])) }}"
+                            class="btn btn-outline-dark btn-lg"
+                        >Request this product</a>
                     </div>
 
                     {{-- Stock Status --}}
@@ -329,6 +368,70 @@
 </div>
 
 <style>
+    #productVariationSelector .product-variation-options {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    #productVariationSelector .product-variation-option {
+        display: flex;
+        flex: 0 1 180px;
+        min-width: 140px;
+        align-items: center;
+        gap: 0.55rem;
+        padding: 0.55rem 0.7rem;
+        border: 1px solid #dee2e6;
+        border-radius: 0.5rem;
+        background: #fff;
+        cursor: pointer;
+    }
+
+    #productVariationSelector .product-variation-option.is-selected {
+        border-color: #198754;
+        background: #f0fdf4;
+        box-shadow: 0 0 0 1px #198754;
+    }
+
+    #productVariationSelector .product-variation-option input {
+        flex: 0 0 auto;
+        margin: 0;
+        accent-color: #198754;
+    }
+
+    #productVariationSelector .product-variation-description {
+        display: flex;
+        min-width: 0;
+        flex: 1 1 auto;
+        flex-direction: column;
+        gap: 0.1rem;
+        line-height: 1.25;
+    }
+
+    #productVariationSelector .product-variation-label {
+        color: #6c757d;
+        font-size: 0.75rem;
+    }
+
+    #productVariationSelector .product-variation-value {
+        color: #212529;
+        font-size: 0.9rem;
+        font-weight: 600;
+        overflow-wrap: anywhere;
+    }
+
+    #productVariationSelector .product-variation-price {
+        color: #198754;
+        font-size: 0.85rem;
+        font-weight: 700;
+        white-space: nowrap;
+    }
+
+    #productVariationSelector .product-variation-option:focus-within {
+        outline: 3px solid rgba(25, 135, 84, 0.25);
+        outline-offset: 2px;
+    }
+
     .product-card {
         transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         cursor: pointer;
@@ -351,5 +454,36 @@
         .py-md-20 { padding-top: 3rem; padding-bottom: 3rem; }
     }
 </style>
+
+@if($productVariations->isNotEmpty())
+    <script>
+        (() => {
+            const choices = document.querySelectorAll('[data-product-variation-choice]');
+            const price = document.getElementById('selectedProductPrice');
+            const cartVariation = document.getElementById('selectedVariationId');
+            const requestButton = document.getElementById('requestProductButton');
+            const money = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
+
+            choices.forEach((choice) => {
+                choice.addEventListener('change', () => {
+                    if (!choice.checked) return;
+
+                    price.textContent = `RWF ${money.format(Number(choice.dataset.variationPrice))}`;
+                    if (cartVariation) cartVariation.value = choice.value;
+
+                    choices.forEach((option) => {
+                        option.closest('.product-variation-option')?.classList.toggle('is-selected', option === choice);
+                    });
+
+                    if (requestButton) {
+                        const requestUrl = new URL(requestButton.href);
+                        requestUrl.searchParams.set('variation_id', choice.value);
+                        requestButton.href = requestUrl.toString();
+                    }
+                });
+            });
+        })();
+    </script>
+@endif
 
 @endsection

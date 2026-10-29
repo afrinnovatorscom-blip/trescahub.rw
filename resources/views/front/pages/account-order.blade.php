@@ -13,6 +13,9 @@
         document.addEventListener('DOMContentLoaded', () => {
             const container = document.getElementById('account-order-tracking');
             const errorMessage = document.querySelector('[data-tracking-refresh-error]');
+            const formatRwandaDate = (value) => value
+                ? new Date(value).toLocaleString(undefined, { timeZone: 'Africa/Kigali' })
+                : '';
 
             if (!container || !errorMessage) return;
 
@@ -44,7 +47,7 @@
                         payments.hidden = tracking.payments.length === 0;
                         payments.replaceChildren(...tracking.payments.map((record) => {
                             const row = document.createElement('li');
-                            const date = record.recorded_at ? ` — ${new Date(record.recorded_at).toLocaleString()}` : '';
+                            const date = record.recorded_at ? ` — ${formatRwandaDate(record.recorded_at)}` : '';
                             row.textContent = `${record.type} payment of ${tracking.currency} ${Number(record.amount).toLocaleString()} via ${record.method.replaceAll('_', ' ')}${date}`;
                             return row;
                         }));
@@ -65,7 +68,10 @@
                     if (items) {
                         items.replaceChildren(...tracking.items.map((item) => {
                             const row = document.createElement('li');
-                            row.textContent = `${item.name} × ${item.quantity} — ${tracking.currency} ${Number(item.line_total).toLocaleString()} · ${item.fulfillment_label} · ${item.assignment_label}`;
+                            const variation = item.variation_label && item.variation_value
+                                ? ` (${item.variation_label}: ${item.variation_value})`
+                                : '';
+                            row.textContent = `${item.name}${variation} × ${item.quantity} — ${tracking.currency} ${Number(item.line_total).toLocaleString()} · ${item.fulfillment_label} · ${item.assignment_label}`;
                             return row;
                         }));
                     }
@@ -81,7 +87,7 @@
                     if (events) {
                         events.replaceChildren(...tracking.events.map((event) => {
                             const row = document.createElement('li');
-                            const date = event.occurred_at ? new Date(event.occurred_at).toLocaleString() : '';
+                            const date = formatRwandaDate(event.occurred_at);
                             row.textContent = date ? `${date} — ${event.label}` : event.label;
                             return row;
                         }));
