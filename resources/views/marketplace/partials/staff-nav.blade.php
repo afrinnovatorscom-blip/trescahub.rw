@@ -10,6 +10,10 @@
 @if($user->hasAnyPermission(['orders.view_all', 'orders.view_assigned']))
     <a href="{{ route('marketplace.orders.index') }}" class="nav-item-link {{ request()->routeIs('marketplace.orders.*') ? 'active' : '' }}"><i class="bi bi-receipt"></i> Orders</a>
 @endif
+@if($user->hasPermission('finance.view'))
+    <a href="{{ route('marketplace.payments.index') }}" class="nav-item-link {{ request()->routeIs('marketplace.payments.*') ? 'active' : '' }}"><i class="bi bi-credit-card"></i> Payments</a>
+    <a href="{{ route('marketplace.wallet.index') }}" class="nav-item-link {{ request()->routeIs('marketplace.wallet.*') ? 'active' : '' }}"><i class="bi bi-wallet2"></i> Wallet &amp; Payouts</a>
+@endif
 @if($user->hasPermission('deliveries.manage') || $user->hasPermission('orders.view_assigned'))
     <a href="{{ route('marketplace.deliveries.index') }}" class="nav-item-link {{ request()->routeIs('marketplace.deliveries.*') ? 'active' : '' }}" data-marketplace-deliveries-link><i class="bi bi-truck"></i> Deliveries</a>
 @endif

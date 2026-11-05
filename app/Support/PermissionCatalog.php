@@ -40,6 +40,7 @@ class PermissionCatalog
             'deliveries.manage' => 'Manage deliveries',
             'reports.view' => 'View operational reports',
             'finance.view' => 'View acquisition costs, margins, and revenue',
+            'payouts.send' => 'Send mobile money payouts from the IntouchPay account',
             'users.manage' => 'Manage internal users',
             'roles.manage' => 'Manage roles',
             'permissions.manage' => 'Change which permissions a role grants',

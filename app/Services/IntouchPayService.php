@@ -192,6 +192,121 @@ class IntouchPayService
         }
     }
 
+    /**
+     * Send money from the IntouchPay account to a mobile money number (B2C payout).
+     *
+     * @param  string  $mobilePhone  Local format, e.g. 0788123456
+     */
+    public function requestDeposit(string $mobilePhone, float|int $amount, string $requestTransactionId, string $reason = 'Payment'): array
+    {
+        $timestamp = $this->timestamp();
+
+        $data = [
+            'username' => $this->username,
+            'timestamp' => $timestamp,
+            'amount' => $amount,
+            'withdrawcharge' => 1,
+            'reason' => $reason,
+            'sid' => '1',
+            'mobilephone' => '25'.$mobilePhone,
+            'requesttransactionid' => $requestTransactionId,
+            'accountno' => $this->accountNo,
+            'password' => $this->generatePassword($timestamp),
+        ];
+
+        Log::channel('payment')->info('IntouchPay RequestDeposit: Sending request', [
+            'data_sent' => array_merge($data, ['password' => '***HIDDEN***']),
+        ]);
+
+        try {
+            $response = $this->http()->asJson()->post($this->apiUrl.'/requestdeposit/', $data);
+
+            if ($error = $this->htmlError($response)) {
+                Log::channel('payment')->error('IntouchPay RequestDeposit: HTML response', $error + ['request_transaction_id' => $requestTransactionId]);
+
+                return ['success' => false, 'requesttransactionid' => $requestTransactionId] + $error;
+            }
+
+            $json = $this->normalizeJson($response);
+
+            Log::channel('payment')->info('IntouchPay RequestDeposit: Response received', [
+                'request_transaction_id' => $requestTransactionId,
+                'response' => $json,
+                'http_status' => $response->status(),
+            ]);
+
+            return $json;
+        } catch (\Throwable $e) {
+            Log::channel('payment')->error('IntouchPay RequestDeposit Error', ['error' => $e->getMessage()]);
+
+            return [
+                'success' => false,
+                'responsecode' => '2500',
+                'message' => 'Service Failure: '.$e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * Current balance of the IntouchPay account.
+     */
+    public function getBalance(): array
+    {
+        $timestamp = $this->timestamp();
+
+        $data = [
+            'username' => $this->username,
+            'timestamp' => $timestamp,
+            'accountno' => $this->accountNo,
+            'password' => $this->generatePassword($timestamp),
+        ];
+
+        try {
+            $response = $this->http(30)->asForm()->post($this->apiUrl.'/getbalance/', $data);
+
+            if ($error = $this->htmlError($response)) {
+                Log::channel('payment')->error('IntouchPay GetBalance: HTML response', $error);
+
+                return ['success' => false] + $error;
+            }
+
+            $json = $this->normalizeJson($response);
+            Log::channel('payment')->info('IntouchPay GetBalance', ['response' => $json]);
+
+            return $json;
+        } catch (\Throwable $e) {
+            Log::channel('payment')->error('IntouchPay GetBalance Error', ['error' => $e->getMessage()]);
+
+            return [
+                'success' => false,
+                'responsecode' => '2500',
+                'message' => 'Service Failure: '.$e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * Decode a JSON response and make sure it always carries "success" and "message"
+     * (error replies such as {"detail": "No such user"} have neither).
+     */
+    private function normalizeJson(Response $response): array
+    {
+        $json = $response->json();
+
+        if (! is_array($json)) {
+            return [
+                'success' => false,
+                'responsecode' => '5006',
+                'message' => 'Invalid response from IntouchPay',
+            ];
+        }
+
+        $json['success'] = (bool) ($json['success'] ?? false);
+        $json['message'] = $json['message'] ?? ($json['detail'] ?? ($json['success'] ? 'OK' : 'Request failed (HTTP '.$response->status().')'));
+
+        return $json;
+    }
+
     private function timestamp(): string
     {
         return now()->utc()->format('YmdHis');

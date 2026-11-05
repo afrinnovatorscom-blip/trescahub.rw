@@ -5,6 +5,7 @@ use App\Http\Controllers\Marketplace\AdminAccessController;
 use App\Http\Controllers\Marketplace\CatalogOperationsController;
 use App\Http\Controllers\Marketplace\CommerceController;
 use App\Http\Controllers\Marketplace\OrderPaymentController;
+use App\Http\Controllers\Marketplace\PaymentAdminController;
 use App\Http\Controllers\Marketplace\ProductReviewAdminController;
 use App\Http\Controllers\Marketplace\ProductReviewController;
 use App\Http\Controllers\Marketplace\StorefrontCommerceController;
@@ -103,6 +104,15 @@ Route::middleware($auth)->group(function () {
     Route::prefix('admin/marketplace')->name('marketplace.')->group(function () {
         Route::get('/approvals', [CatalogOperationsController::class, 'approvals'])->name('approvals.index');
         Route::get('/reviews', [ProductReviewAdminController::class, 'index'])->name('reviews.index');
+
+        // Mobile money: payment records, IntouchPay logs, wallet balance and payouts
+        Route::get('/payments', [PaymentAdminController::class, 'index'])->name('payments.index');
+        Route::post('/payments/{transaction}/recheck', [PaymentAdminController::class, 'recheck'])->middleware('throttle:30,1')->name('payments.recheck');
+        Route::get('/payments/logs', [PaymentAdminController::class, 'logs'])->name('payments.logs');
+        Route::get('/wallet', [PaymentAdminController::class, 'wallet'])->name('wallet.index');
+        Route::get('/wallet/balance', [PaymentAdminController::class, 'balance'])->middleware('throttle:20,1')->name('wallet.balance');
+        Route::post('/wallet/payouts', [PaymentAdminController::class, 'payout'])->middleware('throttle:5,1')->name('wallet.payout');
+        Route::post('/wallet/payouts/{payout}/refresh', [PaymentAdminController::class, 'refreshPayout'])->whereNumber('payout')->name('wallet.payout.refresh');
         Route::patch('/reviews/{review}', [ProductReviewAdminController::class, 'update'])->whereNumber('review')->name('reviews.update');
         Route::post('/products/{shopProduct}/approve', [CatalogOperationsController::class, 'approve'])->name('products.approve');
         Route::post('/products/{shopProduct}/reject', [CatalogOperationsController::class, 'reject'])->name('products.reject');
