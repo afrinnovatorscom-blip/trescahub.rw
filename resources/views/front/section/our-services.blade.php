@@ -52,7 +52,7 @@
                 @endphp
 
                 <div class="col">
-                    <a href="{{ route('services.category', $category->slug) }}"
+                    <a href="{{ \Illuminate\Support\Str::slug($category->title) === 'online-shopping-supplies' ? route('shop') : route('services.category', $category->slug) }}"
                        class="card h-100 text-decoration-none border-0 shadow-sm rounded-3 overflow-hidden">
 
                         {{-- Image --}}

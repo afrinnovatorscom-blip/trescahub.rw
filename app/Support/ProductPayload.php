@@ -10,7 +10,11 @@ use App\Models\ShopProduct;
 
 class ProductPayload
 {
-    public static function rules(bool $creating = false): array
+    public static function rules(
+        bool $creating = false,
+        bool $canManageAcquisitionCost = false,
+        bool $requirePositivePrice = false,
+    ): array
     {
         return [
             'product_name' => ['required', 'string', 'max:255'],
@@ -20,15 +24,26 @@ class ProductPayload
             'original_price' => ['exclude_unless:discount_enabled,1', 'required', 'numeric', 'min:0'],
             'description' => ['nullable', 'string', 'max:10000'],
             'price_variations_enabled' => ['nullable', 'boolean'],
-            'price' => ['exclude_if:price_variations_enabled,1', 'required', 'numeric', 'min:0'],
+            'price' => array_merge(
+                ['exclude_if:price_variations_enabled,1', 'required', 'numeric'],
+                $requirePositivePrice ? ['gt:0'] : ['min:0'],
+            ),
             'price_variations' => ['exclude_unless:price_variations_enabled,1', 'required', 'array', 'min:1', 'max:50'],
             'price_variations.*.id' => ['nullable', 'integer'],
             'price_variations.*.feature_label' => ['required', 'string', 'max:255'],
             'price_variations.*.variation_value' => ['required', 'string', 'max:255'],
-            'price_variations.*.price' => ['required', 'numeric', 'min:0'],
+            'price_variations.*.price' => array_merge(
+                ['required', 'numeric'],
+                $requirePositivePrice ? ['gt:0'] : ['min:0'],
+            ),
             'price_variations.*.is_default' => ['required', 'boolean'],
-            'acquisition_cost' => ['nullable', 'numeric', 'min:0'],
-            'working_days' => ['required', 'integer', 'min:1'],
+            'acquisition_cost' => $canManageAcquisitionCost
+                ? array_merge(
+                    $creating ? ['required'] : ['nullable'],
+                    ['numeric', 'min:0', 'max:9999999999.99', 'decimal:0,2'],
+                )
+                : ['prohibited'],
+            'delivery_time' => ['required', 'integer', 'min:1'],
             'initial_stock_quantity' => $creating
                 ? ['exclude_unless:tracks_inventory,1', 'required_if:tracks_inventory,1', 'integer', 'min:0', 'max:2147483647']
                 : ['prohibited'],
@@ -62,9 +77,15 @@ class ProductPayload
         ];
     }
 
-    public static function validate(Request $request, bool $creating = false, ?ShopProduct $product = null): array
+    public static function validate(
+        Request $request,
+        bool $creating = false,
+        ?ShopProduct $product = null,
+        bool $canManageAcquisitionCost = false,
+        bool $requirePositivePrice = false,
+    ): array
     {
-        $validator = Validator::make($request->all(), self::rules($creating));
+        $validator = Validator::make($request->all(), self::rules($creating, $canManageAcquisitionCost, $requirePositivePrice));
         $validator->after(function ($validator) use ($request, $product): void {
             $variationsEnabled = $request->boolean('price_variations_enabled');
             $variations = $request->input('price_variations', []);

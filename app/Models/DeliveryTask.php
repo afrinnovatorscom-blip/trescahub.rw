@@ -47,6 +47,11 @@ class DeliveryTask extends Model
         return $this->belongsTo(User::class, 'delivery_officer_id');
     }
 
+    public function assignedOfficer(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'assigned_officer_id');
+    }
+
     public function attempts(): HasMany
     {
         return $this->hasMany(DeliveryAttempt::class);

@@ -1,5 +1,15 @@
 @extends('front.layouts.admin')
 @section('page-title', 'Deliveries')
+@push('styles')
+<style>
+    .delivery-pagination { align-items: center; display: flex; justify-content: flex-end; gap: 8px; }
+    .delivery-pagination-button { align-items: center; background: #fff; border: 1px solid #e2e8f0; border-radius: 7px; color: #475569; display: inline-flex; font-size: 13px; font-weight: 600; gap: 6px; min-height: 36px; padding: 6px 11px; text-decoration: none; }
+    .delivery-pagination-button:hover { background: #f8fafc; border-color: #cbd5e1; color: #1d4ed8; }
+    .delivery-pagination-button:focus-visible { outline: 3px solid rgba(37, 99, 235, .25); outline-offset: 2px; }
+    .delivery-pagination-button.is-disabled { background: #f8fafc; color: #94a3b8; cursor: not-allowed; }
+    .delivery-pagination-page { color: #64748b; font-size: 12px; min-width: 64px; text-align: center; }
+</style>
+@endpush
 @section('content')
 <div class="container-fluid py-4 delivery-page">
     @include('marketplace.partials.flash')
@@ -67,6 +77,15 @@
                                 <a class="fw-semibold text-decoration-none" href="{{ route('marketplace.deliveries.show', $task) }}">
                                     {{ $task->order?->reference ?? 'Order unavailable' }}
                                 </a>
+                                @if($task->order?->customer_name)
+                                    <div class="small text-muted">{{ $task->order->customer_name }}</div>
+                                @endif
+                                @if($task->order?->phone)
+                                    <div class="small text-muted">{{ $task->order->phone }}</div>
+                                @endif
+                                @if($task->order?->delivery_address)
+                                    <div class="small text-muted">{{ $task->order->delivery_address }}</div>
+                                @endif
                             </td>
                             <td>
                                 <div class="small text-muted mt-1">
@@ -115,7 +134,29 @@
                 </tbody>
             </table>
         </div>
-        @if($tasks->hasPages())
+        @if($status === 'delivered')
+            <nav class="delivery-pagination px-3 py-3 border-top" aria-label="Delivered deliveries pagination">
+                @if($tasks->currentPage() > 1)
+                    <a class="delivery-pagination-button" href="{{ $tasks->url($tasks->currentPage() - 1) }}" rel="prev">
+                        <i class="bi bi-arrow-left" aria-hidden="true"></i><span>Previous</span>
+                    </a>
+                @else
+                    <span class="delivery-pagination-button is-disabled" aria-disabled="true">
+                        <i class="bi bi-arrow-left" aria-hidden="true"></i><span>Previous</span>
+                    </span>
+                @endif
+                <span class="delivery-pagination-page">Page {{ $tasks->currentPage() }} of {{ $tasks->lastPage() }}</span>
+                @if($tasks->currentPage() < $tasks->lastPage())
+                    <a class="delivery-pagination-button" href="{{ $tasks->url($tasks->currentPage() + 1) }}" rel="next">
+                        <span>Next</span><i class="bi bi-arrow-right" aria-hidden="true"></i>
+                    </a>
+                @else
+                    <span class="delivery-pagination-button is-disabled" aria-disabled="true">
+                        <span>Next</span><i class="bi bi-arrow-right" aria-hidden="true"></i>
+                    </span>
+                @endif
+            </nav>
+        @elseif($tasks->hasPages())
             <div class="card-body">{{ $tasks->links() }}</div>
         @endif
         @if($preparationOrders->hasPages())

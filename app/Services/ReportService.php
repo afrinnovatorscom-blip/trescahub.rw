@@ -19,6 +19,67 @@ use Illuminate\Support\Str;
 
 class ReportService
 {
+    public function buildFinance(?Carbon $from, ?Carbon $to, ?string $search = null, ?int $perPage = null): array
+    {
+        $query = Order::query()
+            ->when($from, function ($query) use ($from) {
+                $query->where('created_at', '>=', $from->copy()->startOfDay());
+            })
+            ->when($to, function ($query) use ($to) {
+                $query->where('created_at', '<=', $to->copy()->endOfDay());
+            })
+            ->when($search !== null && trim($search) !== '', function ($query) use ($search) {
+                $term = '%'.trim($search).'%';
+                $query->where(function ($query) use ($term) {
+                    $query->where('reference', 'like', $term)
+                        ->orWhere('customer_name', 'like', $term)
+                        ->orWhere('delivery_address', 'like', $term)
+                        ->orWhere('fulfillment_status', 'like', $term);
+                });
+            });
+
+        $orders = (clone $query)
+            ->orderByDesc('created_at')
+            ->orderByDesc('id');
+        $orders = $perPage === null
+            ? $orders->get([
+                'id',
+                'reference',
+                'customer_name',
+                'delivery_address',
+                'total',
+                'fulfillment_status',
+                'created_at',
+            ])
+            : $orders->paginate($perPage, [
+                'id',
+                'reference',
+                'customer_name',
+                'delivery_address',
+                'total',
+                'fulfillment_status',
+                'created_at',
+            ])->withQueryString();
+
+        return [
+            'orders' => $orders,
+            'total_orders' => (clone $query)->count(),
+            'total_order_value' => round((float) (clone $query)->sum('total'), 2),
+            'search' => $search,
+            'period' => [
+                'from' => $from?->format('Y-m-d'),
+                'to' => $to?->format('Y-m-d'),
+                'formatted' => ! $from && ! $to
+                    ? 'All dates'
+                    : (! $from
+                        ? 'Through '.$to->format('d M Y')
+                        : (! $to
+                            ? 'From '.$from->format('d M Y')
+                            : $from->format('d M Y').' — '.$to->format('d M Y'))),
+            ],
+        ];
+    }
+
     /**
      * Build the structured report dataset for the given date range, category filter, and user.
      */

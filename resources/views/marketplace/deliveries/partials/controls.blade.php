@@ -109,7 +109,9 @@
             @if($status === $tabStatus) aria-current="page" @endif
         >
             {{ $tabLabel }}
-            <span class="delivery-tab-count" data-delivery-status-count="{{ $tabStatus }}">{{ $tabCounts[$tabStatus] }}</span>
+            @if($tabStatus !== 'delivered')
+                <span class="delivery-tab-count" data-delivery-status-count="{{ $tabStatus }}">{{ $tabCounts[$tabStatus] }}</span>
+            @endif
         </a>
     @endforeach
 </nav>

@@ -152,6 +152,7 @@ class OrderService
             $order->update(['subtotal' => $subtotal, 'total' => $subtotal]);
             $this->history($order, $user, null, 'pending_confirmation', null, 'We have received your order.');
             AuditLogger::log($user, 'order.created', $order, ['total' => $subtotal]);
+            $this->notifier->customerOrderPlaced($order);
             $this->notifier->customerOrder($order, 'Order received', 'We have received order '.$order->reference.'.');
 
             return $order->load('items');
@@ -593,11 +594,13 @@ class OrderService
             $this->assertVendorItem($actor, $lockedItem);
             $lockedItem->load('order');
 
-            if ($lockedItem->order->fulfillment_status === 'pending_confirmation') {
-                throw ValidationException::withMessages(['decision' => 'The customer order must be accepted by an administrator first.']);
+            // A stale pending_confirmation status must not block a saved vendor assignment.
+            if ($lockedItem->order->fulfillment_status === 'pending_confirmation'
+                && $lockedItem->assignment_status !== 'assigned') {
+                throw ValidationException::withMessages(['decision' => 'This item is no longer awaiting a vendor response.']);
             }
             if ($decision === 'accept' && ! in_array($lockedItem->order->fulfillment_status, [
-                'confirmed', 'processing', 'awaiting_stock', 'ready_for_dispatch',
+                'pending_confirmation', 'confirmed', 'processing', 'awaiting_stock', 'ready_for_dispatch',
             ], true)) {
                 throw ValidationException::withMessages(['decision' => 'This order is not in a state that accepts vendor assignments.']);
             }
@@ -918,12 +921,6 @@ class OrderService
                             'delivery' => 'The order must be confirmed, paid, and eligible for Admin-managed delivery preparation.',
                         ]);
                     }
-                    if ($vendorId !== null && $lockedOrder->payment_status !== 'paid') {
-                        throw ValidationException::withMessages([
-                            'delivery' => 'The order must be paid before it can be sent to delivery.',
-                        ]);
-                    }
-
                     $items = OrderItem::query()
                         ->where('order_id', $lockedOrder->id)
                         ->whereIn('id', $itemIds)
@@ -1030,24 +1027,77 @@ class OrderService
     {
         DB::transaction(function () use ($deliveryTask, $actor) {
             $task = DeliveryTask::query()->whereKey($deliveryTask->id)->lockForUpdate()->firstOrFail();
-            if ($task->status !== 'in_transit') {
+            $this->completeDeliveryTask($task, $actor);
+        });
+    }
+
+    public function confirmDeliveryByCustomer(DeliveryTask $deliveryTask, Customer $customer): void
+    {
+        DB::transaction(function () use ($deliveryTask, $customer) {
+            $order = Order::query()->whereKey($deliveryTask->order_id)->lockForUpdate()->firstOrFail();
+            if ((int) $order->customer_id !== (int) $customer->id) {
+                abort(404);
+            }
+
+            $task = $order->deliveries()->whereKey($deliveryTask->id)->lockForUpdate()->firstOrFail();
+            if (! CustomerTracking::canConfirmDelivery($order, $task)) {
                 throw ValidationException::withMessages([
-                    'delivery' => 'Only deliveries currently in transit can be marked as delivered.',
+                    'delivery' => 'Only an in-transit delivery for an active order can be confirmed.',
                 ]);
             }
 
-            $task->status = 'delivered';
-            $task->delivered_at = now();
-            $task->save();
+            $this->completeDeliveryTask($task, null, [
+                'actor_type' => 'customer',
+                'actor_id' => $customer->id,
+            ]);
 
-            if ($task->order_item_id) {
-                $item = OrderItem::query()->whereKey($task->order_item_id)->lockForUpdate()->firstOrFail();
+            if ($order->deliveries()->where('status', '<>', 'delivered')->exists()) {
+                return;
+            }
+
+            $from = $order->fulfillment_status;
+            $message = CustomerTracking::label('delivered');
+            $order->fulfillment_status = 'delivered';
+            $order->customer_status_message = $message;
+            $order->save();
+
+            foreach ($order->items()->lockForUpdate()->get() as $item) {
                 $item->fulfillment_status = 'delivered';
                 $item->save();
             }
 
-            AuditLogger::log($actor, 'delivery.completed', $task);
+            $order->histories()->create([
+                'from_status' => $from,
+                'to_status' => 'delivered',
+                'note' => 'Delivery confirmed by customer.',
+                'customer_message' => $message,
+            ]);
         });
+    }
+
+    private function completeDeliveryTask(DeliveryTask $task, ?User $actor, array $meta = []): void
+    {
+        if ($task->status !== 'in_transit') {
+            throw ValidationException::withMessages([
+                'delivery' => 'Only deliveries currently in transit can be marked as delivered.',
+            ]);
+        }
+
+        $task->status = 'delivered';
+        $task->delivered_at = now();
+        $task->save();
+
+        if ($task->order_item_id) {
+            $item = OrderItem::query()
+                ->whereKey($task->order_item_id)
+                ->where('order_id', $task->order_id)
+                ->lockForUpdate()
+                ->firstOrFail();
+            $item->fulfillment_status = 'delivered';
+            $item->save();
+        }
+
+        AuditLogger::log($actor, 'delivery.completed', $task, [], $meta);
     }
 
     public function requestVendorAssignmentDelivery(Order $order, int $vendorId, User $actor): bool

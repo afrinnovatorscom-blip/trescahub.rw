@@ -14,8 +14,7 @@ class PartnerController extends Controller
 
     public function publicIndex()
     {
-        $partners = Partner::latest()->get();
-        return view('front.pages.for-partners', compact('partners'));
+        return view('front.pages.for-partners');
     }
 
     // ── Admin ──────────────────────────────────────────────────────────────
@@ -135,7 +134,11 @@ class PartnerController extends Controller
     {
         $title = $partner->title;
         $logoPath = $partner->logo_path;
-        $partner->delete();
+        if (! $partner->delete()) {
+            return redirect()->route('partners.index')
+                ->with('error', "Partner '{$title}' could not be deleted.");
+        }
+
         PublicAsset::delete($logoPath);
 
         return redirect()->route('partners.index')

@@ -304,6 +304,9 @@
                         <option value="services" @selected($report['category'] === 'services')>Service Requests</option>
                         <option value="orders" @selected($report['category'] === 'orders')>Orders & Deliveries</option>
                         <option value="inventory" @selected($report['category'] === 'inventory')>Inventory & Movements</option>
+                        @if($report['permissions']['can_view_finance'])
+                            <option value="finance" @selected($report['category'] === 'finance')>Finance</option>
+                        @endif
                         @if($report['permissions']['can_view_vendors'])
                             <option value="vendors" @selected($report['category'] === 'vendors')>Vendor Fulfillment</option>
                         @endif
@@ -339,10 +342,19 @@
            class="report-tab-btn {{ $report['category'] === 'orders' ? 'active' : '' }}">
             <i class="bi bi-truck"></i> Orders & Deliveries
         </a>
+        <a href="{{ route('marketplace.reports.orders-history') }}" class="report-tab-btn">
+            <i class="bi bi-clock-history"></i> Orders History
+        </a>
         <a href="{{ route('marketplace.reports.index', ['from' => $report['period']['from'], 'to' => $report['period']['to'], 'category' => 'inventory']) }}"
            class="report-tab-btn {{ $report['category'] === 'inventory' ? 'active' : '' }}">
             <i class="bi bi-boxes"></i> Inventory
         </a>
+        @if($report['permissions']['can_view_finance'])
+            <a href="{{ route('marketplace.reports.index', ['category' => 'finance']) }}"
+               class="report-tab-btn {{ $report['category'] === 'finance' ? 'active' : '' }}">
+                <i class="bi bi-cash-stack"></i> Finance
+            </a>
+        @endif
         @if($report['permissions']['can_view_vendors'])
             <a href="{{ route('marketplace.reports.index', ['from' => $report['period']['from'], 'to' => $report['period']['to'], 'category' => 'vendors']) }}"
                class="report-tab-btn {{ $report['category'] === 'vendors' ? 'active' : '' }}">

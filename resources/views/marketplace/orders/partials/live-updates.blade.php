@@ -60,6 +60,47 @@
             if (message) feedback(message, 'success');
         };
 
+        const updateDeliveryCreatedOrder = (form, result) => {
+            const row = form.closest('tr[data-order-id]');
+            const orderId = Number(row?.dataset.orderId);
+            if (!row || orderId !== Number(result.order_id)) {
+                throw new Error('The saved delivery did not match the order row.');
+            }
+            if (result.removed_from_paid_orders !== true) {
+                throw new Error('The server did not confirm that the order was removed from Paid Orders.');
+            }
+            if (!Array.isArray(result.delivery_references) || result.delivery_references.length === 0) {
+                throw new Error('The server did not confirm a saved delivery record.');
+            }
+            if (!Number.isInteger(result.pending_delivery_count) || result.pending_delivery_count < 0) {
+                throw new Error('The pending delivery count response was invalid.');
+            }
+
+            const tableBody = row.parentElement;
+            if (!tableBody) throw new Error('The Paid Orders list could not be updated.');
+            row.remove();
+
+            const paidOrderCount = document.querySelector('[data-tab-count="paid"]');
+            if (paidOrderCount) {
+                const currentCount = Number.parseInt(paidOrderCount.textContent.replace(/[^\d]/g, ''), 10);
+                if (!Number.isNaN(currentCount)) {
+                    paidOrderCount.textContent = Math.max(0, currentCount - 1).toLocaleString();
+                }
+            }
+
+            if (!tableBody.querySelector('tr[data-order-id]')) {
+                const emptyRow = document.createElement('tr');
+                emptyRow.className = 'orders-empty-row';
+                emptyRow.innerHTML = '<td colspan="6" class="text-center py-5"><div class="fw-semibold mb-1">No orders found</div><div class="text-muted small">Try adjusting your search or filters.</div></td>';
+                tableBody.replaceChildren(emptyRow);
+            }
+
+            const assignedDeliveryCount = document.querySelector('[data-delivery-status-count="assigned"]');
+            if (assignedDeliveryCount) assignedDeliveryCount.textContent = String(result.pending_delivery_count);
+
+            window.dispatchEvent(new CustomEvent('marketplace:delivery-created', { detail: result }));
+        };
+
         const updateReviewDecisionFields = () => {
             const acceptForm = document.getElementById('accept-order-form');
             const cancelForm = document.getElementById('cancel-order-form');
@@ -162,7 +203,9 @@
             form.dataset.submitting = 'true';
             buttons.forEach((button) => {
                 button.disabled = true;
-                if (button.tagName === 'BUTTON') button.textContent = 'Saving...';
+                if (button.tagName === 'BUTTON') {
+                    button.textContent = form.matches('[data-delivery-creation-form]') ? 'Sending...' : 'Saving...';
+                }
             });
 
             let actionSucceeded = false;
@@ -177,10 +220,24 @@
                     body: formData,
                     credentials: 'same-origin',
                 });
-                const result = await response.json();
+                const responseText = await response.text();
+                let result;
+                try {
+                    result = JSON.parse(responseText);
+                } catch {
+                    throw new Error(response.ok
+                        ? 'The server returned an invalid response.'
+                        : `The request failed (${response.status} ${response.statusText}).`);
+                }
                 if (!response.ok) {
                     const validationMessage = Object.values(result.errors || {}).flat()[0];
                     feedback(validationMessage || result.message || 'The action could not be completed.', 'danger');
+                    return;
+                }
+
+                if (form.matches('[data-delivery-creation-form]')) {
+                    updateDeliveryCreatedOrder(form, result);
+                    feedback(result.message || 'Delivery created and moved to Pending Deliveries.', 'success');
                     return;
                 }
 

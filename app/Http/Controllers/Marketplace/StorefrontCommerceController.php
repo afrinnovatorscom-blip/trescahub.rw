@@ -4,14 +4,17 @@ namespace App\Http\Controllers\Marketplace;
 
 use App\Exceptions\InventoryException;
 use App\Http\Controllers\Controller;
+use App\Models\Customer;
 use App\Models\Order;
 use App\Models\ProductVariation;
 use App\Models\ShopProduct;
 use App\Services\OrderService;
 use App\Services\RequestWorkflowService;
 use App\Support\CustomerTracking;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -52,7 +55,7 @@ class StorefrontCommerceController extends Controller
             : $quantity;
         session(['marketplace.cart' => $cart]);
 
-        return redirect()->route('shop')->with('success', 'Added to cart.');
+        return redirect()->route('shop')->with('success', 'Product added to cart successfully.');
     }
 
     public function updateCart(Request $request)
@@ -97,24 +100,46 @@ class StorefrontCommerceController extends Controller
 
     public function checkout(Request $request)
     {
-        $lines = $this->lines(true);
+        if ($request->filled('product')) {
+            $data = $request->validate([
+                'product' => ['required', 'string'],
+                'quantity' => ['required', 'integer', 'min:1', 'max:100'],
+                'variation_id' => ['nullable', 'integer'],
+            ]);
+
+            $product = ShopProduct::query()->publicCatalog()->with('variations')->where('slug', $data['product'])->first();
+            if (! $product || ! $product->canPurchase((int) $data['quantity'])) {
+                return redirect()->route('shop')->withErrors(['product' => 'That product is not available in the requested quantity.']);
+            }
+
+            $variation = $this->resolveVariation($product, isset($data['variation_id']) ? (int) $data['variation_id'] : null);
+            $lineKey = $variation ? $product->slug.'|variation|'.$variation->id : $product->slug;
+            session(['marketplace.cart' => [$lineKey => $variation
+                ? ['quantity' => (int) $data['quantity'], 'variation_id' => $variation->id]
+                : (int) $data['quantity']]]);
+            session()->forget('marketplace.checkout');
+
+            return redirect()->route('checkout');
+        }
+
+        $lines = $this->eligibleCheckoutLines();
         if ($lines->isEmpty()) {
             return redirect()->route('cart');
         }
 
         $customer = Auth::guard('customers')->user();
         $defaultAddress = $customer?->defaultAddress();
+        $details = session('marketplace.checkout.details', []);
 
         return view('front.pages.checkout', [
             'lines' => $lines,
-            'bankInstructions' => config('marketplace.bank_instructions'),
             'customer' => $customer,
             'defaultAddress' => $defaultAddress,
-            'submissionKey' => (string) Str::uuid(),
+            'checkoutDetails' => $details,
         ]);
     }
 
-    public function place(Request $request)
+    public function saveCheckoutDetails(Request $request)
     {
         $data = $request->validate([
             'customer_name' => ['required', 'string', 'max:255'],
@@ -122,22 +147,105 @@ class StorefrontCommerceController extends Controller
             'phone' => ['required', 'string', 'max:50'],
             'delivery_address' => ['required', 'string', 'max:1000'],
             'delivery_notes' => ['nullable', 'string', 'max:1000'],
-            'payment_method' => ['required', 'in:cash_on_delivery,bank_transfer'],
-            'submission_key' => ['nullable', 'uuid'],
         ]);
 
-        $lines = $this->lines(true);
+        if ($this->eligibleCheckoutLines()->isEmpty()) {
+            throw ValidationException::withMessages([
+                'cart' => 'Your cart contains items that are no longer available. Review your cart and try again.',
+            ]);
+        }
+
+        $checkout = session('marketplace.checkout', []);
+        $checkout['details'] = $data;
+        $checkout['submission_key'] ??= (string) Str::uuid();
+        session(['marketplace.checkout' => $checkout]);
+
+        return redirect()->route('checkout.payment');
+    }
+
+    public function payment(Request $request)
+    {
+        $lines = $this->eligibleCheckoutLines();
         if ($lines->isEmpty()) {
             return redirect()->route('cart');
         }
+        if (! session()->has('marketplace.checkout.details')) {
+            return redirect()->route('checkout');
+        }
+
+        return view('front.pages.checkout-payment', [
+            'customer' => Auth::guard('customers')->user(),
+            'checkoutDetails' => session('marketplace.checkout.details'),
+            'paymentMethod' => old('payment_method', session('marketplace.checkout.payment_method')),
+            'paymentPhone' => old(
+                'payment_phone',
+                session('marketplace.checkout.payment_phone')
+                    ?? session('marketplace.checkout.details.phone')
+                    ?? Auth::guard('customers')->user()?->phone
+                    ?? ''
+            ),
+        ]);
+    }
+
+    public function place(Request $request)
+    {
+        $checkout = session('marketplace.checkout', []);
+        if (! isset($checkout['details']) || ! isset($checkout['submission_key'])) {
+            return redirect()->route('checkout')->withErrors([
+                'checkout' => 'Please confirm your checkout details before choosing a payment method.',
+            ]);
+        }
+
+        $detailsValidator = Validator::make($checkout['details'], [
+            'customer_name' => ['required', 'string', 'max:255'],
+            'email' => ['nullable', 'email', 'max:255'],
+            'phone' => ['required', 'string', 'max:50'],
+            'delivery_address' => ['required', 'string', 'max:1000'],
+            'delivery_notes' => ['nullable', 'string', 'max:1000'],
+        ]);
+        if ($detailsValidator->fails()) {
+            return redirect()->route('checkout')
+                ->withErrors($detailsValidator)
+                ->withInput($checkout['details']);
+        }
+
+        $data = $request->validate([
+            'payment_method' => ['required', 'in:mtn_mobile_money,airtel_money'],
+            'payment_phone' => [
+                'required',
+                'string',
+                'max:50',
+                function ($attribute, $value, $fail) {
+                    $digits = preg_replace('/\D+/', '', $value);
+                    if (str_starts_with($digits, '250')) {
+                        $digits = substr($digits, 3);
+                    }
+                    if (str_starts_with($digits, '0')) {
+                        $digits = substr($digits, 1);
+                    }
+                    if (! preg_match('/^7\d{8}$/', $digits)) {
+                        $fail('Enter a valid Rwandan mobile number, such as 078 123 4567 or +250 78 123 4567.');
+                    }
+                },
+            ],
+        ]);
+
+        $lines = $this->eligibleCheckoutLines();
+        if ($lines->isEmpty()) {
+            return redirect()->route('cart');
+        }
+        $checkout['payment_method'] = $data['payment_method'];
+        $checkout['payment_phone'] = $data['payment_phone'];
+        session(['marketplace.checkout' => $checkout]);
 
         try {
             $order = $this->orders->place([
-                'name' => $data['customer_name'],
-                'email' => $data['email'] ?? Auth::guard('customers')->user()?->email,
-                'phone' => $data['phone'],
-                'delivery_address' => $data['delivery_address'],
-                'delivery_notes' => $data['delivery_notes'] ?? null,
+                'name' => $checkout['details']['customer_name'],
+                'email' => $checkout['details']['email'] ?? Auth::guard('customers')->user()?->email,
+                'phone' => $checkout['details']['phone'],
+                'payment_phone' => $data['payment_phone'],
+                'delivery_address' => $checkout['details']['delivery_address'],
+                'delivery_notes' => $checkout['details']['delivery_notes'] ?? null,
                 'payment_method' => $data['payment_method'],
             ], $lines->map(fn ($line) => [
                 'product' => $line['product'],
@@ -145,22 +253,42 @@ class StorefrontCommerceController extends Controller
                 'variation_id' => $line['variation']?->id,
             ])->all(), null, Auth::guard('customers')->user(),
                 'cart_checkout',
-                $data['submission_key'] ?? null);
+                $checkout['submission_key']);
         } catch (InventoryException $exception) {
             throw ValidationException::withMessages(['cart' => $exception->getMessage()]);
         }
 
         session()->forget('marketplace.cart');
+        session()->forget('marketplace.checkout');
 
         return redirect()->route('checkout.done', $order->reference)->with('placed_order', $order->reference);
     }
 
-    public function done(string $reference)
+    private function eligibleCheckoutLines()
+    {
+        $lines = $this->lines(true);
+        $cart = session('marketplace.cart', []);
+
+        if ($lines->count() !== count($cart)) {
+            return collect();
+        }
+
+        return $lines;
+    }
+
+    public function done(Request $request, string $reference)
     {
         abort_unless(session('placed_order') === $reference, 404);
         $order = Order::query()->where('reference', $reference)->firstOrFail();
+        $customer = $request->user('customers');
+        $trackingUrl = $customer && (int) $order->customer_id === (int) $customer->id
+            ? route('account.orders.show', $order->reference)
+            : route('track-order');
 
-        return view('front.pages.order-placed', ['tracking' => CustomerTracking::present($order)]);
+        return view('front.pages.order-placed', [
+            'tracking' => CustomerTracking::present($order),
+            'trackingUrl' => $trackingUrl,
+        ]);
     }
 
     public function trackForm()
@@ -219,6 +347,7 @@ class StorefrontCommerceController extends Controller
             'selectedVariation' => $variation,
             'defaultAddress' => Auth::guard('customers')->user()?->defaultAddress(),
             'submissionKey' => (string) Str::uuid(),
+            'requestedQuantity' => max(1, $request->integer('quantity', 1)),
         ]);
     }
 
@@ -275,8 +404,7 @@ class StorefrontCommerceController extends Controller
         $orders = $request->user()->orders()
             ->with([
                 'items:id,order_id,product_name,variation_label,variation_value,quantity,line_total',
-                'payments:id,order_id,amount',
-                'deliveries:id,order_id,status',
+                'deliveries:id,order_id,reference,status',
             ])
             ->latest()
             ->paginate(15);
@@ -293,6 +421,37 @@ class StorefrontCommerceController extends Controller
             'tracking' => CustomerTracking::present($order),
             'canCancel' => in_array($order->fulfillment_status, ['pending_confirmation', 'confirmed', 'processing', 'awaiting_stock'], true),
         ]);
+    }
+
+    public function downloadOrderReceipt(Request $request, string $reference)
+    {
+        $order = $this->customerOrder($request, $reference);
+        $websiteHost = parse_url((string) config('app.url'), PHP_URL_HOST);
+        $websiteUrl = $websiteHost && ! in_array($websiteHost, ['localhost', '127.0.0.1', '::1'], true)
+            ? $websiteHost
+            : null;
+        $generatedAt = now();
+
+        return Pdf::loadView('front.pages.account-order-receipt', compact('order', 'websiteUrl', 'generatedAt'))
+            ->setPaper('a4', 'portrait')
+            ->download('receipt-'.$order->reference.'.pdf');
+    }
+
+    public function confirmOrderDelivery(Request $request, string $reference, string $deliveryReference)
+    {
+        /** @var Customer $customer */
+        $customer = $request->user('customers');
+        $order = $customer->orders()->where('reference', $reference)->firstOrFail();
+        $delivery = $order->deliveries()
+            ->where('reference', $deliveryReference)
+            ->where('status', 'in_transit')
+            ->firstOrFail();
+        abort_unless(CustomerTracking::canConfirmDelivery($order, $delivery), 404);
+
+        $this->orders->confirmDeliveryByCustomer($delivery, $customer);
+
+        return redirect()->route('account.orders.show', $order->reference)
+            ->with('success', 'Delivery marked as delivered.');
     }
 
     public function accountOrderTracking(Request $request, string $reference)
@@ -421,10 +580,12 @@ class StorefrontCommerceController extends Controller
         return $request->user()->orders()
             ->where('reference', $reference)
             ->with([
-                'items:id,order_id,product_name,sku,product_variation_id,variation_label,variation_value,unit_price,quantity,line_total,fulfillment_status,assignment_status',
+                'items:id,order_id,shop_product_id,vendor_id,product_name,sku,product_variation_id,variation_label,variation_value,unit_price,quantity,line_total,fulfillment_status,assignment_status,created_at,updated_at',
+                'items.product:id,product_name,thumbnail',
+                'items.vendor:id,business_name',
                 'payments:id,order_id,amount,type,method,created_at',
                 'histories:id,order_id,from_status,to_status,customer_message,created_at',
-                'deliveries:id,order_id,order_item_id,reference,status,customer_message,dispatched_at,delivered_at,created_at',
+                'deliveries:id,order_id,order_item_id,delivery_officer_id,reference,status,customer_message,delivery_method,courier_name,delivery_phone,tracking_reference,dispatched_at,delivered_at,created_at,updated_at',
             ])
             ->firstOrFail();
     }

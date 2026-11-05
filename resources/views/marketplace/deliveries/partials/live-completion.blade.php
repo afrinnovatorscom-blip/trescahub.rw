@@ -41,9 +41,7 @@
             const row = form.closest('tr');
             row?.remove();
             const inTransit = document.querySelector('[data-delivery-status-count="in_transit"]');
-            const delivered = document.querySelector('[data-delivery-status-count="delivered"]');
             if (inTransit) inTransit.textContent = Math.max(0, Number(inTransit.textContent) - 1);
-            if (delivered) delivered.textContent = Number(delivered.textContent) + 1;
             showMessage(payload.message || 'Delivery marked as Delivered successfully.', 'success');
         } catch (error) {
             form.dataset.submitting = 'false';

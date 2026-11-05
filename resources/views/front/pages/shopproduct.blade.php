@@ -1,11 +1,14 @@
 @extends('front.layouts.guest')
 @section('content')
 @php
-    $productGallery = array_values(array_unique(array_filter(array_merge(
-        [$shopProduct->thumbnail],
-        $shopProduct->images ?? []
-    ))));
-    $productGalleryUrl = fn ($path) => asset('assets/' . ltrim(str_replace('public/assets/', '', $path), '/'));
+    $productGallery = collect(array_merge([$shopProduct->thumbnail], $shopProduct->images ?? []))
+        ->filter(fn ($path) => is_string($path) && trim($path) !== '')
+        ->map(fn ($path) => preg_replace('#^(public/)?assets/#', '', ltrim($path, '/')))
+        ->filter(fn ($path) => $path !== '' && ! str_contains($path, '..') && \Illuminate\Support\Facades\File::isFile(public_path('assets/'.$path)))
+        ->unique()
+        ->values()
+        ->all();
+    $productGalleryUrl = fn ($path) => asset('assets/' . $path);
     $productVariations = $shopProduct->variations->filter(fn ($variation) =>
         filled($variation->feature_label)
         && filled($variation->variation_value)
@@ -80,30 +83,38 @@
 
             {{-- Right: Details --}}
             <div class="col-12 col-lg-7">
-                {{-- Category Badge --}}
-                @if($shopProduct->category)
-                    <span class="badge bg-secondary-subtle text-dark rounded-pill px-3 py-2" style="font-size: 0.85rem;">
-                        {{ $shopProduct->category->name }}
-                    </span>
-                @endif
-
-                {{-- Title --}}
-                <h1 class="mt-3 fw-bold" style="font-size: 2.5rem;">
-                    {{ $shopProduct->product_name }}
-                </h1>
-
-                {{-- Description --}}
-                @if($shopProduct->description)
-                    <p class="mt-4 text-muted lead">
-                        {{ $shopProduct->description }}
-                    </p>
-                @endif
-
                 {{-- Price & Order Section --}}
-                <div class="mt-5 rounded-3 p-4 shadow-sm" style="background-color: #f8f9fa;">
+                @php
+                    $purchaseMaxQuantity = $shopProduct->tracks_inventory
+                        ? $shopProduct->availableQuantity()
+                        : 100;
+                    $purchaseMaxQuantity = max(1, (int) $purchaseMaxQuantity);
+                    $initialVariation = $selectedProductVariation;
+                    $initialPurchasePrice = $initialVariation ? (float) $initialVariation->price : (float) $shopProduct->price;
+                @endphp
+                <div class="mt-0 rounded-3 p-4 shadow-sm purchase-section" style="background-color: #f8f9fa;">
+                    {{-- Category Badge --}}
+                    @if($shopProduct->category)
+                        <span class="badge bg-secondary-subtle text-dark rounded-pill px-3 py-2" style="font-size: 0.85rem;">
+                            {{ $shopProduct->category->name }}
+                        </span>
+                    @endif
+
+                    {{-- Title --}}
+                    <h1 class="mt-3 fw-bold purchase-title">
+                        {{ $shopProduct->product_name }}
+                    </h1>
+
+                    {{-- Description --}}
+                    @if($shopProduct->description)
+                        <p class="text-muted lead purchase-description">
+                            {{ $shopProduct->description }}
+                        </p>
+                    @endif
+
                     @if($productVariations->isNotEmpty())
                         <fieldset id="productVariationSelector" class="mb-3 border-0 p-0">
-                            <legend class="h6 fw-semibold mb-2">Choose your preferred option</legend>
+                            <legend class="h6 fw-semibold mb-3">Choose your preferred option</legend>
                             <div class="product-variation-options">
                                 @foreach($productVariations as $variation)
                                     <label class="product-variation-option {{ $variation->id === $selectedProductVariation->id ? 'is-selected' : '' }}">
@@ -113,6 +124,7 @@
                                             value="{{ $variation->id }}"
                                             data-product-variation-choice
                                             data-variation-price="{{ $variation->price }}"
+                                            data-variation-name="{{ e($variation->variation_value) }}"
                                             @checked($variation->id === $selectedProductVariation->id)
                                             aria-label="{{ $variation->feature_label }}: {{ $variation->variation_value }}, RWF {{ number_format((float) $variation->price, 0, '.', ',') }}"
                                         >
@@ -126,9 +138,10 @@
                             </div>
                         </fieldset>
                     @endif
-                    <div class="d-flex align-items-end gap-2">
-                        <span @if($productVariations->isNotEmpty()) id="selectedProductPrice" @endif class="fw-bold" style="font-size: 2.5rem; color: #16a34a;">
-                            RWF {{ number_format($selectedProductVariation ? (float) $selectedProductVariation->price : $shopProduct->price, 0, '.', ',') }}
+
+                    <div class="d-flex align-items-end gap-2 text-start">
+                        <span id="selectedProductPrice" class="fw-bold" style="font-size: 1.5rem; color: #16a34a; line-height: 1.1;">
+                            RWF {{ number_format($initialPurchasePrice, 0, '.', ',') }}
                         </span>
                         @if($shopProduct->hasValidDiscount())
                             <span class="badge bg-danger mb-2">{{ $shopProduct->discount_percentage }}% off</span>
@@ -138,13 +151,11 @@
                         <div class="text-muted text-decoration-line-through">RWF {{ number_format($shopProduct->original_price, 0, '.', ',') }}</div>
                     @endif
 
-                    {{-- Working Days --}}
                     <div class="d-flex align-items-center gap-2 mt-3 text-muted" style="font-size: 0.95rem;">
                         <i class="bi bi-clock"></i>
                         <span>Delivery: {{ $shopProduct->working_days }} working day(s)</span>
                     </div>
 
-                    {{-- WhatsApp Order Button --}}
                     @php
                         $whatsappMessage = urlencode(
                             "Hi TRESCA Hub! I'm interested in: *" . $shopProduct->product_name . "*\n" .
@@ -153,30 +164,72 @@
                             "Product Link: " . route('shop-products.show', $shopProduct)
                         );
                         $whatsappUrl = "https://wa.me/250780290040?text=" . $whatsappMessage;
+
+                        $initialVariationName = $initialVariation?->variation_value ? ' — ' . $initialVariation->variation_value : '';
+                        $initialPurchaseWhatsappMessage = urlencode(
+                            "Hi TRESCA Hub! I'm interested in: *" . $shopProduct->product_name . $initialVariationName . "*\n" .
+                            "Quantity: 1\n" .
+                            "Price: RWF " . number_format($initialPurchasePrice, 0, '.', ',') . "\n" .
+                            "Please share more details.\n\n" .
+                            "Product Link: " . route('shop-products.show', $shopProduct)
+                        );
+                        $purchaseWhatsappUrl = "https://wa.me/250780290040?text=" . $initialPurchaseWhatsappMessage;
                     @endphp
 
-                    <div class="mt-4 d-grid gap-2">
-                        <a href="{{ $whatsappUrl }}" target="_blank" class="btn btn-success btn-lg w-100 gap-2" style="background-color: #25d366; border-color: #25d366;">
-                            <i class="bi bi-whatsapp"></i>
-                            Order via WhatsApp
-                        </a>
-                        <form method="POST" action="{{ route('cart.add') }}" class="d-flex gap-2">
+                    <div class="mt-4 purchase-controls">
+                        <div class="quantity-section">
+                            <div class="fw-semibold mb-2">Quantity to order</div>
+                            <div class="purchase-quantity" role="group" aria-label="Quantity to order">
+                                <button type="button" id="purchaseQuantityMinus" class="purchase-quantity-button" aria-label="Decrease quantity">
+                                    <i class="bi bi-dash-lg"></i>
+                                </button>
+                                <input
+                                    id="purchaseQuantity"
+                                    form="addToCartForm"
+                                    type="number"
+                                    name="quantity"
+                                    value="1"
+                                    min="1"
+                                    max="{{ $purchaseMaxQuantity }}"
+                                    class="purchase-quantity-value"
+                                    aria-label="Quantity"
+                                >
+                                <button type="button" id="purchaseQuantityPlus" class="purchase-quantity-button" aria-label="Increase quantity">
+                                    <i class="bi bi-plus-lg"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <form id="addToCartForm" method="POST" action="{{ route('cart.add') }}" class="purchase-button-form">
                             @csrf
                             <input type="hidden" name="product" value="{{ $shopProduct->slug }}">
                             @if($productVariations->isNotEmpty())
                                 <input id="selectedVariationId" type="hidden" name="variation_id" value="{{ $selectedProductVariation->id }}">
                             @endif
-                            <input type="number" name="quantity" value="1" min="1" max="100" class="form-control" style="max-width: 110px;" aria-label="Quantity">
-                            <button class="btn btn-primary btn-lg flex-grow-1" type="submit" @if($shopProduct->customerAvailability() !== 'in_stock') disabled @endif>Add to cart</button>
+                            <button class="purchase-action-button purchase-action-primary" type="submit" @if($shopProduct->customerAvailability() !== 'in_stock') disabled @endif>
+                                <i class="bi bi-cart3"></i>
+                                <span>Add to Cart</span>
+                            </button>
                         </form>
+
                         <a
                             id="requestProductButton"
-                            href="{{ route('product-requests.create', ['product' => $shopProduct->slug] + ($selectedProductVariation ? ['variation_id' => $selectedProductVariation->id] : [])) }}"
-                            class="btn btn-outline-dark btn-lg"
-                        >Request this product</a>
+                            href="{{ route('checkout', ['product' => $shopProduct->slug, 'quantity' => 1] + ($selectedProductVariation ? ['variation_id' => $selectedProductVariation->id] : [])) }}"
+                            class="purchase-action-button purchase-action-secondary"
+                        ><i class="bi bi-lightning-charge"></i><span>Buy Now</span></a>
+
+                        <a
+                            id="purchaseWhatsappButton"
+                            href="{{ $purchaseWhatsappUrl }}"
+                            target="_blank"
+                            rel="noopener"
+                            class="purchase-action-button purchase-action-whatsapp"
+                            data-whatsapp-base="https://wa.me/250780290040"
+                            data-product-name="{{ e($shopProduct->product_name) }}"
+                            data-product-url="{{ route('shop-products.show', $shopProduct) }}"
+                        ><i class="bi bi-whatsapp"></i><span>Order via WhatsApp</span></a>
                     </div>
 
-                    {{-- Stock Status --}}
                     @if($shopProduct->customerAvailability() === 'out_of_stock')
                         <div class="alert alert-warning mt-3 mb-0" role="alert">
                             <i class="bi bi-exclamation-triangle"></i>
@@ -369,22 +422,23 @@
 
 <style>
     #productVariationSelector .product-variation-options {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.5rem;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
+        gap: 0.65rem;
     }
 
     #productVariationSelector .product-variation-option {
-        display: flex;
-        flex: 0 1 180px;
-        min-width: 140px;
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        min-height: 68px;
         align-items: center;
-        gap: 0.55rem;
-        padding: 0.55rem 0.7rem;
+        gap: 0.65rem;
+        padding: 0.75rem;
         border: 1px solid #dee2e6;
-        border-radius: 0.5rem;
+        border-radius: 0.375rem;
         background: #fff;
         cursor: pointer;
+        transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
     }
 
     #productVariationSelector .product-variation-option.is-selected {
@@ -394,17 +448,17 @@
     }
 
     #productVariationSelector .product-variation-option input {
-        flex: 0 0 auto;
+        grid-column: 1;
         margin: 0;
         accent-color: #198754;
     }
 
     #productVariationSelector .product-variation-description {
+        grid-column: 2;
         display: flex;
         min-width: 0;
-        flex: 1 1 auto;
         flex-direction: column;
-        gap: 0.1rem;
+        gap: 0.15rem;
         line-height: 1.25;
     }
 
@@ -421,15 +475,113 @@
     }
 
     #productVariationSelector .product-variation-price {
+        grid-column: 3;
         color: #198754;
         font-size: 0.85rem;
         font-weight: 700;
         white-space: nowrap;
+        text-align: right;
     }
 
     #productVariationSelector .product-variation-option:focus-within {
         outline: 3px solid rgba(25, 135, 84, 0.25);
         outline-offset: 2px;
+    }
+
+    .purchase-controls {
+        width: 100%;
+    }
+
+    .quantity-section {
+        text-align: center;
+        margin-bottom: 0.9rem;
+    }
+
+    .purchase-quantity {
+        display: inline-grid;
+        grid-template-columns: 40px 58px 40px;
+        height: 40px;
+        border: 1px solid #dee2e6;
+        border-radius: 0.375rem;
+        overflow: hidden;
+        background: #fff;
+    }
+
+    .purchase-quantity-button {
+        border: 0;
+        background: #fff;
+        color: #212529;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .purchase-quantity-button:hover { background: #f8f9fa; }
+
+    .purchase-quantity-value {
+        width: 58px;
+        border: 0;
+        border-left: 1px solid #dee2e6;
+        border-right: 1px solid #dee2e6;
+        border-radius: 0;
+        text-align: center;
+        font-weight: 700;
+        appearance: textfield;
+        -moz-appearance: textfield;
+    }
+
+    .purchase-quantity-value::-webkit-inner-spin-button,
+    .purchase-quantity-value::-webkit-outer-spin-button { appearance: none; margin: 0; }
+
+    .purchase-button-form,
+    .purchase-action-button {
+        width: 90%;
+        max-width: 520px;
+    }
+
+    .purchase-button-form {
+        margin: 0 auto 0.65rem;
+    }
+
+    .purchase-action-button {
+        min-height: 46px;
+        margin-left: auto;
+        margin-right: auto;
+        margin-bottom: 0.65rem;
+        border-radius: 0.375rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.55rem;
+        font-weight: 600;
+        text-decoration: none;
+    }
+
+    form.purchase-button-form .purchase-action-button { width: 100%; }
+
+    .purchase-action-primary { background: #198754; border: 1px solid #198754; color: #fff; }
+    .purchase-action-primary:hover:not(:disabled) { background: #157347; border-color: #146c43; color: #fff; }
+    .purchase-action-primary:disabled { opacity: 0.55; cursor: not-allowed; }
+
+    .purchase-action-secondary { border: 1px solid #212529; color: #212529; background: transparent; }
+    .purchase-action-secondary:hover { background: #212529; color: #fff; }
+
+    .purchase-action-whatsapp { border: 1px solid #25d366; color: #fff; background: #25d366; }
+    .purchase-action-whatsapp:hover { border-color: #1fbf5b; background: #1fbf5b; color: #fff; }
+
+    .purchase-section .purchase-title {
+        margin-bottom: 0;
+        padding-bottom: 0.5rem;
+        font-size: clamp(1.75rem, 4vw, 2.5rem);
+        line-height: 1.2;
+        overflow-wrap: anywhere;
+    }
+
+    .purchase-section .purchase-description {
+        margin: 0.5rem 0 1.25rem;
+        font-size: 1.05rem;
+        line-height: 1.6;
+        overflow-wrap: anywhere;
     }
 
     .product-card {
@@ -453,37 +605,95 @@
     @media (max-width: 768px) {
         .py-md-20 { padding-top: 3rem; padding-bottom: 3rem; }
     }
+
+    @media (max-width: 575.98px) {
+        .purchase-section { padding: 1rem !important; }
+        .purchase-section .purchase-title { font-size: clamp(1.6rem, 7vw, 2rem); }
+        .purchase-section .purchase-description { font-size: 1rem; }
+        .purchase-section .purchase-button-form,
+        .purchase-section .purchase-action-button { width: 100%; }
+        .purchase-section .purchase-button-form { max-width: none; }
+        .purchase-section .purchase-action-button { min-height: 48px; }
+        .purchase-section #productVariationSelector .product-variation-option { grid-template-columns: auto minmax(0, 1fr); }
+        .purchase-section #productVariationSelector .product-variation-price { grid-column: 2; text-align: left; }
+    }
 </style>
 
-@if($productVariations->isNotEmpty())
-    <script>
-        (() => {
-            const choices = document.querySelectorAll('[data-product-variation-choice]');
-            const price = document.getElementById('selectedProductPrice');
-            const cartVariation = document.getElementById('selectedVariationId');
-            const requestButton = document.getElementById('requestProductButton');
-            const money = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
+<script>
+    (() => {
+        const quantity = document.getElementById('purchaseQuantity');
+        const minus = document.getElementById('purchaseQuantityMinus');
+        const plus = document.getElementById('purchaseQuantityPlus');
+        const choices = document.querySelectorAll('[data-product-variation-choice]');
+        const price = document.getElementById('selectedProductPrice');
+        const cartVariation = document.getElementById('selectedVariationId');
+        const requestButton = document.getElementById('requestProductButton');
+        const whatsappButton = document.getElementById('purchaseWhatsappButton');
+        const money = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
 
-            choices.forEach((choice) => {
-                choice.addEventListener('change', () => {
-                    if (!choice.checked) return;
+        const clampQuantity = () => {
+            const max = Math.max(1, Number(quantity.max) || 100);
+            const value = Math.max(1, Math.min(max, Number.parseInt(quantity.value, 10) || 1));
+            quantity.value = String(value);
+            return value;
+        };
 
-                    price.textContent = `RWF ${money.format(Number(choice.dataset.variationPrice))}`;
-                    if (cartVariation) cartVariation.value = choice.value;
+        const selectedChoice = () => document.querySelector('[data-product-variation-choice]:checked') || null;
+        const currentPrice = () => selectedChoice()
+            ? Number(selectedChoice().dataset.variationPrice)
+            : Number({{ json_encode((float) $initialPurchasePrice) }});
 
-                    choices.forEach((option) => {
-                        option.closest('.product-variation-option')?.classList.toggle('is-selected', option === choice);
-                    });
+        const updatePurchaseLinks = () => {
+            const value = clampQuantity();
+            const choice = selectedChoice();
 
-                    if (requestButton) {
-                        const requestUrl = new URL(requestButton.href);
-                        requestUrl.searchParams.set('variation_id', choice.value);
-                        requestButton.href = requestUrl.toString();
-                    }
+            if (requestButton) {
+                const requestUrl = new URL(requestButton.href);
+                requestUrl.searchParams.set('quantity', value);
+                if (choice) requestUrl.searchParams.set('variation_id', choice.value);
+                requestButton.href = requestUrl.toString();
+            }
+
+            if (whatsappButton) {
+                const choiceName = choice ? ` — ${choice.dataset.variationName}` : '';
+                const productName = whatsappButton.dataset.productName;
+                const productUrl = whatsappButton.dataset.productUrl;
+                const message = `Hi TRESCA Hub! I'm interested in: *${productName}${choiceName}*\nQuantity: ${value}\nPrice: RWF ${money.format(currentPrice())}\nPlease share more details.\n\nProduct Link: ${productUrl}`;
+                whatsappButton.href = `${whatsappButton.dataset.whatsappBase}?text=${encodeURIComponent(message)}`;
+            }
+        };
+
+        minus?.addEventListener('click', () => {
+            quantity.value = String(Math.max(1, clampQuantity() - 1));
+            updatePurchaseLinks();
+        });
+
+        plus?.addEventListener('click', () => {
+            const max = Math.max(1, Number(quantity.max) || 100);
+            quantity.value = String(Math.min(max, clampQuantity() + 1));
+            updatePurchaseLinks();
+        });
+
+        quantity?.addEventListener('input', updatePurchaseLinks);
+        quantity?.addEventListener('change', updatePurchaseLinks);
+
+        choices.forEach((choice) => {
+            choice.addEventListener('change', () => {
+                if (!choice.checked) return;
+
+                if (price) price.textContent = `RWF ${money.format(Number(choice.dataset.variationPrice))}`;
+                if (cartVariation) cartVariation.value = choice.value;
+
+                choices.forEach((option) => {
+                    option.closest('.product-variation-option')?.classList.toggle('is-selected', option === choice);
                 });
+
+                updatePurchaseLinks();
             });
-        })();
-    </script>
-@endif
+        });
+
+        updatePurchaseLinks();
+    })();
+</script>
 
 @endsection

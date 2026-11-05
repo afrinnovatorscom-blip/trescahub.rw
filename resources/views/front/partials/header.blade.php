@@ -164,6 +164,14 @@
         </nav>
     </div>
 
+    @if(session('status'))
+        <div class="container-xl py-2">
+            <div class="alert alert-info mb-0 py-2 rounded-3" role="status">
+                {{ session('status') }}
+            </div>
+        </div>
+    @endif
+
     {{-- Mobile Search Bar --}}
     <div id="mobileSearchBar" class="d-none border-top bg-white px-3 py-2">
         <div class="position-relative">

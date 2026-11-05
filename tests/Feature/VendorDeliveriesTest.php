@@ -43,7 +43,10 @@ class VendorDeliveriesTest extends TestCase
             ->assertDontSee('<th>Vendor</th>', false)
             ->assertSee('Pending')
             ->assertSee('In Transit')
-            ->assertSee('Delivered');
+            ->assertSee('Delivered')
+            ->assertSee('data-delivery-status-count="assigned"', false)
+            ->assertSee('data-delivery-status-count="in_transit"', false)
+            ->assertDontSee('data-delivery-status-count="delivered"', false);
 
         $this->actingAs($userA)->get(route('vendor.deliveries.index', ['status' => 'in_transit']))
             ->assertOk()
@@ -59,6 +62,13 @@ class VendorDeliveriesTest extends TestCase
             ->assertOk()
             ->assertSee('DLV-DELIVERED-A')
             ->assertSee('Vendor A Item × 1')
+            ->assertSee('Delivered')
+            ->assertSee('Delivered deliveries pagination')
+            ->assertSee('Previous')
+            ->assertSee('Next')
+            ->assertSee('aria-disabled="true"', false)
+            ->assertSee('Page 1 of 1')
+            ->assertDontSee('data-delivery-status-count="delivered"', false)
             ->assertDontSee('Customer A')
             ->assertDontSee('Private delivery address')
             ->assertSee(str_replace('&', '&amp;', route('vendor.deliveries.index', [
@@ -98,6 +108,39 @@ class VendorDeliveriesTest extends TestCase
             ->assertDontSee('DLV-ASSIGNED-A')
             ->assertDontSee('DLV-TRANSIT-A')
             ->assertDontSee('DLV-DELIVERED-A');
+    }
+
+    public function test_vendor_delivered_tab_paginates_after_twenty_vendor_delivery_tasks(): void
+    {
+        $vendor = $this->vendor('Delivered Pagination Vendor');
+        $user = $this->vendorUser($vendor);
+
+        for ($index = 1; $index <= 21; $index++) {
+            $order = $this->order('VENDOR-DELIVERED-PAGE-'.$index, 'Pagination Customer '.$index);
+            $item = $this->item($order, $vendor, 'Pagination Product '.$index);
+            $this->task('VENDOR-DELIVERED-PAGE-TASK-'.$index, $order, $item, $vendor, 'delivered');
+        }
+
+        $filters = ['status' => 'delivered', 'q' => 'VENDOR-DELIVERED-PAGE-'];
+        $this->actingAs($user)
+            ->get(route('vendor.deliveries.index', $filters))
+            ->assertOk()
+            ->assertSee('Delivered deliveries pagination')
+            ->assertSee('Page 1 of 2')
+            ->assertSee(str_replace('&', '&amp;', route('vendor.deliveries.index', $filters + ['page' => 2])), false)
+            ->assertSee('aria-disabled="true"', false)
+            ->assertViewHas('tasks', fn ($tasks): bool => $tasks->count() === 20
+                && $tasks->currentPage() === 1
+                && $tasks->total() === 21);
+
+        $this->actingAs($user)
+            ->get(route('vendor.deliveries.index', $filters + ['page' => 2]))
+            ->assertOk()
+            ->assertSee('Page 2 of 2')
+            ->assertSee('rel="prev"', false)
+            ->assertViewHas('tasks', fn ($tasks): bool => $tasks->count() === 1
+                && $tasks->currentPage() === 2
+                && $tasks->total() === 21);
     }
 
     public function test_vendor_without_delivery_records_sees_a_clear_empty_state(): void

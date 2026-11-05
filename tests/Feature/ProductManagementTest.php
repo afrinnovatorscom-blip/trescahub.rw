@@ -33,32 +33,36 @@ class ProductManagementTest extends TestCase
     {
         $admin = $this->admin();
 
-        $this->actingAs($admin)
-            ->get(route('admin.shop-products.create'))
+        $createResponse = $this->actingAs($admin)->get(route('admin.shop-products.create'));
+        $createResponse
             ->assertOk()
             ->assertSee('Product Information')
             ->assertSee('Promote on Homepage')
             ->assertSee('Main Product Image (Thumbnail)')
             ->assertSee('Additional Product Images (Optional)')
-            ->assertSee('Additional Settings')
-            ->assertSee('Assign to Vendor')
+            ->assertSee('Vendor Assignment')
+            ->assertSee('Assign Product to Vendor')
+            ->assertSee('Select the vendor responsible for this product, or choose Tresca Direct if the product is managed directly by Tresca Hub.')
             ->assertSee('Unit of Measurement')
             ->assertSee('Initial Stock Quantity')
             ->assertDontSee('Track physical stock')
             ->assertSee('Create Product')
             ->assertDontSee('Enable Discount')
-            ->assertDontSee('Delivery Time (working days)')
-            ->assertSee('name="working_days" value="1"', false)
+            ->assertDontSee('name="working_days"', false)
+            ->assertDontSee('Working Days')
+            ->assertSee('Delivery Time (days)')
+            ->assertSee('name="delivery_time"', false)
             ->assertDontSee('Approve Now')
             ->assertSee('Publish after saving')
             ->assertDontSee('SKU (Automatically Assigned)')
             ->assertDontSee('Current Stock');
+        preg_match('/<input[^>]*name="delivery_time"[^>]*>/', $createResponse->getContent(), $adminCreateDeliveryInput);
+        $this->assertNotEmpty($adminCreateDeliveryInput);
+        $this->assertStringContainsString('value="1"', $adminCreateDeliveryInput[0]);
 
         $standardPayload = $this->payload([
             'product_name' => 'Standard product without discount',
         ]);
-        unset($standardPayload['working_days']);
-        $standardPayload['working_days'] = '1';
         $this->actingAs($admin)->post(route('admin.shop-products.store'), $standardPayload)
             ->assertRedirect(route('admin.shop-products.index'));
         $standard = ShopProduct::query()->where('product_name', 'Standard product without discount')->firstOrFail();
@@ -110,7 +114,12 @@ class ProductManagementTest extends TestCase
         $editResponse = $this->actingAs($admin)->get(route('admin.shop-products.edit', $published));
         $editResponse->assertOk()
             ->assertSee('Edit Product')
-            ->assertDontSee('Delivery Time (working days)')
+            ->assertDontSee('name="working_days"', false)
+            ->assertDontSee('Working Days')
+            ->assertSee('Assign Product to Vendor')
+            ->assertSee('Select the vendor responsible for this product, or choose Tresca Direct if the product is managed directly by Tresca Hub.')
+            ->assertSee('Delivery Time (days)')
+            ->assertSee('name="delivery_time"', false)
             ->assertSee('Enable Discount')
             ->assertSee('Track physical stock')
             ->assertSee('aria-labelledby="stock-heading"', false)
@@ -121,6 +130,143 @@ class ProductManagementTest extends TestCase
             strpos($editHtml, 'aria-labelledby="stock-heading"')
         );
         $this->assertStringNotContainsString('Pricing and Inventory', $editHtml);
+    }
+
+    public function test_admin_can_create_and_update_cost_price_without_exposing_it_to_customers(): void
+    {
+        $admin = $this->admin();
+        $createResponse = $this->actingAs($admin)->get(route('admin.shop-products.create'));
+        $createResponse
+            ->assertOk()
+            ->assertSee('Cost Price (RWF)')
+            ->assertSee('The amount of money you paid to buy one product before selling it to customers.')
+            ->assertSee('Delivery Time (days)')
+            ->assertDontSee('Working Days');
+        preg_match('/<input[^>]*name="delivery_time"[^>]*>/', $createResponse->getContent(), $adminCreateDeliveryInput);
+        $this->assertNotEmpty($adminCreateDeliveryInput);
+        $this->assertStringContainsString('value="1"', $adminCreateDeliveryInput[0]);
+
+        $missingCost = $this->payload(['product_name' => 'Product missing cost price']);
+        unset($missingCost['acquisition_cost']);
+
+        $this->actingAs($admin)
+            ->from(route('admin.shop-products.create'))
+            ->post(route('admin.shop-products.store'), $missingCost)
+            ->assertRedirect(route('admin.shop-products.create'))
+            ->assertSessionHasErrors('acquisition_cost');
+        $this->get(route('admin.shop-products.create'))
+            ->assertOk()
+            ->assertSee('Acquisition Cost:')
+            ->assertSee('The acquisition cost field is required.');
+
+        $this->actingAs($admin)->post(route('admin.shop-products.store'), $this->payload([
+            'product_name' => 'Product with cost price',
+            'acquisition_cost' => '375.50',
+            'publish_now' => 1,
+        ]))->assertRedirect(route('admin.shop-products.index'));
+
+        $product = ShopProduct::query()->where('product_name', 'Product with cost price')->firstOrFail();
+        $this->assertSame('375.50', $product->acquisition_cost);
+        $this->assertSame('1000.00', $product->price);
+        $this->assertSame(1, $product->working_days);
+
+        $editResponse = $this->actingAs($admin)
+            ->get(route('admin.shop-products.edit', $product))
+            ->assertOk()
+            ->assertSee('name="acquisition_cost"', false)
+            ->assertDontSee('name="working_days"', false)
+            ->assertDontSee('Working Days')
+            ->assertSee('Delivery Time')
+            ->assertSee('name="delivery_time"', false)
+            ->assertSee('value="1"', false)
+            ->assertSee('value="375.50"', false);
+        preg_match('/<input[^>]*name="delivery_time"[^>]*>/', $editResponse->getContent(), $deliveryInput);
+        $this->assertNotEmpty($deliveryInput);
+        $this->assertStringContainsString('value="1"', $deliveryInput[0]);
+
+        $this->actingAs($admin)->put(route('admin.shop-products.update', $product), $this->payload([
+            'product_name' => $product->product_name,
+            'acquisition_cost' => '425.75',
+            'price' => '1000.00',
+            'delivery_time' => 4,
+        ]))->assertRedirect(route('admin.shop-products.index'));
+
+        $product->refresh();
+        $this->assertSame('425.75', $product->acquisition_cost);
+        $this->assertSame('1000.00', $product->price);
+        $this->assertSame(4, $product->working_days);
+        $this->actingAs($admin)
+            ->get(route('admin.shop-products.edit', $product))
+            ->assertOk()
+            ->assertSee('Delivery Time (days)')
+            ->assertSee('name="delivery_time"', false)
+            ->assertSee('value="4"', false)
+            ->assertDontSee('Working Days');
+
+        $this->get(route('shop-products.show', $product))
+            ->assertOk()
+            ->assertDontSee('Cost Price')
+            ->assertDontSee('425.75');
+        $this->getJson('/api/shop-products')
+            ->assertOk()
+            ->assertDontSee('acquisition_cost')
+            ->assertDontSee('425.75');
+    }
+
+    public function test_existing_product_without_a_historical_cost_price_can_be_updated(): void
+    {
+        $admin = $this->admin();
+        $product = ShopProduct::query()->create($this->payload([
+            'product_name' => 'Legacy product without cost',
+            'description' => 'Existing product information.',
+            'acquisition_cost' => null,
+        ]));
+
+        $editResponse = $this->actingAs($admin)
+            ->get(route('admin.shop-products.edit', $product))
+            ->assertOk()
+            ->assertSee('name="acquisition_cost"', false)
+            ->assertSee('value=""', false);
+        preg_match('/<input[^>]*name="acquisition_cost"[^>]*>/', $editResponse->getContent(), $costInput);
+        $this->assertNotEmpty($costInput);
+        $this->assertStringNotContainsString('required', $costInput[0]);
+
+        $updatePayload = $this->payload([
+            'product_name' => 'Updated legacy product',
+            'description' => 'Existing product information.',
+            'acquisition_cost' => '',
+            'price' => '1250.00',
+        ]);
+        unset($updatePayload['acquisition_cost']);
+
+        $this->actingAs($admin)
+            ->put(route('admin.shop-products.update', $product), $updatePayload)
+            ->assertRedirect(route('admin.shop-products.index'));
+
+        $product->refresh();
+        $this->assertSame('Updated legacy product', $product->product_name);
+        $this->assertSame('Existing product information.', $product->description);
+        $this->assertSame('1250.00', $product->price);
+        $this->assertNull($product->acquisition_cost);
+    }
+
+    public function test_users_without_finance_permission_cannot_view_or_submit_cost_price(): void
+    {
+        $productManager = User::query()->where('email', 'catalog@example.com')->firstOrFail();
+
+        $this->actingAs($productManager)
+            ->get(route('admin.shop-products.create'))
+            ->assertOk()
+            ->assertDontSee('Cost Price')
+            ->assertDontSee('name="acquisition_cost"', false);
+
+        $this->actingAs($productManager)
+            ->from(route('admin.shop-products.create'))
+            ->post(route('admin.shop-products.store'), $this->payload([
+                'acquisition_cost' => 150,
+            ]))
+            ->assertRedirect(route('admin.shop-products.create'))
+            ->assertSessionHasErrors('acquisition_cost');
     }
 
     public function test_admin_can_create_and_edit_price_variations_with_the_default_price_synced(): void
@@ -389,6 +535,41 @@ class ProductManagementTest extends TestCase
         PublicAsset::delete($product->thumbnail);
     }
 
+    public function test_product_gallery_omits_stale_image_paths_but_keeps_existing_thumbnail(): void
+    {
+        $imageContent = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lXcAAAAASUVORK5CYII=');
+        $thumbnail = PublicAsset::store(UploadedFile::fake()->createWithContent('cover.png', $imageContent), 'shop-products/thumbnails');
+        $product = ShopProduct::query()->create([
+            'product_name' => 'Phone covers with stale gallery paths',
+            'slug' => 'phone-covers-stale-gallery',
+            'status' => 'in_stock',
+            'price' => 1000,
+            'working_days' => 1,
+            'shop_category_id' => $this->category->id,
+            'approval_status' => 'approved',
+            'publication_status' => 'published',
+            'thumbnail' => $thumbnail,
+            'images' => [
+                'shop-products/images/deleted-one.webp',
+                'shop-products/images/deleted-two.webp',
+                'shop-products/images/deleted-three.jpg',
+            ],
+        ]);
+
+        $response = $this->get(route('shop-products.show', $product))
+            ->assertOk()
+            ->assertSee('productMainImage')
+            ->assertSee('id="productGallery"', false)
+            ->assertSee('src="'.asset('assets/'.$thumbnail).'"', false)
+            ->assertDontSee('deleted-one.webp')
+            ->assertDontSee('deleted-two.webp')
+            ->assertDontSee('deleted-three.jpg');
+
+        $this->assertSame(1, substr_count((string) $response->getContent(), 'data-gallery-src='));
+
+        PublicAsset::delete($thumbnail);
+    }
+
     public function test_main_thumbnail_can_be_removed_without_removing_additional_images(): void
     {
         $admin = $this->admin();
@@ -423,6 +604,36 @@ class ProductManagementTest extends TestCase
         PublicAsset::delete($galleryImagePath);
     }
 
+    public function test_admin_selling_price_must_be_positive_and_saved_price_updates_public_shop(): void
+    {
+        $admin = $this->admin();
+        $this->actingAs($admin)->post(route('admin.shop-products.store'), $this->payload([
+            'product_name' => 'Editable price product',
+            'publish_now' => 1,
+        ]))->assertRedirect(route('admin.shop-products.index'));
+
+        $product = ShopProduct::query()->where('product_name', 'Editable price product')->firstOrFail();
+
+        $this->from(route('admin.shop-products.edit', $product))
+            ->actingAs($admin)
+            ->put(route('admin.shop-products.update', $product), $this->payload([
+                'product_name' => 'Editable price product',
+                'price' => 0,
+            ]))
+            ->assertRedirect(route('admin.shop-products.edit', $product))
+            ->assertSessionHasErrors('price');
+
+        $this->assertSame('1000.00', $product->fresh()->price);
+
+        $this->actingAs($admin)->put(route('admin.shop-products.update', $product), $this->payload([
+            'product_name' => 'Editable price product',
+            'price' => 1750.50,
+        ]))->assertRedirect(route('admin.shop-products.index'));
+
+        $this->assertSame('1750.50', $product->fresh()->price);
+        $this->get(route('shop-products.show', $product))->assertOk()->assertSee('RWF 1,751');
+    }
+
     private function admin(): User
     {
         $user = User::factory()->create();
@@ -437,7 +648,8 @@ class ProductManagementTest extends TestCase
             'product_name' => 'Test product',
             'description' => 'A full product description.',
             'price' => 1000,
-            'working_days' => 2,
+            'acquisition_cost' => 100,
+            'delivery_time' => 1,
             'status' => 'active',
             'shop_category_id' => $this->category->id,
         ], $overrides);

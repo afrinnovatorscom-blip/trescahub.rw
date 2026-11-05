@@ -12,7 +12,7 @@
         </div>
 
         @if($partners->isNotEmpty())
-            <div class="row justify-content-center g-4 g-md-5">
+            <div class="row justify-content-center g-4 g-md-5 g-lg-3">
                 @foreach($partners as $partner)
                     @php
                         $logoPath = preg_replace('#^(public/)?assets/#', '', ltrim((string) $partner->business_logo_path, '/')) ?? '';
@@ -25,10 +25,10 @@
                         $description = trim((string) ($partner->partner_description ?? ''));
                         $websiteUrl = trim((string) ($partner->website_url ?? ''));
                     @endphp
-                    <div class="col-6 col-sm-4 col-lg-3">
+                    <div class="col-6 col-sm-4 col-lg">
                         <div class="d-flex h-100 flex-column align-items-center text-center">
                             <div class="d-flex align-items-center justify-content-center mb-3 rounded-3"
-                                 style="width:100%;height:112px;background-color:hsl(var(--muted));">
+                                 style="width:100%;height:112px;margin-bottom:0.5rem !important;background-color:hsl(var(--muted));">
                                 @if($logoExists)
                                     <img src="{{ asset('assets/'.$logoPath) }}"
                                          alt="{{ $partner->business_name }}"

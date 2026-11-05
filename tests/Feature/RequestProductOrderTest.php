@@ -36,6 +36,44 @@ class RequestProductOrderTest extends TestCase
         $this->admin = $this->admin->fresh();
     }
 
+    public function test_cart_checkout_notifies_admin_when_a_new_order_is_received(): void
+    {
+        $customer = $this->customer();
+        $product = $this->product(['price' => 12500]);
+        $submissionKey = (string) Str::uuid();
+
+        $this->actingAs($customer, 'customers')
+            ->withSession([
+                'marketplace.cart' => [$product->slug => 2],
+                'marketplace.checkout' => [
+                    'details' => [
+                        'customer_name' => $customer->name,
+                        'email' => $customer->email,
+                        'phone' => $customer->phone,
+                        'delivery_address' => 'Kigali',
+                    ],
+                    'submission_key' => $submissionKey,
+                ],
+            ])
+            ->post(route('checkout.place'), [
+                'payment_method' => 'mtn_mobile_money',
+                'payment_phone' => $customer->phone,
+            ])
+            ->assertRedirect();
+
+        $order = Order::query()->where('submission_key', $submissionKey)->firstOrFail();
+        $notification = $this->admin->notifications()
+            ->where('data->dedupe_key', 'customer-order-placed-'.$order->id)
+            ->firstOrFail();
+
+        $this->assertSame('New order received from '.$customer->name.'.', $notification->data['title']);
+        $this->assertSame(
+            'Order '.$order->reference.' | 1 item | RWF 25,000.00',
+            $notification->data['body'],
+        );
+        $this->assertSame(route('marketplace.orders.show', $order), $notification->data['url']);
+    }
+
     public function test_catalog_request_creates_an_owned_order_and_repeated_submission_reuses_it(): void
     {
         $customer = $this->customer();
@@ -63,6 +101,10 @@ class RequestProductOrderTest extends TestCase
             ->assertRedirect(route('checkout.done', Order::query()->firstOrFail()->reference));
 
         $order = Order::query()->with('items')->firstOrFail();
+        $this->get(route('checkout.done', $order->reference))
+            ->assertOk()
+            ->assertSee(route('account.orders.show', $order->reference), false)
+            ->assertSee('Track your order');
         $this->assertSame($customer->id, $order->customer_id);
         $this->assertNull($order->user_id);
         $this->assertSame('request_product', $order->source);
@@ -77,16 +119,33 @@ class RequestProductOrderTest extends TestCase
         $this->assertSame(25000.0, (float) $order->items[0]->line_total);
         $this->assertDatabaseCount('product_requests', 0);
 
+        $dedupeKey = 'customer-order-placed-'.$order->id;
+        $notification = $this->admin->notifications()
+            ->where('data->dedupe_key', $dedupeKey)
+            ->firstOrFail();
+        $this->assertSame('New order received from '.$customer->name.'.', $notification->data['title']);
+        $this->assertSame(
+            'Order '.$order->reference.' | 1 item | RWF 25,000.00',
+            $notification->data['body'],
+        );
+        $this->assertSame(route('marketplace.orders.show', $order), $notification->data['url']);
+        $this->assertSame(1, $this->admin->unreadNotifications()->count());
+        $this->assertSame(0, $customer->notifications()->where('data->dedupe_key', $dedupeKey)->count());
+        $customerNotification = $customer->notifications()
+            ->where('data->dedupe_key', 'order-'.$order->id.'-'.$order->fulfillment_status)
+            ->firstOrFail();
+        $this->assertSame('Order received', $customerNotification->data['title']);
+
         $this->post(route('product-requests.store'), $payload)
             ->assertRedirect(route('checkout.done', $order->reference));
         $this->assertDatabaseCount('orders', 1);
         $this->assertDatabaseCount('order_items', 1);
+        $this->assertSame(1, $this->admin->notifications()->where('data->dedupe_key', $dedupeKey)->count());
 
         $this->get(route('account.orders'))
             ->assertOk()
             ->assertSee($order->reference)
-            ->assertSee($product->product_name)
-            ->assertSee('Order received');
+            ->assertSee($product->product_name);
         $this->get(route('account.orders.show', $order->reference))
             ->assertOk()
             ->assertSee($product->product_name)
@@ -97,7 +156,22 @@ class RequestProductOrderTest extends TestCase
             ->get(route('account.orders.show', $order->reference))
             ->assertNotFound();
 
-        $this->actingAs($this->admin, 'web')->get(route('marketplace.orders.index'))
+        $this->actingAs($this->admin, 'web');
+        $this->get(route('marketplace.notifications.index'))
+            ->assertOk()
+            ->assertSee($notification->data['title'])
+            ->assertSee($notification->data['body']);
+        $this->getJson(route('marketplace.notifications.unread-count'))
+            ->assertOk()
+            ->assertExactJson(['count' => 1]);
+        $this->post(route('marketplace.notifications.read', $notification->id))
+            ->assertRedirect(route('marketplace.orders.show', $order));
+        $this->assertNotNull($notification->fresh()->read_at);
+        $this->getJson(route('marketplace.notifications.unread-count'))
+            ->assertOk()
+            ->assertExactJson(['count' => 0]);
+
+        $this->get(route('marketplace.orders.index'))
             ->assertOk()
             ->assertSee($order->reference);
         $this->get(route('marketplace.orders.show', $order))
@@ -113,38 +187,135 @@ class RequestProductOrderTest extends TestCase
         $customer = $this->customer();
         $first = $this->product(['price' => 3000]);
         $second = $this->product(['price' => 4500]);
-        $submissionKey = (string) Str::uuid();
 
         $this->actingAs($customer, 'customers')
             ->withSession(['marketplace.cart' => [$first->slug => 2, $second->slug => 3]])
             ->get(route('checkout'))
             ->assertOk()
-            ->assertSee('name="submission_key"', false);
+            ->assertSee('Customer Information')
+            ->assertSee('Order / Delivery Address')
+            ->assertSee('Order Summary')
+            ->assertSee('Continue to Payment')
+            ->assertDontSee('MTN Mobile Money')
+            ->assertDontSee('Airtel Money')
+            ->assertDontSee('payment_phone')
+            ->assertDontSee('Pay on Delivery')
+            ->assertDontSee('bi-lock');
+        $this->get(route('checkout.payment'))->assertRedirect(route('checkout'));
 
-        $this->post(route('checkout.place'), [
+        $details = [
             'customer_name' => $customer->name,
             'email' => $customer->email,
             'phone' => $customer->phone,
             'delivery_address' => 'Kigali',
-            'payment_method' => 'cash_on_delivery',
-            'submission_key' => $submissionKey,
-            'total' => 1,
+            'delivery_notes' => 'Call at the gate.',
+        ];
+        $this->post(route('checkout.details'), $details)
+            ->assertRedirect(route('checkout.payment'));
+
+        $this->get(route('checkout.payment'))
+            ->assertOk()
+            ->assertSee('Checkout Details')
+            ->assertSee('Confirmation')
+            ->assertSee('MTN Mobile Money')
+            ->assertSee('Pay using your MTN number.')
+            ->assertSee('Airtel Money')
+            ->assertSee('Pay using your Airtel number.')
+            ->assertSee('assets/payment-providers/mtn-momo.png')
+            ->assertSee('assets/payment-providers/airtel-money.svg')
+            ->assertSee('value="'.$customer->phone.'"', false)
+            ->assertSee("phoneLabel.textContent = selected.value === 'airtel_money'", false)
+            ->assertSee('Back to Checkout');
+
+        $this->get(route('checkout'))
+            ->assertOk()
+            ->assertSee('value="'.$customer->name.'"', false)
+            ->assertSee('value="'.$customer->phone.'"', false)
+            ->assertSee('Kigali')
+            ->assertSee('Call at the gate.');
+
+        $placeResponse = $this->post(route('checkout.place'), [
+            'payment_method' => 'mtn_mobile_money',
+            'payment_phone' => '+250780111222',
         ])->assertRedirect();
 
         $order = Order::query()->with('items')->firstOrFail();
+        $placeResponse->assertSessionHas('placed_order', $order->reference);
+        $this->get(route('checkout.done', $order->reference))
+            ->assertOk()
+            ->assertSee('Order Received Successfully')
+            ->assertSee('Thank you for your order. We have received your order and it will be processed soon.')
+            ->assertSee($order->reference)
+            ->assertDontSee('Payment records')
+            ->assertDontSee('Payment:');
+        $this->assertDatabaseCount('order_payments', 0);
+        $this->assertSame('pending', $order->payment_status);
         $this->assertSame('cart_checkout', $order->source);
         $this->assertSame(19500.0, (float) $order->total);
         $this->assertCount(2, $order->items);
         $this->assertSame(2, $order->items->firstWhere('shop_product_id', $first->id)->quantity);
         $this->assertSame(3, $order->items->firstWhere('shop_product_id', $second->id)->quantity);
         $this->assertSame($customer->id, $order->customer_id);
+        $this->assertSame('mtn_mobile_money', $order->payment_method);
+        $this->assertSame('+250780111222', $order->payment_phone);
+        $this->assertSame('Call at the gate.', $order->delivery_notes);
+        $this->post(route('checkout.place'), [
+            'payment_method' => 'mtn_mobile_money',
+            'payment_phone' => '+250780111222',
+        ])->assertRedirect(route('checkout'));
+        $this->assertSame(1, Order::query()->count());
 
-        $this->actingAs($this->admin, 'web')->get(route('marketplace.orders.index'))
+        $this->actingAs($this->admin, 'web')
+            ->get(route('marketplace.orders.index', ['tab' => 'pending']))
+            ->assertOk()
+            ->assertSee($order->reference)
+            ->assertSee($customer->name);
+
+        $notification = $this->admin->notifications()
+            ->where('data->dedupe_key', 'customer-order-placed-'.$order->id)
+            ->firstOrFail();
+        $this->assertSame('New order received from '.$customer->name.'.', $notification->data['title']);
+        $this->assertSame(route('marketplace.orders.show', $order), $notification->data['url']);
+
+        $vendorUser = User::factory()->create();
+        $vendorUser->assignRole('vendor');
+        $this->assertSame(0, $vendorUser->notifications()->count());
+        $this->assertSame(
+            0,
+            $customer->notifications()->where('data->dedupe_key', 'customer-order-placed-'.$order->id)->count(),
+        );
+
+        $this->actingAs($this->admin, 'web');
+        $this->getJson(route('marketplace.notifications.unread-count'))
+            ->assertOk()
+            ->assertExactJson(['count' => 1]);
+
+        $this->get(route('marketplace.orders.index'))
             ->assertOk()
             ->assertSee($order->reference);
         $this->get(route('marketplace.orders.show', $order))
             ->assertOk()
             ->assertSee('Cart Checkout');
+    }
+
+    public function test_checkout_continue_button_follows_summary_for_responsive_layout(): void
+    {
+        $customer = $this->customer();
+        $product = $this->product();
+
+        $response = $this->actingAs($customer, 'customers')
+            ->withSession(['marketplace.cart' => [$product->slug => 1]])
+            ->get(route('checkout'))
+            ->assertOk()
+            ->assertSee('Order Summary')
+            ->assertSee('Continue to Payment');
+
+        $html = (string) $response->getContent();
+        $summaryPosition = strpos($html, 'id="checkout-summary-title"');
+        $buttonPosition = strpos($html, 'id="checkout-submit"');
+        $this->assertNotFalse($summaryPosition);
+        $this->assertNotFalse($buttonPosition);
+        $this->assertLessThan($buttonPosition, $summaryPosition, 'The continue button must follow the order summary in responsive document order.');
     }
 
     public function test_selected_product_variation_price_and_snapshot_are_used_for_cart_orders_and_quotes(): void
@@ -201,12 +372,16 @@ class RequestProductOrderTest extends TestCase
             ->assertJsonPath('quantities.'.$lineKey, 2)
             ->assertJsonPath('subtotal', 30000);
 
-        $this->post(route('checkout.place'), [
+        $this->post(route('checkout.details'), [
             'customer_name' => $customer->name,
             'email' => $customer->email,
             'phone' => $customer->phone,
             'delivery_address' => 'Kigali',
-            'payment_method' => 'cash_on_delivery',
+        ])->assertRedirect(route('checkout.payment'));
+
+        $this->post(route('checkout.place'), [
+            'payment_method' => 'airtel_money',
+            'payment_phone' => '0780999888',
         ])->assertRedirect();
 
         $order = Order::query()->with('items')->firstOrFail();
@@ -217,6 +392,8 @@ class RequestProductOrderTest extends TestCase
         $this->assertSame('Premium', $item->variation_value);
         $this->assertSame(15000.0, (float) $item->unit_price);
         $this->assertSame(2, $item->quantity);
+        $this->assertSame('airtel_money', $order->payment_method);
+        $this->assertSame('0780999888', $order->payment_phone);
 
         $this->get(route('account.orders'))
             ->assertOk()
@@ -241,6 +418,85 @@ class RequestProductOrderTest extends TestCase
             'variation_value' => 'Standard',
             'variation_price' => 10000,
         ]);
+    }
+
+    public function test_buy_now_checkout_populates_the_selected_variation_and_quantity_without_using_the_cart_page(): void
+    {
+        $customer = $this->customer();
+        $product = $this->product(['product_name' => 'Buy Now Product', 'price' => 10000]);
+        $variation = $product->variations()->create([
+            'feature_label' => 'Package',
+            'variation_value' => 'Premium',
+            'price' => 15000,
+            'is_default' => true,
+        ]);
+
+        $response = $this->actingAs($customer, 'customers')->get(route('checkout', [
+            'product' => $product->slug,
+            'variation_id' => $variation->id,
+            'quantity' => 3,
+        ]));
+
+        $response->assertRedirect(route('checkout'));
+        $response = $this->get(route('checkout'));
+        $response->assertOk()
+            ->assertSee('Buy Now Product')
+            ->assertSee('Package: Premium')
+            ->assertSee('3');
+
+        $this->assertSame([
+            $product->slug.'|variation|'.$variation->id => [
+                'quantity' => 3,
+                'variation_id' => $variation->id,
+            ],
+        ], session('marketplace.cart'));
+    }
+
+    public function test_checkout_rejects_invalid_rwandan_mobile_money_numbers(): void
+    {
+        $customer = $this->customer();
+        $product = $this->product();
+
+        $this->actingAs($customer, 'customers')
+            ->withSession(['marketplace.cart' => [$product->slug => 1]])
+            ->post(route('checkout.details'), [
+                'customer_name' => $customer->name,
+                'email' => $customer->email,
+                'phone' => $customer->phone,
+                'delivery_address' => 'Kigali',
+            ])
+            ->assertRedirect(route('checkout.payment'));
+
+        $this->from(route('checkout.payment'))
+            ->post(route('checkout.place'), [
+                'payment_method' => 'mtn_mobile_money',
+                'payment_phone' => '12345',
+            ])
+            ->assertRedirect(route('checkout.payment'))
+            ->assertSessionHasErrors('payment_phone');
+
+        $this->assertSame(0, Order::query()->count());
+    }
+
+    public function test_checkout_details_must_be_valid_before_payment_page_is_available(): void
+    {
+        $customer = $this->customer();
+        $product = $this->product();
+
+        $this->actingAs($customer, 'customers')
+            ->withSession(['marketplace.cart' => [$product->slug => 1]])
+            ->from(route('checkout'))
+            ->post(route('checkout.details'), [
+                'customer_name' => $customer->name,
+                'email' => 'not-an-email',
+                'phone' => $customer->phone,
+                'delivery_address' => '',
+            ])
+            ->assertRedirect(route('checkout'))
+            ->assertSessionHasErrors(['email', 'delivery_address']);
+
+        $this->get(route('checkout.payment'))->assertRedirect(route('checkout'));
+        $this->assertSame(0, Order::query()->count());
     }
 
     public function test_quote_and_free_text_product_requests_remain_in_the_request_workflow(): void

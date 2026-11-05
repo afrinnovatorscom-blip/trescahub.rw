@@ -423,6 +423,9 @@
         'changes_requested' => 'bi-pencil-square',
         default => 'bi-clock-fill',
     };
+    $awaitingApproval = $product->approval_status === 'pending_approval'
+        || $product->revision_status === 'pending_approval'
+        || array_key_exists('initial_stock_quantity', $product->pending_payload ?? []);
 @endphp
 
 <div class="container-fluid py-3 product-review-container">
@@ -976,16 +979,25 @@
                         Review the submitted details against catalog and quality guidelines, then select your decision.
                     </p>
 
-                    @if(auth()->user()->hasPermission('products.approve') && $product->exists)
-                        {{-- 1. Approve Product --}}
-                        <form method="POST" action="{{ route('marketplace.products.approve', $product) }}" class="mb-3">
+                    @if(auth()->user()->hasPermission('products.approve') && auth()->user()->hasPermission('products.publish') && $product->exists && $awaitingApproval)
+                        <form method="POST" action="{{ route('marketplace.products.approve', $product) }}" class="mb-3" data-approval-form>
                             @csrf
                             <label class="form-label small fw-semibold text-muted mb-1">
                                 Optional Approval Note
                             </label>
                             <input name="note" class="form-control form-control-sm mb-2" placeholder="e.g. Approved per vendor standards">
-                            <button class="btn btn-success btn-sm w-100 fw-bold py-2 d-flex align-items-center justify-content-center gap-2" type="submit">
-                                <i class="bi bi-check-circle-fill"></i> Approve Product
+                            <label for="approval-price" class="form-label small fw-semibold text-muted mb-1">
+                                Selling Price (RWF)
+                            </label>
+                            <div class="input-group input-group-sm mb-2">
+                                <span class="input-group-text">RWF</span>
+                                <input id="approval-price" name="price" type="number" min="0.01" step="0.01" required
+                                       class="form-control @error('price') is-invalid @enderror"
+                                       value="{{ old('price', $product->pending_payload['price'] ?? $product->price) }}">
+                            </div>
+                            @error('price')<div class="text-danger small mb-2">{{ $message }}</div>@enderror
+                            <button class="btn btn-success btn-sm w-100 fw-bold py-2 d-flex align-items-center justify-content-center gap-2" type="submit" data-approval-button>
+                                <i class="bi bi-check-circle-fill"></i> Approve &amp; Publish
                             </button>
                         </form>
 
@@ -1019,53 +1031,17 @@
                                 <i class="bi bi-x-circle"></i> Reject Product
                             </button>
                         </form>
-                    @else
+                    @elseif(!auth()->user()->hasPermission('products.approve'))
                         <div class="alert alert-secondary py-2 px-3 mb-0 small text-muted">
                             <i class="bi bi-lock me-1"></i> You do not have permission to approve or reject this submission.
                         </div>
+                    @else
+                        <div class="alert alert-success py-2 px-3 mb-0 small">
+                            <i class="bi bi-check-circle-fill me-1"></i>
+                            {{ $product->approval_status === 'approved' ? 'This product is approved.' : 'This product is not waiting for approval.' }}
+                        </div>
                     @endif
                 </div>
-
-                {{-- Action Card 2: Publication & Storefront Lifecycle --}}
-                @if(auth()->user()->hasPermission('products.publish') && $product->exists)
-                    <div class="review-card">
-                        <div class="review-card-header">
-                            <h2 class="review-card-title">
-                                <i class="bi bi-globe text-primary"></i> Catalog Publication
-                            </h2>
-                            <span class="badge {{ $product->publication_status === 'published' ? 'bg-primary-subtle text-primary border border-primary-subtle' : 'bg-light text-muted border' }}">
-                                {{ ucfirst((string) $product->publication_status) }}
-                            </span>
-                        </div>
-
-                        <p class="text-muted small mb-3">
-                            Approved products must be published to become visible to customers in the marketplace catalog.
-                        </p>
-
-                        <div class="d-flex flex-column gap-2">
-                            <form method="POST" action="{{ route('marketplace.products.publish', $product) }}">
-                                @csrf
-                                <button class="btn btn-primary btn-sm w-100 fw-semibold d-flex align-items-center justify-content-center gap-2" type="submit">
-                                    <i class="bi bi-cloud-upload"></i> Publish to Shop
-                                </button>
-                            </form>
-
-                            <form method="POST" action="{{ route('marketplace.products.unpublish', $product) }}">
-                                @csrf
-                                <button class="btn btn-outline-secondary btn-sm w-100 fw-semibold d-flex align-items-center justify-content-center gap-2" type="submit">
-                                    <i class="bi bi-cloud-slash"></i> Unpublish Listing
-                                </button>
-                            </form>
-
-                            <form method="POST" action="{{ route('marketplace.products.archive', $product) }}">
-                                @csrf
-                                <button class="btn btn-outline-dark btn-sm w-100 fw-semibold d-flex align-items-center justify-content-center gap-2" type="submit" onclick="return confirm('Archive this product?')">
-                                    <i class="bi bi-archive"></i> Archive Product
-                                </button>
-                            </form>
-                        </div>
-                    </div>
-                @endif
 
                 {{-- Action Card 3: Vendor Assignment --}}
                 @if(auth()->user()->hasPermission('products.assign_vendor') && $product->exists)
@@ -1166,6 +1142,30 @@
 @push('scripts')
 <script>
     document.addEventListener('DOMContentLoaded', function () {
+        const approvalForm = document.querySelector('[data-approval-form]');
+        const approvalButton = approvalForm?.querySelector('[data-approval-button]');
+        const approvalButtonMarkup = approvalButton?.innerHTML;
+        let approvalSubmitting = false;
+
+        if (approvalForm && approvalButton) {
+            approvalForm.addEventListener('submit', function (event) {
+                if (approvalSubmitting) {
+                    event.preventDefault();
+                    return;
+                }
+
+                approvalSubmitting = true;
+                approvalButton.disabled = true;
+                approvalButton.innerHTML = '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span> Approving &amp; Publishing...';
+            });
+
+            window.addEventListener('pageshow', function () {
+                approvalSubmitting = false;
+                approvalButton.disabled = false;
+                approvalButton.innerHTML = approvalButtonMarkup;
+            });
+        }
+
         const mainImage = document.getElementById('reviewMainImage');
         const modalImage = document.getElementById('modalPreviewImage');
         const thumbnailButtons = document.querySelectorAll('.review-thumb-btn');

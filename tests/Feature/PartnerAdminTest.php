@@ -150,6 +150,55 @@ class PartnerAdminTest extends TestCase
             ->assertSessionHasErrors(['title', 'website_url', 'logo']);
     }
 
+    public function test_admin_can_delete_a_partner_from_the_partners_table(): void
+    {
+        $admin = User::factory()->create();
+        $admin->assignRole('administrator');
+        $partner = Partner::create([
+            'title' => 'Partner to Delete',
+            'slug' => 'partner-to-delete',
+            'description' => 'Delete this partner.',
+            'show_on_website' => true,
+            'status' => 'active',
+        ]);
+
+        $this->actingAs($admin, 'web')
+            ->get(route('partners.index'))
+            ->assertOk()
+            ->assertSee('Partner to Delete')
+            ->assertSee('Delete Partner to Delete', false)
+            ->assertSee("confirm('Delete this partner?')", false);
+
+        $this->actingAs($admin, 'web')
+            ->delete(route('partners.destroy', $partner))
+            ->assertRedirect(route('partners.index'))
+            ->assertSessionHas('success', "Partner 'Partner to Delete' deleted successfully!");
+
+        $this->assertDatabaseMissing('partners', ['id' => $partner->id]);
+        $this->actingAs($admin, 'web')
+            ->get(route('partners.index'))
+            ->assertOk()
+            ->assertSee('No partners yet');
+    }
+
+    public function test_users_without_partner_management_permission_cannot_delete_partners(): void
+    {
+        $user = User::factory()->create();
+        $partner = Partner::create([
+            'title' => 'Protected Partner',
+            'slug' => 'protected-partner',
+            'description' => '',
+            'show_on_website' => false,
+            'status' => 'active',
+        ]);
+
+        $this->actingAs($user, 'web')
+            ->delete(route('partners.destroy', $partner))
+            ->assertForbidden();
+
+        $this->assertDatabaseHas('partners', ['id' => $partner->id]);
+    }
+
     private function fakePng(string $filename): UploadedFile
     {
         return UploadedFile::fake()->createWithContent(

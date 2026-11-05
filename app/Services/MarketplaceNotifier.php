@@ -53,24 +53,35 @@ class MarketplaceNotifier
 
     public function productDecision(ShopProduct $product, string $decision, ?string $note): void
     {
-        $ownerId = $product->submitted_by ?: $product->created_by;
-        $owner = $ownerId ? User::query()->find($ownerId) : null;
+        if ($product->vendor_id) {
+            $recipients = $product->vendor?->users ?? collect();
+        } else {
+            $ownerId = $product->submitted_by ?: $product->created_by;
+            $owner = $ownerId ? User::query()->find($ownerId) : null;
+            $recipients = $owner ? collect([$owner]) : collect();
+        }
 
-        if (! $owner) {
+        if ($recipients->isEmpty()) {
             return;
         }
 
-        $url = $owner->hasRole('vendor')
-            ? route('vendor.products.index')
-            : route('admin.shop-products.edit', $product);
+        foreach ($recipients as $recipient) {
+            if ($recipient->hasRole('vendor') && ! $this->vendorNotificationEnabled($recipient, 'product_notifications')) {
+                continue;
+            }
 
-        $this->send(
-            $owner,
-            'Product '.$decision,
-            trim($product->product_name.' is now '.$decision.'. '.($note ?? '')),
-            $url,
-            'product-'.$decision.'-'.$product->id.'-'.$product->updated_at?->timestamp,
-        );
+            $url = $recipient->hasRole('vendor')
+                ? route('vendor.products.index')
+                : route('admin.shop-products.edit', $product);
+
+            $this->send(
+                $recipient,
+                'Product '.$decision,
+                trim($product->product_name.' is now '.$decision.'. '.($note ?? '')),
+                $url,
+                'product-'.$decision.'-'.$product->id.'-'.$product->updated_at?->timestamp,
+            );
+        }
     }
 
     public function requestAssigned(ProductRequest $request): void
@@ -106,12 +117,35 @@ class MarketplaceNotifier
         $item->loadMissing('vendor.users', 'order');
 
         foreach ($item->vendor?->users ?? [] as $user) {
+            if (! $this->vendorNotificationEnabled($user, 'order_notifications')) {
+                continue;
+            }
+
             $this->send(
                 $user,
                 'Order allocated',
                 'Order '.$item->order->reference.' includes an item assigned to you.',
                 route('vendor.orders.show', $item->order->reference),
                 'order-item-'.$item->id.'-vendor-'.$item->vendor_id,
+            );
+        }
+    }
+
+    public function customerOrderPlaced(Order $order): void
+    {
+        $order->loadMissing('items');
+        $itemCount = $order->items->count();
+
+        foreach ($this->staff('orders.view_all')->filter(
+            fn (User $user) => $user->hasPermission('admin.access')
+        ) as $user) {
+            $this->send(
+                $user,
+                'New order received from '.$order->customer_name.'.',
+                'Order '.$order->reference.' | '.$itemCount.' '.\Illuminate\Support\Str::plural('item', $itemCount)
+                    .' | RWF '.number_format((float) $order->total, 2, '.', ','),
+                route('marketplace.orders.show', $order),
+                'customer-order-placed-'.$order->id,
             );
         }
     }
@@ -162,7 +196,7 @@ class MarketplaceNotifier
 
     public function lowStock(ShopProduct $product): void
     {
-        foreach ($this->staff('inventory.view') as $user) {
+        foreach ($this->staff('inventory.view')->filter(fn (User $user) => $user->hasPermission('admin.access')) as $user) {
             $this->send(
                 $user,
                 'Low stock',
@@ -201,5 +235,12 @@ class MarketplaceNotifier
             'inventory-request-'.$request->id.'-'.$decision,
             false,
         );
+    }
+
+    private function vendorNotificationEnabled(User $user, string $preference): bool
+    {
+        $preferences = $user->vendor()->first()?->notification_preferences ?? [];
+
+        return (bool) ($preferences[$preference] ?? true);
     }
 }

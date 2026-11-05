@@ -30,6 +30,49 @@ class VendorDetailsPageTest extends TestCase
         ]);
     }
 
+    public function test_vendor_landing_page_redesign_preserves_routes_filters_and_real_counts(): void
+    {
+        $active = $this->vendor('Alpha Supplies');
+        $active->forceFill([
+            'operating_location' => 'Kigali',
+            'district' => 'Gasabo',
+            'address_notes' => 'KN 5 Road',
+        ])->save();
+        $this->product($active, 'Alpha Product', 10, 0, true);
+        $suspended = $this->vendor('Suspended Supplies');
+        $suspended->forceFill(['status' => 'suspended'])->save();
+        $inactive = $this->vendor('Inactive Supplies');
+        $inactive->forceFill(['status' => 'inactive'])->save();
+
+        $response = $this->actingAs($this->administrator())
+            ->get(route('marketplace.vendors.index'));
+
+        $response->assertOk()
+            ->assertSee('Vendors')
+            ->assertSee('Manage and monitor registered marketplace vendors.')
+            ->assertSee('Total Vendors')
+            ->assertSee('Active Vendors')
+            ->assertSee('Terminated Vendors')
+            ->assertSee('Address')
+            ->assertSee('Total Products')
+            ->assertSee('Joined')
+            ->assertSee('Actions')
+            ->assertSee('Alpha Supplies')
+            ->assertSee('Kigali, KN 5 Road, Gasabo')
+            ->assertSee(route('marketplace.vendors.show', $active), false)
+            ->assertSee(route('marketplace.vendors.edit', $active), false)
+            ->assertSee(route('marketplace.vendors.create'), false);
+
+        $this->assertSame(3, preg_match_all('/<div class="vendor-summary-card">/', $response->getContent()));
+
+        $this->actingAs($this->administrator())
+            ->get(route('marketplace.vendors.index', ['q' => 'Alpha', 'status' => 'active']))
+            ->assertOk()
+            ->assertSee('Alpha Supplies')
+            ->assertDontSee('Suspended Supplies')
+            ->assertDontSee('Inactive Supplies');
+    }
+
     public function test_vendor_details_show_scoped_metrics_and_clickable_filtered_destinations(): void
     {
         $vendor = $this->vendor('Details Vendor');

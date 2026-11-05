@@ -115,7 +115,16 @@
         </div>
 
         @if($errors->any())
-            <div class="alert alert-danger py-2 mb-3" role="alert">Please review the highlighted fields and correct the errors below.</div>
+            <div class="alert alert-danger py-2 mb-3" role="alert" aria-labelledby="product-validation-errors-heading">
+                <h2 id="product-validation-errors-heading" class="h6 mb-2">Please correct the following fields:</h2>
+                <ul class="mb-0">
+                    @foreach($errors->getMessages() as $field => $messages)
+                        @foreach($messages as $message)
+                            <li><strong>{{ \Illuminate\Support\Str::headline($field) }}:</strong> {{ $message }}</li>
+                        @endforeach
+                    @endforeach
+                </ul>
+            </div>
         @endif
 
         <form action="{{ $productActionRoute }}"
@@ -171,28 +180,37 @@
                                       placeholder="Describe the product">{{ old('description', $shopProduct->description) }}</textarea>
                             @error('description')<div class="invalid-feedback">{{ $message }}</div>@enderror
                         </div>
-                        @if($productCreate)
-                            <input type="hidden" name="working_days" value="{{ old('working_days', 1) }}">
-                        @elseif($vendorMode)
-                            <div class="col-md-6 product-form-field">
-                                <label for="working_days" class="form-label">Delivery Time (working days) <span class="text-danger">*</span></label>
-                                <input id="working_days" name="working_days" type="number" min="1" required
-                                       class="form-control @error('working_days') is-invalid @enderror"
-                                       value="{{ old('working_days', $shopProduct->working_days ?: 1) }}">
-                                @error('working_days')<div class="invalid-feedback">{{ $message }}</div>@enderror
-                            </div>
-                        @endif
+                        <div class="col-md-6 product-form-field">
+                            <label for="delivery_time" class="form-label">Delivery Time (days) <span class="text-danger">*</span></label>
+                            <input id="delivery_time" name="delivery_time" type="number" min="1" required
+                                   class="form-control @error('delivery_time') is-invalid @enderror"
+                                   value="{{ old('delivery_time', $shopProduct->working_days ?: 1) }}">
+                            @error('delivery_time')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                        </div>
                     </div>
                 </section>
 
                 <section class="product-form-section" aria-labelledby="pricing-heading">
                     <div class="product-form-section-heading"><h2 id="pricing-heading">Pricing</h2></div>
                     <div class="row gx-3">
-                        <div class="col-md-6 product-form-field">
+                        @if(! $vendorMode && auth()->user()->hasPermission('finance.view'))
+                        <div class="col-12 product-form-field">
+                                <label for="acquisition_cost" class="form-label">Cost Price (RWF) <span class="text-danger">*</span></label>
+                                <div class="form-text mb-2">The amount of money you paid to buy one product before selling it to customers.</div>
+                                <div class="input-group">
+                                    <span class="input-group-text">RWF</span>
+                                    <input id="acquisition_cost" name="acquisition_cost" type="number" min="0" max="9999999999.99" step="0.01" @required($productCreate)
+                                           class="form-control @error('acquisition_cost') is-invalid @enderror"
+                                           value="{{ old('acquisition_cost', $shopProduct->acquisition_cost) }}">
+                                </div>
+                                @error('acquisition_cost')<div class="text-danger small mt-1">{{ $message }}</div>@enderror
+                            </div>
+                        @endif
+                        <div class="{{ ! $vendorMode && auth()->user()->hasPermission('finance.view') ? 'col-12' : 'col-md-6' }} product-form-field">
                             <label for="price" class="form-label">Selling Price (RWF) <span class="text-danger">*</span></label>
                             <div class="input-group">
                                 <span class="input-group-text">RWF</span>
-                                <input id="price" name="price" type="number" min="0" step="0.01" required
+                                <input id="price" name="price" type="number" min="0.01" step="0.01" required
                                        class="form-control @error('price') is-invalid @enderror" value="{{ old('price', $shopProduct->pending_payload['price'] ?? $shopProduct->price) }}"
                                        @disabled($priceVariationsEnabled)>
                             </div>
@@ -296,7 +314,7 @@
                                         <label class="form-label" for="variation-price-{{ $index }}">Selling Price (RWF) <span class="text-danger">*</span></label>
                                         <div class="input-group">
                                             <span class="input-group-text">RWF</span>
-                                            <input id="variation-price-{{ $index }}" name="price_variations[{{ $index }}][price]" type="number" min="0" step="0.01" required
+                                            <input id="variation-price-{{ $index }}" name="price_variations[{{ $index }}][price]" type="number" min="0.01" step="0.01" required
                                                    value="{{ $variation['price'] ?? '' }}" class="form-control @error("price_variations.$index.price") is-invalid @enderror" data-variation-price>
                                         </div>
                                         @error("price_variations.$index.price")<div class="text-danger small mt-1">{{ $message }}</div>@enderror
@@ -511,8 +529,8 @@
                 </section>
 
                 @if(!$vendorMode && auth()->user()->hasPermission('products.assign_vendor'))
-                    <section class="product-form-section" aria-labelledby="additional-settings-heading">
-                        <div class="product-form-section-heading"><h2 id="additional-settings-heading">Additional Settings</h2></div>
+                    <section class="product-form-section" aria-labelledby="vendor-assignment-heading">
+                        <div class="product-form-section-heading"><h2 id="vendor-assignment-heading">Vendor Assignment</h2></div>
                         @include('shop-products.workflow-fields', ['product' => $shopProduct, 'vendorMode' => $vendorMode])
                     </section>
                 @endif
@@ -671,7 +689,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     <label class="form-label" for="variation-price-${index}">Selling Price (RWF) <span class="text-danger">*</span></label>
                     <div class="input-group">
                         <span class="input-group-text">RWF</span>
-                        <input id="variation-price-${index}" name="price_variations[${index}][price]" type="number" min="0" step="0.01" required class="form-control" data-variation-price>
+                        <input id="variation-price-${index}" name="price_variations[${index}][price]" type="number" min="0.01" step="0.01" required class="form-control" data-variation-price>
                     </div>
                 </div>
                 <div class="col-12">

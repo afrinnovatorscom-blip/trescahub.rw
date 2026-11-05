@@ -21,7 +21,9 @@ Route::get('/cart', [StorefrontCommerceController::class, 'cart'])->name('cart')
 Route::post('/cart', [StorefrontCommerceController::class, 'add'])->name('cart.add');
 Route::patch('/cart', [StorefrontCommerceController::class, 'updateCart'])->name('cart.update');
 Route::get('/checkout', [StorefrontCommerceController::class, 'checkout'])->middleware($customerAuth)->name('checkout');
-Route::post('/checkout', [StorefrontCommerceController::class, 'place'])->middleware(['auth:customers', 'throttle:marketplace-sensitive'])->name('checkout.place');
+Route::post('/checkout/details', [StorefrontCommerceController::class, 'saveCheckoutDetails'])->middleware(['auth:customers', 'throttle:marketplace-sensitive'])->name('checkout.details');
+Route::get('/checkout/payment', [StorefrontCommerceController::class, 'payment'])->middleware($customerAuth)->name('checkout.payment');
+Route::post('/checkout/payment', [StorefrontCommerceController::class, 'place'])->middleware(['auth:customers', 'throttle:marketplace-sensitive'])->name('checkout.place');
 Route::get('/checkout/complete/{reference}', [StorefrontCommerceController::class, 'done'])->name('checkout.done');
 
 Route::get('/track-order', [StorefrontCommerceController::class, 'trackForm'])->name('track-order');
@@ -42,13 +44,15 @@ Route::middleware($customerAuth)->group(function () {
     Route::get('/account/requests', [CustomerAccountController::class, 'requests'])->name('account.requests');
 
     Route::get('/account/orders', [StorefrontCommerceController::class, 'accountOrders'])->name('account.orders');
+    Route::get('/account/orders/{reference}/receipt', [StorefrontCommerceController::class, 'downloadOrderReceipt'])->name('account.orders.receipt');
+    Route::post('/account/orders/{reference}/deliveries/{deliveryReference}/confirm', [StorefrontCommerceController::class, 'confirmOrderDelivery'])->name('account.orders.delivery-confirm');
     Route::get('/account/orders/{reference}', [StorefrontCommerceController::class, 'accountOrder'])->name('account.orders.show');
     Route::get('/account/orders/{reference}/tracking', [StorefrontCommerceController::class, 'accountOrderTracking'])->name('account.orders.tracking');
     Route::post('/account/orders/{reference}/cancel', [StorefrontCommerceController::class, 'cancel'])->name('account.orders.cancel');
 });
 
 Route::middleware($auth)->group(function () {
-    Route::middleware('vendor.active')->prefix('vendor')->name('vendor.')->group(function () {
+    Route::middleware(['vendor.active'])->prefix('vendor')->name('vendor.')->group(function () {
         Route::get('/', [VendorWorkspaceController::class, 'dashboard'])->name('dashboard');
         Route::get('/products', [VendorWorkspaceController::class, 'productsIndex'])->name('products.index');
         Route::get('/products/create', [VendorWorkspaceController::class, 'createProduct'])->name('products.create');
@@ -75,6 +79,8 @@ Route::middleware($auth)->group(function () {
         Route::get('/deliveries/{reference}/dispatch-proof', [VendorWorkspaceController::class, 'downloadDispatchProof'])->name('deliveries.dispatch-proof');
         Route::get('/inventory', [VendorWorkspaceController::class, 'inventory'])->name('inventory');
         Route::post('/inventory/{slug}', [VendorWorkspaceController::class, 'adjust'])->name('inventory.adjust');
+        Route::get('/settings', [VendorWorkspaceController::class, 'settings'])->name('settings');
+        Route::put('/settings', [VendorWorkspaceController::class, 'updateSettings'])->name('settings.update');
         Route::get('/profile', [VendorWorkspaceController::class, 'profile'])->name('profile');
         Route::put('/profile', [VendorWorkspaceController::class, 'updateProfile'])->name('profile.update');
         Route::put('/profile/password', [VendorWorkspaceController::class, 'updatePassword'])->name('profile.password');
@@ -119,6 +125,8 @@ Route::middleware($auth)->group(function () {
         Route::get('/orders', [CommerceController::class, 'orders'])->name('orders.index');
         Route::get('/orders/{order}', [CommerceController::class, 'showOrder'])->name('orders.show');
         Route::post('/orders/{order}/review', [CommerceController::class, 'reviewOrder'])->name('orders.review');
+        Route::post('/orders/{order}/approve', [CommerceController::class, 'approveOrder'])->name('orders.approve');
+        Route::post('/orders/{order}/send-to-delivery', [CommerceController::class, 'sendOrderToDelivery'])->name('orders.send-delivery');
         Route::post('/orders/{order}/save-changes', [CommerceController::class, 'saveOrderChanges'])->name('orders.save-changes');
         Route::post('/orders/{order}/status', [CommerceController::class, 'updateOrder'])->name('orders.status');
         Route::post('/orders/{order}/vendors/{vendor}/ready-for-delivery', [CommerceController::class, 'markVendorAssignmentReady'])->name('orders.vendor-ready-for-delivery');
@@ -141,6 +149,9 @@ Route::middleware($auth)->group(function () {
         Route::post('/deliveries/{deliveryTask}/reassign', [CommerceController::class, 'reassignDelivery'])->name('deliveries.reassign');
 
         Route::get('/reports', [AdminAccessController::class, 'reports'])->name('reports.index');
+        Route::get('/reports/orders-history', [AdminAccessController::class, 'ordersHistory'])->name('reports.orders-history');
+        Route::get('/reports/orders-history/export', [AdminAccessController::class, 'exportOrdersHistoryPdf'])->name('reports.orders-history.export');
+        Route::get('/reports/orders-history/{order}', [AdminAccessController::class, 'showOrderHistory'])->name('reports.orders-history.show');
         Route::get('/reports/export', [AdminAccessController::class, 'exportPdf'])->name('reports.export');
         Route::get('/audit', [AdminAccessController::class, 'audit'])->name('audit.index');
         Route::get('/roles', [AdminAccessController::class, 'roles'])->name('roles.index');
@@ -152,6 +163,8 @@ Route::middleware($auth)->group(function () {
         Route::post('/staff', [AdminAccessController::class, 'storeUser'])->name('users.store');
         Route::put('/staff/{staff}', [AdminAccessController::class, 'updateUser'])->name('users.update');
         Route::get('/notifications', [AdminAccessController::class, 'notifications'])->name('notifications.index');
+        Route::get('/notifications/unread-count', [AdminAccessController::class, 'unreadNotificationCount'])->name('notifications.unread-count');
+        Route::post('/notifications/read-all', [AdminAccessController::class, 'markAllNotificationsRead'])->name('notifications.read-all');
         Route::post('/notifications/{id}/read', [AdminAccessController::class, 'readNotification'])->name('notifications.read');
     });
 });

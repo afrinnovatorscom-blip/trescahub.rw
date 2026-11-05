@@ -165,9 +165,15 @@ class ShopProductController extends Controller
     {
         $this->authorize('create', ShopProduct::class);
 
-        $validated = ProductPayload::normalize(ProductPayload::validate($request, true));
-        [$validated, $newUploads, $obsoleteUploads] = $this->images->withUploads($request, $validated, null);
         $user = $request->user();
+        $validated = ProductPayload::normalize(ProductPayload::validate(
+            $request,
+            true,
+            null,
+            $user->hasPermission('finance.view'),
+            true,
+        ));
+        [$validated, $newUploads, $obsoleteUploads] = $this->images->withUploads($request, $validated, null);
 
         try {
             $product = $this->workflow->createStaff(
@@ -217,9 +223,15 @@ class ShopProductController extends Controller
     {
         $this->authorize('update', $shopProduct);
 
-        $validated = ProductPayload::normalize(ProductPayload::validate($request, false, $shopProduct));
-        [$validated, $newUploads, $obsoleteUploads] = $this->images->withUploads($request, $validated, $shopProduct);
         $user = $request->user();
+        $validated = ProductPayload::normalize(ProductPayload::validate(
+            $request,
+            false,
+            $shopProduct,
+            $user->hasPermission('finance.view'),
+            true,
+        ));
+        [$validated, $newUploads, $obsoleteUploads] = $this->images->withUploads($request, $validated, $shopProduct);
 
         try {
             $this->workflow->updateStaff($shopProduct, $user, $validated);

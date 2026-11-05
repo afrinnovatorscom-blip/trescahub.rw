@@ -26,12 +26,14 @@ class Vendor extends Model
         'partner_description',
         'display_order',
         'partner_display_status',
+        'notification_preferences',
     ];
 
     protected $casts = [
         'public_branding_approved' => 'boolean',
         'show_as_partner' => 'boolean',
         'display_order' => 'integer',
+        'notification_preferences' => 'array',
     ];
 
     public function users(): HasMany

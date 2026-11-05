@@ -134,18 +134,18 @@ class ProductWorkflowService
         $this->notifier->productSubmitted($product);
     }
 
-    public function approve(ShopProduct $product, User $actor, ?string $note): void
+    public function approve(ShopProduct $product, User $actor, ?string $note, ?float $approvedPrice = null): bool
     {
         $this->assertReviewer($actor, $product);
 
-        DB::transaction(function () use ($product, $actor, $note) {
+        return DB::transaction(function () use ($product, $actor, $note, $approvedPrice) {
             $product = ShopProduct::query()->whereKey($product->id)->lockForUpdate()->firstOrFail();
             $this->assertReviewer($actor, $product);
 
             if ($product->approval_status === 'approved'
                 && $product->revision_status !== 'pending_approval'
                 && ! array_key_exists('initial_stock_quantity', $product->pending_payload ?? [])) {
-                return;
+                return false;
             }
 
             $pendingPayload = $product->pending_payload ?? [];
@@ -203,6 +203,10 @@ class ProductWorkflowService
             $product->approved_by = $actor->id;
             $product->approved_at = now();
             $product->save();
+            if ($approvedPrice !== null) {
+                $product->price = $approvedPrice;
+                $product->save();
+            }
             if ($hasPendingVariations) {
                 $this->variations->sync($product, $pendingVariationsEnabled, $pendingVariations);
             }
@@ -213,6 +217,27 @@ class ProductWorkflowService
             foreach ($previousAssets as $path) {
                 PublicAsset::deleteIfUnreferenced($path);
             }
+
+            return true;
+        });
+    }
+
+    public function approveAndPublish(ShopProduct $product, User $actor, ?string $note, ?float $approvedPrice = null): bool
+    {
+        if (! $actor->hasPermission('products.approve') || ! $actor->hasPermission('products.publish')) {
+            abort(403);
+        }
+
+        return DB::transaction(function () use ($product, $actor, $note, $approvedPrice): bool {
+            $approved = $this->approve($product, $actor, $note, $approvedPrice);
+
+            if (! $approved) {
+                return false;
+            }
+
+            $this->publish($product->refresh(), $actor);
+
+            return true;
         });
     }
 
@@ -366,9 +391,12 @@ class ProductWorkflowService
         $attributes = $this->publicAttributes($data);
         $attributes['price_variations_enabled'] = (bool) ($data['price_variations_enabled'] ?? false);
         $attributes['price_variations'] = $data['price_variations'] ?? [];
+        $attributes['working_days'] = $data['delivery_time'];
 
         if ($actor->hasPermission('products.assign_vendor')) {
-            $attributes['vendor_id'] = $data['vendor_id'] ?? $existing?->vendor_id;
+            $attributes['vendor_id'] = array_key_exists('vendor_id', $data)
+                ? $data['vendor_id']
+                : $existing?->vendor_id;
         }
 
         if ($actor->hasPermission('finance.view') && array_key_exists('acquisition_cost', $data)) {
@@ -395,6 +423,7 @@ class ProductWorkflowService
         unset($attributes['is_popular']);
         $attributes['price_variations_enabled'] = (bool) ($data['price_variations_enabled'] ?? false);
         $attributes['price_variations'] = $data['price_variations'] ?? [];
+        $attributes['working_days'] = $data['delivery_time'];
 
         return $attributes;
     }
@@ -415,7 +444,6 @@ class ProductWorkflowService
             'description' => $data['description'] ?? null,
             'price' => $data['price'],
             'stock_unit' => $data['stock_unit'] ?? null,
-            'working_days' => $data['working_days'],
             'status' => $data['status'],
             'is_finished' => (bool) ($data['is_finished'] ?? false),
             'is_popular' => (bool) ($data['is_popular'] ?? false),

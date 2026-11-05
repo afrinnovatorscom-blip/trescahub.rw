@@ -54,7 +54,7 @@
             @endphp
 
                 <div class="col-12 col-md-6 col-lg-4">
-                    <a href="{{ route('services.category', $category->slug) }}"
+                    <a href="{{ \Illuminate\Support\Str::slug($category->title) === 'online-shopping-supplies' ? route('shop') : route('services.category', $category->slug) }}"
                        class="text-decoration-none">
                         <div class="service-card h-100 d-flex flex-column p-4 rounded-4"
                              style="background: #fff;

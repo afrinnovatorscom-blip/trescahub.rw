@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\AuditLog;
 use App\Models\Customer;
 use App\Models\DeliveryTask;
 use App\Models\OrderStatusHistory;
@@ -10,6 +11,7 @@ use App\Models\ServiceRequest;
 use App\Models\ShopCategory;
 use App\Models\ShopProduct;
 use App\Models\User;
+use App\Models\Vendor;
 use App\Notifications\CustomerPasswordResetNotification;
 use App\Services\OrderService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -266,6 +268,21 @@ class CustomerAccountTest extends TestCase
             ->assertSee('KG 10 Street, Kicukiro, Kigali')
             ->assertSee('Call on arrival');
 
+        $this->post(route('checkout.details'), [
+            'customer_name' => 'Updated Recipient',
+            'email' => 'updated@example.com',
+            'phone' => '0788000111',
+            'delivery_address' => 'Changed checkout address, Nyarugenge, Kigali',
+            'delivery_notes' => 'Leave with reception.',
+        ])->assertRedirect(route('checkout.payment'));
+
+        $this->get(route('checkout'))
+            ->assertOk()
+            ->assertSee('Use saved address')
+            ->assertSee('Changed checkout address, Nyarugenge, Kigali')
+            ->assertSee('Leave with reception.')
+            ->assertDontSee('readonly data-saved-address');
+
         $this->get(route('product-requests.create'))
             ->assertOk()
             ->assertSee('Recipient Name')
@@ -437,9 +454,24 @@ class CustomerAccountTest extends TestCase
 
         $this->get(route('account.orders.show', $order->reference))
             ->assertOk()
+            ->assertSee('Home')
+            ->assertSee('My Orders')
+            ->assertSee('Track your order')
+            ->assertSee('Download Receipt')
+            ->assertSee(route('account.orders.receipt', $order->reference), false)
+            ->assertSee('Order progress')
+            ->assertSee('aria-label="Order progress timeline"', false)
+            ->assertSee('tabindex="0"', false)
+            ->assertSee('Scroll horizontally to view all order stages.')
+            ->assertSee('max-width: 991.98px')
+            ->assertSee('grid-template-columns: repeat(6, minmax(120px, 1fr))')
+            ->assertSee('Order summary')
+            ->assertSee('Delivery details')
             ->assertSee('KG 10 Street, Kigali')
             ->assertSee('Order confirmed from persisted status.')
-            ->assertSee('Accepted by vendor');
+            ->assertSee('Accepted by vendor')
+            ->assertSee('Confirm only after you have received your order.')
+            ->assertDontSee('Confirm delivery');
 
         $trackingRoute = route('account.orders.tracking', $order->reference);
         $trackingResponse = $this->getJson($trackingRoute)
@@ -451,6 +483,11 @@ class CustomerAccountTest extends TestCase
             ->assertJsonPath('tracking.items.0.quantity', 2)
             ->assertJsonPath('tracking.items.0.assignment_label', 'Accepted by vendor')
             ->assertJsonPath('tracking.deliveries.0.reference', 'DL-CUSTOMER-TRACK')
+            ->assertJsonPath('tracking.timeline.steps.0.label', 'Order received')
+            ->assertJsonPath('tracking.timeline.steps.0.state', 'complete')
+            ->assertJsonPath('tracking.timeline.steps.1.label', 'Order confirmed')
+            ->assertJsonPath('tracking.timeline.steps.1.state', 'complete')
+            ->assertJsonPath('tracking.timeline.steps.2.state', 'current')
             ->assertJsonFragment(['label' => 'Order confirmed from persisted status.']);
 
         $eventCount = count($trackingResponse->json('tracking.events'));
@@ -461,6 +498,302 @@ class CustomerAccountTest extends TestCase
         $this->actingAs($other, 'customers')->get(route('account.orders.show', $order->reference))->assertNotFound();
         $this->getJson($trackingRoute)->assertNotFound();
         $this->get(route('account.orders'))->assertDontSee($order->reference);
+    }
+
+    public function test_my_orders_keeps_horizontal_rows_and_shows_actions_for_each_order(): void
+    {
+        $customer = $this->customer();
+        $order = $this->placeCustomerOrder($customer, 'KG 10 Street');
+        $inTransit = DeliveryTask::query()->create([
+            'reference' => 'DL-CUSTOMER-IN-TRANSIT',
+            'order_id' => $order->id,
+            'order_item_id' => $order->items()->value('id'),
+            'status' => 'in_transit',
+        ]);
+        $anotherOrder = $this->placeCustomerOrder($customer, 'KN 4 Road');
+        $anotherOrder->update(['payment_status' => 'paid']);
+        $anotherOrder->payments()->create([
+            'amount' => number_format((float) $anotherOrder->total, 2, '.', ''),
+            'type' => 'full',
+            'method' => 'bank_transfer',
+            'submission_key' => (string) Str::uuid(),
+        ]);
+        $assigned = DeliveryTask::query()->create([
+            'reference' => 'DL-CUSTOMER-ASSIGNED',
+            'order_id' => $anotherOrder->id,
+            'order_item_id' => $anotherOrder->items()->value('id'),
+            'status' => 'assigned',
+        ]);
+
+        $response = $this->actingAs($customer, 'customers')->get(route('account.orders'))
+            ->assertOk()
+            ->assertSee('account-order-row', false)
+            ->assertSee($order->reference)
+            ->assertSee($anotherOrder->reference)
+            ->assertSee('Customer test product')
+            ->assertSee('account-order-status-mobile', false)
+            ->assertSee('account-order-status is-pending', false)
+            ->assertSee('Pending Confirmation')
+            ->assertSee('account-order-contact-mobile', false)
+            ->assertSee('KG 10 Street')
+            ->assertSee('max-width: 767.98px')
+            ->assertSee('aria-label="More actions for order '.$order->reference.'"', false)
+            ->assertDontSee('Payment</span>')
+            ->assertDontSee('Cash on delivery')
+            ->assertSee('In transit')
+            ->assertSee('Delivery created')
+            ->assertSee('Download Receipt')
+            ->assertSee('<i class="bi bi-download" aria-hidden="true"></i> Download Receipt', false)
+            ->assertDontSee('account-order-receipt', false)
+            ->assertSee('Mark as delivered')
+            ->assertSee('Track order')
+            ->assertSee('View details')
+            ->assertDontSee('Order received')
+            ->assertDontSee('Order confirmed')
+            ->assertSee(route('account.orders.show', $order->reference), false)
+            ->assertSee(route('account.orders.receipt', $order->reference), false)
+            ->assertSee(route('account.orders.receipt', $anotherOrder->reference), false)
+            ->assertSee(route('account.orders.delivery-confirm', [
+                'reference' => $order->reference,
+                'deliveryReference' => $inTransit->reference,
+            ]), false)
+            ->assertDontSee(route('account.orders.delivery-confirm', [
+                'reference' => $anotherOrder->reference,
+                'deliveryReference' => $assigned->reference,
+            ]), false);
+
+        $this->assertSame(2, substr_count((string) $response->getContent(), 'data-bs-toggle="dropdown"'));
+        $this->assertSame(2, substr_count((string) $response->getContent(), 'Track order'));
+        $this->assertSame(2, substr_count((string) $response->getContent(), 'View details'));
+    }
+
+    public function test_customer_can_confirm_only_their_own_delivery_that_is_in_transit(): void
+    {
+        $owner = $this->customer();
+        $other = $this->customer();
+        $order = $this->placeCustomerOrder($owner, 'KG 10 Street');
+        $item = $order->items()->firstOrFail();
+        $prematureOrder = $this->placeCustomerOrder($owner, 'KN 4 Road');
+        $inTransit = DeliveryTask::query()->create([
+            'reference' => 'DL-CUSTOMER-CONFIRM',
+            'order_id' => $order->id,
+            'order_item_id' => $item->id,
+            'status' => 'in_transit',
+        ]);
+        $assigned = DeliveryTask::query()->create([
+            'reference' => 'DL-CUSTOMER-NOT-IN-TRANSIT',
+            'order_id' => $prematureOrder->id,
+            'status' => 'assigned',
+        ]);
+        $notDispatched = DeliveryTask::query()->create([
+            'reference' => 'DL-CUSTOMER-NOT-DISPATCHED',
+            'order_id' => $prematureOrder->id,
+            'order_item_id' => $prematureOrder->items()->value('id'),
+            'status' => 'in_transit',
+            'dispatched_at' => now(),
+        ]);
+
+        $this->actingAs($owner, 'customers')
+            ->post(route('account.orders.delivery-confirm', [
+                'reference' => $prematureOrder->reference,
+                'deliveryReference' => $assigned->reference,
+            ]))
+            ->assertNotFound();
+        $this->assertSame('assigned', $assigned->fresh()->status);
+
+        $this->actingAs($owner, 'customers')
+            ->post(route('account.orders.delivery-confirm', [
+                'reference' => $prematureOrder->reference,
+                'deliveryReference' => $notDispatched->reference,
+            ]))
+            ->assertNotFound();
+        $this->assertSame('in_transit', $notDispatched->fresh()->status);
+
+        $this->actingAs($other, 'customers')
+            ->post(route('account.orders.delivery-confirm', [
+                'reference' => $order->reference,
+                'deliveryReference' => $inTransit->reference,
+            ]))
+            ->assertNotFound();
+        $this->assertSame('in_transit', $inTransit->fresh()->status);
+
+        $order->update(['fulfillment_status' => 'dispatched']);
+        $order->histories()->create([
+            'from_status' => 'ready_for_dispatch',
+            'to_status' => 'dispatched',
+            'customer_message' => 'Your order has been dispatched.',
+        ]);
+        $trackingResponse = $this->actingAs($owner, 'customers')
+            ->getJson(route('account.orders.tracking', $order->reference))
+            ->assertOk()
+            ->assertJsonPath('tracking.fulfillment_status', 'out_for_delivery')
+            ->assertJsonPath('tracking.timeline.steps.3.state', 'complete')
+            ->assertJsonPath('tracking.timeline.steps.4.state', 'current')
+            ->assertJsonPath('tracking.deliveries.0.can_confirm', true);
+        $this->assertNotNull($trackingResponse->json('tracking.timeline.steps.4.occurred_at'));
+        $this->assertNull($inTransit->fresh()->dispatched_at);
+        $this->get(route('account.orders.show', $order->reference))
+            ->assertOk()
+            ->assertSee('Confirm delivery');
+
+        $this->from(route('account.orders'))
+            ->actingAs($owner, 'customers')
+            ->post(route('account.orders.delivery-confirm', [
+                'reference' => $order->reference,
+                'deliveryReference' => $inTransit->reference,
+            ]))
+            ->assertRedirect(route('account.orders.show', $order->reference))
+            ->assertSessionHas('success', 'Delivery marked as delivered.');
+
+        $this->assertSame('delivered', $inTransit->fresh()->status);
+        $this->assertNotNull($inTransit->fresh()->delivered_at);
+        $this->assertSame('delivered', $item->fresh()->fulfillment_status);
+        $this->assertSame('delivered', $order->fresh()->fulfillment_status);
+        $this->assertDatabaseHas('order_status_histories', [
+            'order_id' => $order->id,
+            'from_status' => 'dispatched',
+            'to_status' => 'delivered',
+        ]);
+        $this->getJson(route('account.orders.tracking', $order->reference))
+            ->assertOk()
+            ->assertJsonPath('tracking.status_label', 'Delivered')
+            ->assertJsonPath('tracking.timeline.steps.5.state', 'current')
+            ->assertJsonPath('tracking.deliveries.0.status', 'delivered');
+        $this->assertDatabaseHas('audit_logs', [
+            'action' => 'delivery.completed',
+            'auditable_type' => $inTransit->getMorphClass(),
+            'auditable_id' => $inTransit->id,
+        ]);
+        $auditLog = AuditLog::query()
+            ->where('action', 'delivery.completed')
+            ->where('auditable_type', $inTransit->getMorphClass())
+            ->where('auditable_id', $inTransit->id)
+            ->firstOrFail();
+        $this->assertSame('customer', $auditLog->meta['actor_type']);
+        $this->assertSame($owner->id, (int) $auditLog->meta['actor_id']);
+
+        $this->actingAs($owner, 'customers')
+            ->post(route('account.orders.delivery-confirm', [
+                'reference' => $order->reference,
+                'deliveryReference' => $inTransit->reference,
+            ]))
+            ->assertNotFound();
+        $this->assertSame(1, AuditLog::query()
+            ->where('action', 'delivery.completed')
+            ->where('auditable_type', $inTransit->getMorphClass())
+            ->where('auditable_id', $inTransit->id)
+            ->count());
+    }
+
+    public function test_customer_order_receipt_is_available_before_payment_and_uses_owned_order_data(): void
+    {
+        $owner = $this->customer();
+        $other = $this->customer();
+        $order = $this->placeCustomerOrder($owner, 'KG 10 Street');
+
+        $this->actingAs($owner, 'customers')
+            ->get(route('account.orders.receipt', $order->reference))
+            ->assertOk()
+            ->assertHeader('content-type', 'application/pdf')
+            ->assertHeader('content-disposition', 'attachment; filename=receipt-'.$order->reference.'.pdf');
+
+        $order->items()->create([
+            'product_name' => 'Second receipt item',
+            'unit_price' => 250,
+            'quantity' => 2,
+            'line_total' => 500,
+            'fulfillment_status' => 'processing',
+            'assignment_status' => 'unassigned',
+        ]);
+        $order->update(['total' => (float) $order->total + 500]);
+        $paymentStatus = $order->fresh()->payment_status;
+        config(['app.url' => 'https://trescahub.rw']);
+
+        $pdfContent = $this->get(route('account.orders.receipt', $order->reference))
+            ->assertOk()
+            ->assertHeader('content-type', 'application/pdf')
+            ->assertHeader('content-disposition', 'attachment; filename=receipt-'.$order->reference.'.pdf')
+            ->getContent();
+
+        $generatedAt = now();
+        $receiptHtml = view('front.pages.account-order-receipt', [
+            'order' => $order->load('items'),
+            'websiteUrl' => parse_url((string) config('app.url'), PHP_URL_HOST),
+            'generatedAt' => $generatedAt,
+        ])->render();
+        $this->assertStringContainsString('Dear '.$owner->name.',', $receiptHtml);
+        $this->assertStringContainsString('<div class="document-title">ORDER RECEIPT</div>', $receiptHtml);
+        $this->assertStringNotContainsString('PAYMENT NOT CONFIRMED', $receiptHtml);
+        $this->assertStringNotContainsString('does not confirm that payment was received', $receiptHtml);
+        $this->assertStringContainsString('font-family: "Times New Roman", Times, serif;', $receiptHtml);
+        $this->assertStringContainsString('Reference: '.$order->reference, $receiptHtml);
+        $this->assertStringContainsString('<span class="brand-mark">T</span>', $receiptHtml);
+        $this->assertStringContainsString('Order date', $receiptHtml);
+        $this->assertStringContainsString($order->phone, $receiptHtml);
+        $this->assertStringContainsString($order->delivery_address, $receiptHtml);
+        $this->assertStringContainsString($order->reference, $receiptHtml);
+        $this->assertStringContainsString('Customer test product', $receiptHtml);
+        $this->assertStringContainsString('Second receipt item', $receiptHtml);
+        $this->assertStringContainsString('Unit price', $receiptHtml);
+        $this->assertStringContainsString('Subtotal', $receiptHtml);
+        $this->assertStringContainsString('Delivery fee', $receiptHtml);
+        $this->assertStringContainsString('Total order amount', $receiptHtml);
+        $this->assertStringContainsString('Not separately recorded', $receiptHtml);
+        $this->assertStringNotContainsString('PAYMENT RECEIPT', $receiptHtml);
+        $this->assertStringNotContainsString('PAID', $receiptHtml);
+        $this->assertStringContainsString('Generated on '.$generatedAt->format('M j, Y g:i A'), $receiptHtml);
+        $this->assertStringContainsString('trescahub.rw', $receiptHtml);
+        $this->assertStringContainsString('<th class="product">Product</th>', $receiptHtml);
+        $this->assertStringContainsString('<th class="quantity">Qty</th>', $receiptHtml);
+        $this->assertSame(1, substr_count($receiptHtml, '<table class="items">'));
+        $this->assertStringNotContainsString('Recorded payments', $receiptHtml);
+        $this->assertStringNotContainsString('<strong>Payment:</strong>', $receiptHtml);
+        $this->assertStringNotContainsString('Transaction Reference', $receiptHtml);
+        $this->assertSame($paymentStatus, $order->fresh()->payment_status);
+        $this->assertSame(0, $order->payments()->count());
+
+        $this->assertStringStartsWith('%PDF-', $pdfContent);
+        $this->assertSame(1, preg_match_all('/\/Type\s*\/Page\b/', $pdfContent));
+        $this->assertSame(1, preg_match(
+            '/\/MediaBox\s*\[\s*0(?:\.0+)?\s+0(?:\.0+)?\s+([\d.]+)\s+([\d.]+)\s*\]/',
+            $pdfContent,
+            $pageBox,
+        ));
+        $this->assertEqualsWithDelta(595.276, (float) $pageBox[1], 0.1);
+        $this->assertEqualsWithDelta(841.89, (float) $pageBox[2], 0.1);
+
+        $this->actingAs($other, 'customers')
+            ->get(route('account.orders.receipt', $order->reference))
+            ->assertNotFound();
+    }
+
+    public function test_order_receipt_is_available_for_every_payment_status_without_changing_payment_records(): void
+    {
+        $customer = $this->customer();
+        $statuses = ['pending', 'partially_paid', 'failed', 'cancelled', 'refunded', 'unpaid', 'paid'];
+        $orders = collect($statuses)->map(function (string $status) use ($customer) {
+            $order = $this->placeCustomerOrder($customer, 'KG 10 Street');
+            $order->update(['payment_status' => $status]);
+
+            return $order;
+        });
+        $underpaid = $this->placeCustomerOrder($customer, 'KN 4 Road');
+        $underpaid->update(['payment_status' => 'paid']);
+        $underpaid->payments()->create([
+            'amount' => number_format(max(0, (float) $underpaid->total - 1), 2, '.', ''),
+            'type' => 'partial',
+            'method' => 'bank_transfer',
+            'submission_key' => (string) Str::uuid(),
+        ]);
+        $orders->push($underpaid);
+
+        $response = $this->actingAs($customer, 'customers')->get(route('account.orders'))->assertOk();
+        foreach ($orders as $order) {
+            $response->assertSee(route('account.orders.receipt', $order->reference), false);
+            $this->get(route('account.orders.receipt', $order->reference))
+                ->assertOk()
+                ->assertHeader('content-type', 'application/pdf');
+        }
     }
 
     public function test_completed_order_without_delivery_confirmation_is_not_reported_as_delivered(): void
@@ -502,6 +835,35 @@ class CustomerAccountTest extends TestCase
 
         $this->assertTrue(Hash::check('Reset-password-456', $customer->fresh()->password));
         $this->assertDatabaseMissing('customer_password_reset_tokens', ['email' => $customer->email]);
+    }
+
+    public function test_custom_inactivity_configuration_is_removed_and_normal_customer_sessions_remain_authenticated(): void
+    {
+        $customer = $this->customer();
+        $this->assertArrayNotHasKey('customer_inactivity_timeout', config('session'));
+
+        $this->actingAs($customer, 'customers')
+            ->get(route('account.profile'))
+            ->assertOk();
+
+        $this->assertAuthenticatedAs($customer, 'customers');
+    }
+
+    public function test_vendor_and_administrator_sessions_do_not_use_custom_inactivity_tracking(): void
+    {
+        $vendor = Vendor::query()->create(['business_name' => 'Vendor Example', 'status' => 'active']);
+        $vendorUser = User::factory()->create(['vendor_id' => $vendor->id]);
+        $vendorUser->assignRole('vendor');
+        $admin = User::factory()->create(['email_verified_at' => now()]);
+        $admin->assignRole('administrator');
+
+        $this->actingAs($vendorUser, 'web')
+            ->get(route('vendor.dashboard'));
+        $this->assertAuthenticatedAs($vendorUser, 'web');
+
+        $this->actingAs($admin, 'web')
+            ->get(route('dashboard'));
+        $this->assertAuthenticatedAs($admin, 'web');
     }
 
     private function assertSingleAddressForm(TestResponse $response): void

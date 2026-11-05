@@ -16,6 +16,56 @@ class VendorOrdersPageTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_pending_vendor_order_review_shows_decisions_and_approval_moves_it_to_approved(): void
+    {
+        $vendor = $this->vendor('Pending Review Vendor');
+        $user = $this->vendorUser($vendor);
+        $order = $this->order('VENDOR-PENDING-REVIEW', 'Pending Review Customer');
+        $order->update(['fulfillment_status' => 'pending_confirmation']);
+        $item = $this->item($order, $vendor, 'Pending Review Item', 'pending_confirmation', 'assigned');
+
+        $this->actingAs($user)->get(route('vendor.orders.index', ['tab' => 'pending']))
+            ->assertOk()
+            ->assertSee($order->reference);
+
+        $this->actingAs($user)->get(route('vendor.orders.show', $order->reference))
+            ->assertOk()
+            ->assertSee('Approve Order')
+            ->assertSee('Reject Order')
+            ->assertSee('vendorRejectModal');
+
+        $this->actingAs($user)->postJson(route('vendor.orders.respond-order', $order->reference), [
+            'decision' => 'accept',
+            'submission_key' => (string) \Illuminate\Support\Str::uuid(),
+        ])->assertOk()
+            ->assertJsonPath('redirect_url', route('vendor.orders.index', ['tab' => 'approved']));
+
+        $this->assertSame('accepted', $item->fresh()->assignment_status);
+        $pendingOrders = $this->actingAs($user)->get(route('vendor.orders.index', ['tab' => 'pending']))
+            ->assertOk()
+            ->viewData('orders');
+        $this->assertFalse($pendingOrders->getCollection()->contains('id', $order->id));
+        $approvedOrders = $this->actingAs($user)->get(route('vendor.orders.index', ['tab' => 'approved']))
+            ->assertOk()
+            ->viewData('orders');
+        $this->assertTrue($approvedOrders->getCollection()->contains('id', $order->id));
+        $this->actingAs($user)->get(route('vendor.orders.show', $order->reference))
+            ->assertRedirect(route('vendor.orders.index', ['tab' => 'approved']));
+
+        $rejectedOrder = $this->order('VENDOR-PENDING-REJECTION', 'Pending Rejection Customer');
+        $rejectedOrder->update(['fulfillment_status' => 'pending_confirmation']);
+        $rejectedItem = $this->item($rejectedOrder, $vendor, 'Pending Rejection Item', 'pending_confirmation', 'assigned');
+
+        $this->actingAs($user)->postJson(route('vendor.orders.respond-order', $rejectedOrder->reference), [
+            'decision' => 'decline',
+            'note' => 'Unable to fulfill this order.',
+        ])->assertOk()
+            ->assertJsonPath('redirect_url', route('vendor.orders.index', ['tab' => 'pending']));
+
+        $this->assertSame('unassigned', $rejectedItem->fresh()->assignment_status);
+        $this->assertNull($rejectedItem->fresh()->vendor_id);
+    }
+
     public function test_vendor_orders_use_admin_pending_and_paid_classification_while_scoping_vendor_items(): void
     {
         $vendorA = $this->vendor('Vendor Orders A');
@@ -237,7 +287,7 @@ class VendorOrdersPageTest extends TestCase
         $this->actingAs($user)->post(route('vendor.orders.ready-for-delivery', $order->reference))
             ->assertRedirect();
         $this->assertSame('ready_for_dispatch', $item->fresh()->fulfillment_status);
-        $this->assertSame('processing', $order->fresh()->fulfillment_status);
+        $this->assertSame('ready_for_dispatch', $order->fresh()->fulfillment_status);
         $this->assertNotSame('delivered', $order->fresh()->fulfillment_status);
         $this->assertDatabaseHas('audit_logs', [
             'auditable_type' => $item->getMorphClass(),
@@ -252,7 +302,7 @@ class VendorOrdersPageTest extends TestCase
             ->assertOk()
             ->assertSee('PAID-ASSIGNMENT-ACCEPT')
             ->assertDontSee('Review Order')
-            ->assertSee('Send to Delivery')
+            ->assertDontSee('Send to Delivery')
             ->assertDontSee('Accept Order');
 
         $this->actingAs($user)->post(route('vendor.orders.respond', $paidItem), [
@@ -264,7 +314,7 @@ class VendorOrdersPageTest extends TestCase
             ->assertOk()
             ->assertSee('PAID-ASSIGNMENT-ACCEPT')
             ->assertDontSee('Review Order')
-            ->assertSee('Send to Delivery')
+            ->assertDontSee('Send to Delivery')
             ->assertDontSee('Accept Order');
 
         $cancelledWorkflowOrder = $this->order('CANCELLED-ASSIGNMENT-ACCEPT', 'Cancellation Customer');
@@ -811,10 +861,17 @@ class VendorOrdersPageTest extends TestCase
         $processingItem = $this->item($processingOrder, $vendor, 'Processing Delivery Product', 'processing', 'accepted');
         $this->actingAs($user)->get(route('vendor.orders.index', ['tab' => 'paid']))
             ->assertOk()
-            ->assertSee('Send to Delivery');
+            ->assertDontSee('Send to Delivery');
+        $this->actingAs($user)->postJson(route('vendor.orders.create-delivery', $processingOrder->reference))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('delivery');
+        $this->assertSame('processing', $processingItem->fresh()->fulfillment_status);
+        $this->assertDatabaseCount('delivery_tasks', 1);
+        $this->actingAs($user)->post(route('vendor.orders.ready-for-delivery', $processingOrder->reference))
+            ->assertRedirect();
+        $this->assertSame('ready_for_dispatch', $processingItem->fresh()->fulfillment_status);
         $this->actingAs($user)->postJson(route('vendor.orders.create-delivery', $processingOrder->reference))
             ->assertOk();
-        $this->assertSame('ready_for_dispatch', $processingItem->fresh()->fulfillment_status);
         $this->assertSame('assigned', DeliveryTask::query()->where('order_id', $processingOrder->id)->sole()->status);
         $this->assertDatabaseCount('delivery_tasks', 2);
 

@@ -7,7 +7,7 @@
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"/>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet"/>
-    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 
     <style>
         :root {
@@ -141,6 +141,7 @@
             line-height: 1.4;
             flex-shrink: 0;
         }
+        .nav-badge[hidden] { display: none; }
 
         .sidebar-footer {
             margin-top: auto;
@@ -240,14 +241,15 @@
         }
 
         .topbar-icon-btn {
-            width: 38px; height: 38px;
+            width: 40px; height: 40px;
+            flex: 0 0 40px;
             background: #fff;
             border: 1px solid rgba(0,0,0,0.08);
             border-radius: 10px;
             display: flex; align-items: center; justify-content: center;
             cursor: pointer;
             color: #4a5568;
-            font-size: 1rem;
+            font-size: 1.1rem;
             transition: all 0.18s;
             position: relative;
             text-decoration: none;
@@ -259,14 +261,34 @@
             color: var(--accent);
         }
 
-        .notif-badge {
+        .notification-count-badge {
             position: absolute;
-            top: 6px; right: 6px;
-            width: 8px; height: 8px;
+            top: -5px;
+            right: -5px;
+            width: 18px;
+            height: 18px;
+            padding: 0;
             background: #ff4757;
             border-radius: 50%;
-            border: 2px solid var(--body-bg);
+            border: 2px solid #fff;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.58rem;
+            font-weight: 700;
+            line-height: 1;
+            white-space: nowrap;
         }
+
+        .notification-count-badge.is-overflow {
+            width: auto;
+            min-width: 24px;
+            padding: 0 4px;
+            border-radius: 10px;
+        }
+
+        .notification-count-badge[hidden] { display: none; }
 
         #sidebarToggle {
             display: none;
@@ -343,6 +365,8 @@
     @php
         $pendingTestimonials    = \App\Models\Testimonial::pending()->count();
         $pendingServiceRequests = \App\Models\Servicerequest::pending()->count();
+        $headerUser = auth()->user();
+        $unreadNotificationCount = $headerUser->unreadNotifications()->count();
     @endphp
 
     <nav class="nav-section">
@@ -432,7 +456,7 @@
     <nav class="nav-section">
         <div class="nav-section-label">System</div>
 
-        <a href="#" class="nav-item-link">
+        <a href="{{ auth()->user()->hasRole('vendor') ? route('vendor.settings') : route('admin.settings.index') }}" class="nav-item-link {{ auth()->user()->hasRole('vendor') ? (request()->routeIs('vendor.settings') ? 'active' : '') : (request()->routeIs('admin.settings.*') ? 'active' : '') }}">
             <i class="bi bi-gear"></i>
             Settings
         </a>
@@ -491,20 +515,16 @@
         <input type="text" placeholder="Search anything…" />
     </div>
 
-    {{-- Testimonials notif --}}
-    <a href="{{ route('testimonials.index') }}" class="topbar-icon-btn" title="Pending Testimonials">
-        <i class="bi bi-chat-quote"></i>
-        @if($pendingTestimonials > 0)
-            <span class="notif-badge"></span>
-        @endif
-    </a>
-
-    {{-- Service Requests notif --}}
-    <a href="{{ route('service-requests.index') }}" class="topbar-icon-btn" title="Pending Service Requests">
-        <i class="bi bi-inbox"></i>
-        @if($pendingServiceRequests > 0)
-            <span class="notif-badge"></span>
-        @endif
+    <a
+        href="{{ route('marketplace.notifications.index') }}"
+        class="topbar-icon-btn"
+        title="Notifications"
+        aria-label="Notifications"
+    >
+        <i class="bi bi-bell"></i>
+        <span id="notificationCountBadge" class="notification-count-badge {{ $unreadNotificationCount > 10 ? 'is-overflow' : '' }}" @if($unreadNotificationCount === 0) hidden @endif>
+            {{ $unreadNotificationCount > 10 ? '10+' : $unreadNotificationCount }}
+        </span>
     </a>
 
     <a href="#" class="topbar-icon-btn">
@@ -574,6 +594,35 @@
     restoreSidebarScroll();
     window.addEventListener('pagehide', saveSidebarScroll);
 
+    const notificationCountBadge = document.getElementById('notificationCountBadge');
+    const refreshNotificationCount = async () => {
+        try {
+            const response = await fetch(@json(route('marketplace.notifications.unread-count')), {
+                headers: { Accept: 'application/json' },
+                credentials: 'same-origin',
+            });
+
+            if (!response.ok) {
+                throw new Error(`Notification count request failed with status ${response.status}.`);
+            }
+
+            const { count } = await response.json();
+            if (!Number.isInteger(count) || count < 0) {
+                throw new Error('Notification count response was invalid.');
+            }
+
+            notificationCountBadge.textContent = count > 10 ? '10+' : String(count);
+            notificationCountBadge.classList.toggle('is-overflow', count > 10);
+            notificationCountBadge.hidden = count === 0;
+        } catch (error) {
+            console.error('Unable to refresh the notification count.', error);
+        }
+    };
+
+    window.setInterval(refreshNotificationCount, 30000);
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') refreshNotificationCount();
+    });
 </script>
 
 @stack('scripts')

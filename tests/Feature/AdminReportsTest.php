@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\DeliveryTask;
+use App\Models\AuditLog;
 use App\Models\InventoryAdjustmentRequest;
 use App\Models\InventoryMovement;
 use App\Models\Order;
@@ -77,6 +78,9 @@ class AdminReportsTest extends TestCase
         $plainUser = User::factory()->create();
         $response = $this->actingAs($plainUser)->get(route('marketplace.reports.index'));
         $response->assertForbidden();
+
+        $this->actingAs($plainUser)->get(route('marketplace.reports.orders-history.export'))
+            ->assertForbidden();
     }
 
     public function test_authorized_user_can_view_reports_page_with_default_dates(): void
@@ -117,6 +121,284 @@ class AdminReportsTest extends TestCase
         $response->assertOk()
             ->assertSee('CURR-ORD-1')
             ->assertDontSee('OLD-ORD-1');
+    }
+
+    public function test_finance_report_includes_all_order_statuses_and_sums_matching_orders_once(): void
+    {
+        $inRange = Carbon::now()->subDays(2);
+        $pending = $this->createOrder('FIN-PENDING', 1200, 'pending_confirmation', 'pending', $inRange);
+        $this->createOrder('FIN-CANCELLED', 350, 'cancelled', 'pending', Carbon::now());
+        $this->createOrder('FIN-OLD', 9000, 'completed', 'paid', Carbon::now()->subMonth());
+        $this->createItem($pending, $this->product, 1, 600);
+        $this->createItem($pending, $this->product, 1, 600);
+
+        $allOrders = $this->actingAs($this->admin)->get(route('marketplace.reports.index', [
+            'category' => 'finance',
+        ]));
+        $allOrders->assertOk()
+            ->assertSee('FIN-PENDING')
+            ->assertSee('FIN-CANCELLED')
+            ->assertSee('FIN-OLD')
+            ->assertViewHas('financeReport', fn (array $financeReport): bool => $financeReport['total_orders'] === 3
+                && $financeReport['total_order_value'] === 10550.0);
+
+        $response = $this->actingAs($this->admin)->get(route('marketplace.reports.index', [
+            'category' => 'finance',
+            'from' => Carbon::now()->subDays(3)->toDateString(),
+            'to' => Carbon::now()->toDateString(),
+        ]));
+
+        $response->assertOk()
+            ->assertSee('Finance Report')
+            ->assertSee('Total Orders')
+            ->assertSee('Total Order Value')
+            ->assertSee('FIN-PENDING')
+            ->assertSee('FIN-CANCELLED')
+            ->assertDontSee('FIN-OLD')
+            ->assertSee('Order Date')
+            ->assertSee('Delivery Address')
+            ->assertViewHas('financeReport', function (array $financeReport): bool {
+                $this->assertSame(2, $financeReport['total_orders']);
+                $this->assertSame(1550.0, $financeReport['total_order_value']);
+                $this->assertCount(2, $financeReport['orders']);
+
+                return true;
+            });
+
+        $searched = $this->actingAs($this->admin)->get(route('marketplace.reports.index', [
+            'category' => 'finance',
+            'from' => Carbon::now()->subDays(3)->toDateString(),
+            'to' => Carbon::now()->toDateString(),
+            'q' => 'FIN-CANCELLED',
+        ]));
+        $searched->assertOk()
+            ->assertSee('FIN-CANCELLED')
+            ->assertDontSee('FIN-PENDING')
+            ->assertViewHas('financeReport', fn (array $financeReport): bool => $financeReport['total_orders'] === 1
+                && $financeReport['total_order_value'] === 350.0);
+    }
+
+    public function test_finance_report_has_compact_pagination_and_keeps_totals_and_filters(): void
+    {
+        $createdAt = Carbon::now();
+        for ($index = 1; $index <= 27; $index++) {
+            $this->createOrder('FIN-PAGE-'.$index, 100, 'processing', 'pending', $createdAt);
+        }
+
+        $filters = [
+            'category' => 'finance',
+            'from' => $createdAt->toDateString(),
+            'to' => $createdAt->toDateString(),
+            'q' => 'FIN-PAGE-',
+        ];
+        $firstPage = $this->actingAs($this->admin)->get(route('marketplace.reports.index', $filters));
+        $firstPage->assertOk()
+            ->assertSee('Next')
+            ->assertSee('page=2')
+            ->assertViewHas('financeReport', function (array $financeReport): bool {
+                $this->assertSame(27, $financeReport['total_orders']);
+                $this->assertSame(2700.0, $financeReport['total_order_value']);
+                $this->assertCount(25, $financeReport['orders']);
+
+                return true;
+            });
+
+        $secondPage = $this->actingAs($this->admin)->get(route('marketplace.reports.index', $filters + ['page' => 2]));
+        $secondPage->assertOk()
+            ->assertSee('Previous')
+            ->assertSee('FIN-PAGE-2')
+            ->assertSee('FIN-PAGE-1')
+            ->assertDontSee('FIN-PAGE-27')
+            ->assertViewHas('financeReport', fn (array $financeReport): bool => $financeReport['orders']->count() === 2
+                && $financeReport['total_orders'] === 27);
+    }
+
+    public function test_finance_pdf_export_uses_date_and_search_filters(): void
+    {
+        $createdAt = Carbon::now()->subDays(2);
+        $this->createOrder('FIN-PDF-MATCH', 2750, 'confirmed', 'pending', $createdAt);
+        for ($index = 1; $index <= 60; $index++) {
+            $this->createOrder('FIN-PDF-'.$index, 10, 'processing', 'pending', $createdAt);
+        }
+        $this->createOrder('FIN-PDF-OTHER', 9999, 'cancelled', 'pending', Carbon::now()->subMonth());
+        $from = Carbon::now()->subDays(3)->toDateString();
+        $to = Carbon::now()->toDateString();
+
+        $response = $this->actingAs($this->admin)->get(route('marketplace.reports.export', [
+            'category' => 'finance',
+            'from' => $from,
+            'to' => $to,
+            'q' => 'FIN-PDF-',
+        ]));
+
+        $response->assertOk()
+            ->assertHeader('content-type', 'application/pdf');
+        $pdfContent = $response->getContent();
+        $this->assertStringStartsWith('%PDF-', $pdfContent);
+        $this->assertGreaterThanOrEqual(2, preg_match_all('/\/Type\s*\/Page\b/', $pdfContent));
+        $this->assertStringContainsString("tresca-hub-finance-report-{$from}-to-{$to}.pdf", $response->headers->get('content-disposition'));
+    }
+
+    public function test_orders_history_lists_all_statuses_and_combines_filters_with_pagination(): void
+    {
+        $inMonth = $this->createOrder('HISTORY-PENDING-001', 1200, 'pending_confirmation', 'pending', Carbon::now());
+        $inMonth->update([
+            'customer_name' => 'History Match Customer',
+            'phone' => '0788111223',
+            'delivery_address' => 'KG 10, Kigali',
+        ]);
+        $cancelled = $this->createOrder('HISTORY-CANCELLED-001', 400, 'cancelled', 'pending', Carbon::now()->subDays(2));
+        $outsideMonth = $this->createOrder('HISTORY-OLD-001', 300, 'completed', 'paid', Carbon::now()->subMonth());
+
+        $response = $this->actingAs($this->admin)->get(route('marketplace.reports.orders-history'));
+        $response->assertOk()
+            ->assertSee('HISTORY-PENDING-001')
+            ->assertSee('HISTORY-CANCELLED-001')
+            ->assertSee('HISTORY-OLD-001')
+            ->assertDontSee('Total Orders Recorded')
+            ->assertDontSee('Orders This Month')
+            ->assertViewHas('totalOrders', 3)
+            ->assertViewHas('ordersThisMonth', 2);
+
+        $filtered = $this->actingAs($this->admin)->get(route('marketplace.reports.orders-history', [
+            'customer' => 'History Match',
+            'phone' => '0788111223',
+            'reference' => 'PENDING-001',
+            'from' => Carbon::now()->startOfMonth()->toDateString(),
+            'to' => Carbon::now()->toDateString(),
+            'status' => 'pending_confirmation',
+        ]));
+        $filtered->assertOk()
+            ->assertSee('HISTORY-PENDING-001')
+            ->assertDontSee('HISTORY-CANCELLED-001')
+            ->assertDontSee('HISTORY-OLD-001')
+            ->assertViewHas('orders', fn ($orders): bool => $orders->total() === 1 && $orders->first()->id === $inMonth->id);
+
+        for ($index = 1; $index <= 26; $index++) {
+            $this->createOrder('HISTORY-PAGE-'.$index, 100, 'processing', 'pending', Carbon::now()->subMinutes($index));
+        }
+        $page = $this->actingAs($this->admin)->get(route('marketplace.reports.orders-history'));
+        $page->assertOk()
+            ->assertViewHas('orders', fn ($orders): bool => $orders->perPage() === 25 && $orders->total() === 29);
+    }
+
+    public function test_orders_history_pdf_exports_all_orders_matching_current_filters(): void
+    {
+        $createdAt = Carbon::now()->subDays(2);
+        for ($index = 1; $index <= 28; $index++) {
+            $order = $this->createOrder('EXPORT-HISTORY-'.$index, 100 + $index, 'processing', 'pending', $createdAt);
+            $order->update([
+                'customer_name' => 'Export Customer',
+                'phone' => '0788000111',
+                'delivery_address' => 'KG 10, Kigali',
+            ]);
+            $this->createItem($order, $this->product, 1, 100 + $index);
+        }
+        $this->createOrder('EXPORT-OUTSIDE-FILTER', 10000, 'cancelled', 'pending', Carbon::now()->subMonth());
+
+        $filters = [
+            'customer' => 'Export Customer',
+            'phone' => '0788000111',
+            'reference' => 'EXPORT-HISTORY-',
+            'from' => Carbon::now()->subDays(3)->toDateString(),
+            'to' => Carbon::now()->toDateString(),
+            'status' => 'processing',
+        ];
+        $list = $this->actingAs($this->admin)->get(route('marketplace.reports.orders-history', $filters));
+        $list->assertOk()
+            ->assertViewHas('orders', fn ($orders): bool => $orders->total() === 28 && $orders->count() === 25)
+            ->assertSee('>Export PDF</span>', false)
+            ->assertDontSee('Export filtered orders PDF')
+            ->assertSee(str_replace('&', '&amp;', route('marketplace.reports.orders-history.export', $filters)), false);
+
+        $response = $this->actingAs($this->admin)->get(route('marketplace.reports.orders-history.export', $filters));
+        $response->assertOk()
+            ->assertHeader('content-type', 'application/pdf');
+        $this->assertStringContainsString('tresca-hub-orders-history-', $response->headers->get('content-disposition'));
+        $pdfContent = $response->getContent();
+        $this->assertStringStartsWith('%PDF-', $pdfContent);
+        $this->assertGreaterThanOrEqual(2, preg_match_all('/\/Type\s*\/Page\b/', $pdfContent));
+    }
+
+    public function test_order_history_detail_shows_saved_snapshots_and_existing_timeline_read_only(): void
+    {
+        $order = $this->createOrder('HISTORY-DETAIL-001', 2500, 'cancelled', 'pending', Carbon::now()->subDays(4));
+        $order->update([
+            'phone' => '0788999000',
+            'delivery_address' => 'Complete saved customer address',
+            'cancellation_reason' => 'Customer could not be reached',
+        ]);
+        $item = $this->createItem($order, $this->product, 2, 2500, $this->vendor->id, 'accepted');
+        $item->update([
+            'product_name' => 'Historical Product Name',
+            'variation_label' => 'Color',
+            'variation_value' => 'Blue',
+        ]);
+        $order->histories()->create([
+            'from_status' => 'pending_confirmation',
+            'to_status' => 'confirmed',
+            'note' => 'Order accepted after allocation.',
+            'created_at' => Carbon::now()->subDays(3),
+            'updated_at' => Carbon::now()->subDays(3),
+        ]);
+        $order->histories()->create([
+            'from_status' => 'confirmed',
+            'to_status' => 'cancelled',
+            'note' => 'Customer could not be reached',
+            'created_at' => Carbon::now()->subDays(2),
+            'updated_at' => Carbon::now()->subDays(2),
+        ]);
+        $delivery = DeliveryTask::query()->create([
+            'reference' => 'HISTORY-DELIVERY-001',
+            'order_id' => $order->id,
+            'order_item_id' => $item->id,
+            'vendor_id' => $this->vendor->id,
+            'status' => 'delivered',
+            'created_at' => Carbon::now()->subDays(2),
+            'updated_at' => Carbon::now()->subDay(),
+            'delivered_at' => Carbon::now()->subDay(),
+        ]);
+        AuditLog::query()->create([
+            'action' => 'order.item_allocated',
+            'auditable_type' => $item->getMorphClass(),
+            'auditable_id' => $item->id,
+            'changes' => ['to_vendor' => $this->vendor->id],
+            'created_at' => Carbon::now()->subDays(3),
+            'updated_at' => Carbon::now()->subDays(3),
+        ]);
+        AuditLog::query()->create([
+            'action' => 'order.item_accepted',
+            'auditable_type' => $item->getMorphClass(),
+            'auditable_id' => $item->id,
+            'changes' => [],
+            'created_at' => Carbon::now()->subDays(3),
+            'updated_at' => Carbon::now()->subDays(3),
+        ]);
+        AuditLog::query()->create([
+            'action' => 'delivery.completed',
+            'auditable_type' => $delivery->getMorphClass(),
+            'auditable_id' => $delivery->id,
+            'changes' => [],
+            'meta' => ['actor_type' => 'customer', 'actor_id' => 999],
+            'created_at' => Carbon::now()->subDay(),
+            'updated_at' => Carbon::now()->subDay(),
+        ]);
+
+        $response = $this->actingAs($this->admin)->get(route('marketplace.reports.orders-history.show', $order));
+        $response->assertOk()
+            ->assertSee('HISTORY-DETAIL-001')
+            ->assertSee('Complete saved customer address')
+            ->assertSee('Historical Product Name')
+            ->assertSee('Color · Blue')
+            ->assertSee('Alpha Supplier')
+            ->assertSee('HISTORY-DELIVERY-001')
+            ->assertSee('Customer confirmed delivery')
+            ->assertSee('Customer could not be reached')
+            ->assertSee('Not recorded in order data')
+            ->assertSee('Order placed')
+            ->assertDontSee('Approve Order')
+            ->assertDontSee('Reject Order')
+            ->assertDontSee('Reallocate');
     }
 
     public function test_reports_use_real_order_and_delivery_records(): void
@@ -354,7 +636,13 @@ class AdminReportsTest extends TestCase
 
         $response->assertOk()
             ->assertSee('Restricted')
-            ->assertSee('Requires finance permissions');
+            ->assertSee('Requires finance permissions')
+            ->assertDontSee(route('marketplace.reports.index', ['category' => 'finance']), false);
+
+        $this->actingAs($operationsOfficer)->get(route('marketplace.reports.index', ['category' => 'finance']))
+            ->assertForbidden();
+        $this->actingAs($operationsOfficer)->get(route('marketplace.reports.export', ['category' => 'finance']))
+            ->assertForbidden();
     }
 
     public function test_pdf_export_downloads_valid_pdf_with_matching_filters(): void

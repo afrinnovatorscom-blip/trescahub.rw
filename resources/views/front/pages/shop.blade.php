@@ -289,10 +289,43 @@
     </div>
 </main>
 
+@if(session('success') === 'Product added to cart successfully.')
+    <div id="cartSuccessToast" class="cart-success-toast" role="status" aria-live="polite">
+        <i class="bi bi-check-circle-fill" aria-hidden="true"></i>
+        <span>Product added to cart successfully.</span>
+    </div>
+@endif
+
 {{-- ══════════════════════════════════════════════════════════════════════ --}}
 <style>
 .py-md-20 { padding-top:5rem; padding-bottom:5rem; }
 @media (max-width:768px) { .py-md-20 { padding-top:3rem; padding-bottom:3rem; } }
+
+/* ── Cart success toast ── */
+.cart-success-toast {
+    position: fixed;
+    top: 5rem;
+    right: 1rem;
+    z-index: 1080;
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    max-width: calc(100vw - 2rem);
+    padding: 0.75rem 1rem;
+    border: 1px solid #bbf7d0;
+    border-radius: 0.375rem;
+    background: #f0fdf4;
+    color: #166534;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+    font-size: 0.875rem;
+    font-weight: 600;
+    opacity: 0;
+    transform: translateY(-8px);
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.cart-success-toast.is-visible { opacity: 1; transform: translateY(0); }
+.cart-success-toast i { color: #15803d; font-size: 1rem; }
+@media (max-width: 576px) { .cart-success-toast { left: 1rem; right: 1rem; } }
 
 /* ── Tabs ── */
 .tab-btn { font-weight:500; }
@@ -382,6 +415,15 @@ searchInput.addEventListener('input', function () {
 });
 
 clearBtn.addEventListener('click', clearSearch);
+
+const cartSuccessToast = document.getElementById('cartSuccessToast');
+if (cartSuccessToast) {
+    requestAnimationFrame(() => cartSuccessToast.classList.add('is-visible'));
+    setTimeout(() => {
+        cartSuccessToast.classList.remove('is-visible');
+        setTimeout(() => cartSuccessToast.remove(), 220);
+    }, 3500);
+}
 </script>
 
 @endsection

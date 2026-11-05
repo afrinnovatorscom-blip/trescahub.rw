@@ -28,6 +28,7 @@
 
         <!-- Livewire Styles -->
         @livewireStyles
+        @stack('styles')
     </head>
     <body class="font-sans text-gray-900 antialiased">
 
@@ -142,6 +143,7 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 });
         </script>
+        @stack('scripts')
 
     </body>
 </html>

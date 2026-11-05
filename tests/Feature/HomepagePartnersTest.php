@@ -212,4 +212,33 @@ class HomepagePartnersTest extends TestCase
             ->assertDontSee('Hidden Partner')
             ->assertDontSee('Inactive Partner');
     }
+
+    public function test_for_partners_page_keeps_its_route_without_repeating_the_partner_listing(): void
+    {
+        Partner::create([
+            'title' => 'Listed on Homepage',
+            'slug' => 'listed-on-homepage',
+            'description' => 'Partner description.',
+            'show_on_website' => true,
+            'status' => 'active',
+        ]);
+
+        $this->get('/for-partners')
+            ->assertOk()
+            ->assertSee('partners-page', false)
+            ->assertSee('@media (max-width: 767.98px)', false)
+            ->assertSee('min-height: 48px', false)
+            ->assertSee('width: 100%', false)
+            ->assertSee('For Partners')
+            ->assertSee('Dedicated Account Support')
+            ->assertSee('Get in Touch')
+            ->assertDontSee('Our Partners')
+            ->assertDontSee('Listed on Homepage')
+            ->assertDontSee('Partner description.');
+
+        $this->get('/')
+            ->assertOk()
+            ->assertSee('Our Partners')
+            ->assertSee('Listed on Homepage');
+    }
 }

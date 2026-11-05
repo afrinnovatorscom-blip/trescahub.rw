@@ -35,20 +35,34 @@ class ProductInitialStockTest extends TestCase
         $admin = $this->admin();
         $vendor = Vendor::query()->where('reference_number', 'VND-SEED-001')->firstOrFail();
 
-        $this->actingAs($admin)->get(route('admin.shop-products.create'))
-            ->assertOk()
-            ->assertSee('Additional Settings')
-            ->assertSee('Assign to Vendor')
+        $createResponse = $this->actingAs($admin)->get(route('admin.shop-products.create'));
+        $createResponse->assertOk()
+            ->assertSee('Vendor Assignment')
+            ->assertSee('Assign Product to Vendor')
+            ->assertSee('Select the vendor responsible for this product, or choose Tresca Direct if the product is managed directly by Tresca Hub.')
+            ->assertSee('<option value="" selected>TRESCA direct / not assigned</option>', false)
+            ->assertSee($vendor->business_name)
             ->assertDontSee('Acquisition Cost')
             ->assertDontSee('Internal Notes')
             ->assertDontSee('SKU (Automatically Assigned)')
             ->assertSee('Initial Stock Quantity')
             ->assertSee('Unit of Measurement')
             ->assertSee('Enter an initial quantity to enable inventory tracking')
-            ->assertDontSee('Track physical stock');
+            ->assertDontSee('Track physical stock')
+            ->assertDontSee('Working Days')
+            ->assertSee('Delivery Time')
+            ->assertSee('name="delivery_time"', false);
+        $createHtml = $createResponse->getContent();
+        $this->assertTrue(
+            strpos($createHtml, 'Product Specifications and Features') < strpos($createHtml, 'Vendor Assignment')
+                && strpos($createHtml, 'Vendor Assignment') < strpos($createHtml, 'id="saveProductButton"'),
+            'Vendor assignment must be the final product section before form actions.'
+        );
 
         $this->actingAs($admin)->post(route('admin.shop-products.store'), $this->payload([
             'product_name' => 'Admin Stocked Product',
+            'acquisition_cost' => 100,
+            'delivery_time' => 1,
             'vendor_id' => $vendor->id,
             'tracks_inventory' => 1,
             'initial_stock_quantity' => 12,
@@ -57,6 +71,7 @@ class ProductInitialStockTest extends TestCase
 
         $product = ShopProduct::query()->where('product_name', 'Admin Stocked Product')->firstOrFail();
         $this->assertSame($vendor->id, $product->vendor_id);
+        $this->assertSame(1, $product->working_days);
         $this->assertSame('approved', $product->approval_status);
         $this->assertSame(12, $product->stock_quantity);
         $this->assertDatabaseHas('inventory_movements', [
@@ -67,18 +82,48 @@ class ProductInitialStockTest extends TestCase
             'stock_after' => 12,
         ]);
 
-        $this->actingAs($admin)->get(route('admin.shop-products.edit', $product))
-            ->assertOk()
+        $editResponse = $this->actingAs($admin)->get(route('admin.shop-products.edit', $product));
+        $editResponse->assertOk()
             ->assertDontSee('name="initial_stock_quantity"', false)
+            ->assertSee('Assign Product to Vendor')
+            ->assertSee('value="'.$vendor->id.'" selected', false)
+            ->assertDontSee('Working Days')
+            ->assertSee('Delivery Time')
+            ->assertSee('name="delivery_time"', false)
             ->assertSee('12 boxes');
 
+        $otherVendor = Vendor::query()->create([
+            'business_name' => 'Second assignment vendor',
+            'email' => 'second-assignment@example.com',
+            'phone' => '0788000002',
+            'status' => 'active',
+        ]);
         $this->actingAs($admin)->put(route('admin.shop-products.update', $product), $this->payload([
             'product_name' => $product->product_name,
-            'vendor_id' => $vendor->id,
+            'acquisition_cost' => 100,
+            'delivery_time' => 1,
+            'vendor_id' => $otherVendor->id,
             'tracks_inventory' => 1,
             'stock_unit' => 'boxes',
         ]))->assertRedirect(route('admin.shop-products.index'));
 
+        $this->assertSame($otherVendor->id, $product->fresh()->vendor_id);
+        $this->actingAs($admin)->get(route('admin.shop-products.edit', $product))
+            ->assertOk()
+            ->assertSee('value="'.$otherVendor->id.'" selected', false);
+
+        $this->actingAs($admin)->put(route('admin.shop-products.update', $product), $this->payload([
+            'product_name' => $product->product_name,
+            'acquisition_cost' => 100,
+            'delivery_time' => 1,
+            'vendor_id' => null,
+            'tracks_inventory' => 1,
+            'stock_unit' => 'boxes',
+        ]))->assertRedirect(route('admin.shop-products.index'));
+        $this->assertNull($product->fresh()->vendor_id);
+        $this->actingAs($admin)->get(route('admin.shop-products.edit', $product))
+            ->assertOk()
+            ->assertSee('<option value="" selected>TRESCA direct / not assigned</option>', false);
         $this->assertSame(12, $product->fresh()->stock_quantity);
         $this->assertSame(1, InventoryMovement::query()->where('shop_product_id', $product->id)->where('type', 'initial_stock')->count());
     }
@@ -91,7 +136,7 @@ class ProductInitialStockTest extends TestCase
         $this->actingAs($vendorUser)->get(route('vendor.products.create'))
             ->assertOk()
             ->assertDontSee('Additional Settings')
-            ->assertDontSee('Assign to Vendor')
+            ->assertDontSee('Assign Product to Vendor')
             ->assertSee('Initial Stock Quantity');
 
         $this->actingAs($vendorUser)->post(route('vendor.products.store'), $this->payload([
@@ -139,7 +184,7 @@ class ProductInitialStockTest extends TestCase
         $this->assertSame(8, $product->stock_quantity);
         $this->assertNull($product->pending_payload);
         $this->assertSame(1, InventoryMovement::query()->where('shop_product_id', $product->id)->where('type', 'initial_stock')->count());
-        $this->assertFalse($product->isPubliclyListed());
+        $this->assertTrue($product->isPubliclyListed());
     }
 
     public function test_rejection_and_digital_products_do_not_register_physical_initial_stock(): void
@@ -202,7 +247,7 @@ class ProductInitialStockTest extends TestCase
             'product_name' => 'Initial Stock Test Product',
             'description' => 'A product for initial stock workflow testing.',
             'price' => 1500,
-            'working_days' => 2,
+            'delivery_time' => 1,
             'status' => 'active',
             'shop_category_id' => $this->category->id,
         ], $overrides);

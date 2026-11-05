@@ -52,6 +52,8 @@
     .partner-status-dot { background: currentColor; border-radius: 50%; height: 6px; width: 6px; }
     .partner-action-link { align-items: center; background: #fff; border: 1px solid #E2E8F0; border-radius: 7px; color: #475569; display: inline-flex; font-size: 12px; gap: 6px; padding: 6px 9px; text-decoration: none; }
     .partner-action-link:hover { background: #EFF6FF; border-color: #BFDBFE; color: #2563EB; }
+    .partner-delete-link { color: #B91C1C; cursor: pointer; font-family: inherit; }
+    .partner-delete-link:hover { background: #FEF2F2; border-color: #FECACA; color: #B91C1C; }
     .partner-pagination { border-top: 1px solid var(--partner-border); padding: 14px 18px; }
     .partner-pagination nav { display: flex; justify-content: flex-end; }
     .partner-empty-state { align-items: center; background: #fff; border: 1px solid var(--partner-border); border-radius: 11px; display: flex; flex-direction: column; padding: 56px 20px; text-align: center; }

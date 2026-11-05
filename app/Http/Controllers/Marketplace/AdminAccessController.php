@@ -4,11 +4,11 @@ namespace App\Http\Controllers\Marketplace;
 
 use App\Http\Controllers\Controller;
 use App\Models\AuditLog;
+use App\Models\DeliveryTask;
 use App\Models\Order;
+use App\Models\OrderItem;
 use App\Models\Permission;
-use App\Models\ProductRequest;
 use App\Models\Role;
-use App\Models\ShopProduct;
 use App\Models\User;
 use App\Models\Vendor;
 use App\Services\AuditLogger;
@@ -43,7 +43,8 @@ class AdminAccessController extends Controller
         $validated = $request->validate([
             'from' => ['nullable', 'date'],
             'to' => ['nullable', 'date', 'after_or_equal:from'],
-            'category' => ['nullable', 'string', 'in:all,products,services,orders,inventory,vendors'],
+            'category' => ['nullable', 'string', 'in:all,products,services,orders,inventory,vendors,finance'],
+            'q' => ['nullable', 'string', 'max:150'],
             'export' => ['nullable', 'string', 'in:pdf'],
         ]);
 
@@ -54,6 +55,19 @@ class AdminAccessController extends Controller
         $from = Carbon::parse($validated['from'] ?? now()->startOfMonth()->toDateString());
         $to = Carbon::parse($validated['to'] ?? now()->toDateString());
         $category = $validated['category'] ?? 'all';
+
+        if ($category === 'finance') {
+            abort_unless($request->user()->hasPermission('finance.view'), 403);
+            $financeReport = $reportService->buildFinance(
+                isset($validated['from']) ? Carbon::parse($validated['from']) : null,
+                isset($validated['to']) ? Carbon::parse($validated['to']) : null,
+                $validated['q'] ?? null,
+                25,
+            );
+            $canViewVendors = $request->user()->hasPermission('vendors.view');
+
+            return view('marketplace.reports.finance', compact('financeReport', 'canViewVendors'));
+        }
 
         $report = $reportService->build($from, $to, $category, $request->user());
 
@@ -67,8 +81,27 @@ class AdminAccessController extends Controller
         $validated = $request->validate([
             'from' => ['nullable', 'date'],
             'to' => ['nullable', 'date', 'after_or_equal:from'],
-            'category' => ['nullable', 'string', 'in:all,products,services,orders,inventory,vendors'],
+            'category' => ['nullable', 'string', 'in:all,products,services,orders,inventory,vendors,finance'],
+            'q' => ['nullable', 'string', 'max:150'],
         ]);
+
+        if (($validated['category'] ?? null) === 'finance') {
+            abort_unless($request->user()->hasPermission('finance.view'), 403);
+            $financeReport = $reportService->buildFinance(
+                isset($validated['from']) ? Carbon::parse($validated['from']) : null,
+                isset($validated['to']) ? Carbon::parse($validated['to']) : null,
+                $validated['q'] ?? null,
+            );
+            $pdf = Pdf::loadView('marketplace.reports.finance-pdf', compact('financeReport'))
+                ->setPaper('a4', 'portrait');
+            $pdf->render();
+            $canvas = $pdf->getDomPDF()->getCanvas();
+            $font = $pdf->getDomPDF()->getFontMetrics()->getFont('DejaVu Sans', 'normal');
+            $canvas->page_text(26, 570, 'Tresca Hub Finance Report - Page {PAGE_NUM} of {PAGE_COUNT}', $font, 7, [0.39, 0.45, 0.55]);
+            $filename = 'tresca-hub-finance-report-'.($validated['from'] ?? 'all-dates').'-to-'.($validated['to'] ?? 'all-dates').'.pdf';
+
+            return $pdf->download($filename);
+        }
 
         $from = Carbon::parse($validated['from'] ?? now()->startOfMonth()->toDateString());
         $to = Carbon::parse($validated['to'] ?? now()->toDateString());
@@ -79,9 +112,263 @@ class AdminAccessController extends Controller
         $pdf = Pdf::loadView('marketplace.reports.pdf', compact('report'))
             ->setPaper('a4', 'portrait');
 
-        $filename = 'tresca-hub-report-' . $from->format('Y-m-d') . '-to-' . $to->format('Y-m-d') . '.pdf';
+        $filename = 'tresca-hub-report-'.$from->format('Y-m-d').'-to-'.$to->format('Y-m-d').'.pdf';
 
         return $pdf->download($filename);
+    }
+
+    public function ordersHistory(Request $request)
+    {
+        abort_unless($request->user()->hasPermission('reports.view'), 403);
+
+        $filters = $this->validatedOrdersHistoryFilters($request);
+        $orders = $this->ordersHistoryQuery($filters)
+            ->with(['items:id,order_id,product_name,quantity'])
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->paginate(25)
+            ->withQueryString();
+        $totalOrders = Order::query()->count();
+        $ordersThisMonth = Order::query()
+            ->whereBetween('created_at', [now()->startOfMonth(), now()->endOfMonth()])
+            ->count();
+        $statuses = Order::query()->whereNotNull('fulfillment_status')
+            ->distinct()->orderBy('fulfillment_status')->pluck('fulfillment_status');
+
+        return view('marketplace.reports.orders-history', compact(
+            'orders',
+            'filters',
+            'statuses',
+            'totalOrders',
+            'ordersThisMonth',
+        ));
+    }
+
+    public function exportOrdersHistoryPdf(Request $request)
+    {
+        abort_unless($request->user()->hasPermission('reports.view'), 403);
+
+        $filters = $this->validatedOrdersHistoryFilters($request);
+        $orders = $this->ordersHistoryQuery($filters)
+            ->with(['items:id,order_id,product_name,quantity'])
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->get();
+        $report = [
+            'orders' => $orders,
+            'total_orders' => $orders->count(),
+            'total_order_value' => round((float) $orders->sum('total'), 2),
+            'period' => [
+                'from' => $filters['from'] ?? null,
+                'to' => $filters['to'] ?? null,
+                'formatted' => ! ($filters['from'] ?? null) && ! ($filters['to'] ?? null)
+                    ? 'All dates'
+                    : (! ($filters['from'] ?? null)
+                        ? 'Through '.Carbon::parse($filters['to'])->format('d M Y')
+                        : (! ($filters['to'] ?? null)
+                            ? 'From '.Carbon::parse($filters['from'])->format('d M Y')
+                            : Carbon::parse($filters['from'])->format('d M Y').' — '.Carbon::parse($filters['to'])->format('d M Y'))),
+            ],
+            'filters' => $filters,
+        ];
+        $pdf = Pdf::loadView('marketplace.reports.orders-history-pdf', compact('report'))
+            ->setPaper('a4', 'landscape');
+        $pdf->render();
+        $canvas = $pdf->getDomPDF()->getCanvas();
+        $font = $pdf->getDomPDF()->getFontMetrics()->getFont('DejaVu Sans', 'normal');
+        $canvas->page_text(28, 570, 'Tresca Hub Orders History - Page {PAGE_NUM} of {PAGE_COUNT}', $font, 7, [0.39, 0.45, 0.55]);
+
+        return $pdf->download('tresca-hub-orders-history-'.now()->format('Y-m-d').'.pdf');
+    }
+
+    private function validatedOrdersHistoryFilters(Request $request): array
+    {
+        return $request->validate([
+            'customer' => ['nullable', 'string', 'max:150'],
+            'phone' => ['nullable', 'string', 'max:50'],
+            'reference' => ['nullable', 'string', 'max:100'],
+            'from' => ['nullable', 'date'],
+            'to' => ['nullable', 'date', 'after_or_equal:from'],
+            'status' => ['nullable', 'string', 'max:80'],
+        ]);
+    }
+
+    private function ordersHistoryQuery(array $filters)
+    {
+        return Order::query()
+            ->when($filters['customer'] ?? null, fn ($query, $customer) => $query->where('customer_name', 'like', '%'.$customer.'%'))
+            ->when($filters['phone'] ?? null, fn ($query, $phone) => $query->where('phone', 'like', '%'.$phone.'%'))
+            ->when($filters['reference'] ?? null, fn ($query, $reference) => $query->where('reference', 'like', '%'.$reference.'%'))
+            ->when($filters['from'] ?? null, fn ($query, $from) => $query->where('created_at', '>=', Carbon::parse($from)->startOfDay()))
+            ->when($filters['to'] ?? null, fn ($query, $to) => $query->where('created_at', '<=', Carbon::parse($to)->endOfDay()))
+            ->when($filters['status'] ?? null, fn ($query, $status) => $query->where('fulfillment_status', $status));
+    }
+
+    public function showOrderHistory(Request $request, Order $order)
+    {
+        abort_unless($request->user()->hasPermission('reports.view'), 403);
+
+        $order->load([
+            'items.product:id,thumbnail',
+            'items.vendor:id,business_name',
+            'deliveries.vendor:id,business_name',
+            'deliveries.officer:id,name',
+            'deliveries.assignedOfficer:id,name',
+            'deliveries.attempts.actor:id,name',
+            'histories.actor:id,name',
+        ]);
+
+        $itemIds = $order->items->modelKeys();
+        $deliveryIds = $order->deliveries->modelKeys();
+        $itemType = (new OrderItem)->getMorphClass();
+        $deliveryType = (new DeliveryTask)->getMorphClass();
+        $auditLogsQuery = AuditLog::query()->with('actor:id,name');
+        if ($itemIds !== [] || $deliveryIds !== []) {
+            $auditLogsQuery->where(function ($query) use ($itemIds, $itemType, $deliveryIds, $deliveryType) {
+                if ($itemIds !== []) {
+                    $query->where(fn ($query) => $query
+                        ->where('auditable_type', $itemType)
+                        ->whereIn('auditable_id', $itemIds));
+                }
+                if ($deliveryIds !== []) {
+                    $method = $itemIds === [] ? 'where' : 'orWhere';
+                    $query->{$method}(fn ($query) => $query
+                        ->where('auditable_type', $deliveryType)
+                        ->whereIn('auditable_id', $deliveryIds));
+                }
+            });
+        } else {
+            $auditLogsQuery->whereRaw('1 = 0');
+        }
+        $auditLogs = $auditLogsQuery->whereIn('action', [
+                'order.item_allocated',
+                'order.item_accepted',
+                'order.item_declined',
+                'order.item_problem_reported',
+                'order.item_progress',
+                'delivery.completed',
+            ])
+            ->orderBy('created_at')
+            ->get();
+
+        $vendorIds = $auditLogs
+            ->flatMap(fn (AuditLog $log) => [
+                data_get($log->changes, 'to_vendor'),
+                data_get($log->changes, 'from_vendor'),
+                data_get($log->changes, 'vendor_id'),
+            ])
+            ->filter(fn ($id) => is_numeric($id) && (int) $id > 0)
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values();
+        $vendorsById = $vendorIds->isEmpty()
+            ? collect()
+            : Vendor::query()->whereIn('id', $vendorIds)->pluck('business_name', 'id');
+
+        $timeline = [];
+        if ($order->created_at) {
+            $timeline[] = [
+                'at' => $order->created_at,
+                'title' => 'Order placed',
+                'detail' => 'Original order record created.',
+            ];
+        }
+        foreach ($order->histories as $history) {
+            $timeline[] = [
+                'at' => $history->created_at,
+                'title' => $history->from_status
+                    ? \Illuminate\Support\Str::headline($history->from_status).' → '.\Illuminate\Support\Str::headline($history->to_status)
+                    : \Illuminate\Support\Str::headline($history->to_status),
+                'detail' => ($history->note ?: $history->customer_message ?: 'Order status updated.')
+                    .($history->actor ? ' · '.$history->actor->name : ''),
+            ];
+        }
+        foreach ($auditLogs as $log) {
+            $item = $order->items->firstWhere('id', $log->auditable_id);
+            $timelineEntry = match ($log->action) {
+                'order.item_allocated' => [
+                    'title' => 'Product allocation updated',
+                    'detail' => ($item?->product_name ?: 'Order item')
+                        .' → '.($vendorsById[(int) data_get($log->changes, 'to_vendor')] ?? 'Admin / unassigned'),
+                ],
+                'order.item_accepted' => [
+                    'title' => 'Vendor approval recorded',
+                    'detail' => $item?->product_name ?: 'Order item',
+                ],
+                'order.item_declined' => [
+                    'title' => 'Vendor declined assignment',
+                    'detail' => $item?->product_name ?: 'Order item',
+                ],
+                'order.item_problem_reported' => [
+                    'title' => 'Vendor reported an issue',
+                    'detail' => data_get($log->changes, 'note') ?: ($item?->product_name ?: 'Order item'),
+                ],
+                'order.item_progress' => [
+                    'title' => 'Vendor fulfillment updated',
+                    'detail' => $item?->product_name ?: 'Order item',
+                ],
+                'delivery.completed' => [
+                    'title' => data_get($log->meta, 'actor_type') === 'customer'
+                        ? 'Customer confirmed delivery'
+                        : 'Delivery marked complete',
+                    'detail' => $order->deliveries->firstWhere('id', $log->auditable_id)?->reference ?: '',
+                ],
+                default => null,
+            };
+            if ($timelineEntry) {
+                $timeline[] = ['at' => $log->created_at] + $timelineEntry;
+            }
+        }
+        foreach ($order->deliveries as $delivery) {
+            $timeline[] = [
+                'at' => $delivery->created_at,
+                'title' => 'Delivery record created',
+                'detail' => $delivery->reference,
+            ];
+            if ($delivery->dispatched_at) {
+                $timeline[] = [
+                    'at' => $delivery->dispatched_at,
+                    'title' => 'Delivery dispatched',
+                    'detail' => $delivery->reference,
+                ];
+            }
+            if ($delivery->delivered_at) {
+                $timeline[] = [
+                    'at' => $delivery->delivered_at,
+                    'title' => 'Delivery completed',
+                    'detail' => $delivery->reference,
+                ];
+            }
+            foreach ($delivery->attempts as $attempt) {
+                $timeline[] = [
+                    'at' => $attempt->attempted_at,
+                    'title' => 'Delivery attempt: '.\Illuminate\Support\Str::headline($attempt->result),
+                    'detail' => $attempt->reason ?: ($attempt->note ?: ''),
+                ];
+            }
+        }
+        $timeline = collect($timeline)
+            ->filter(fn (array $event) => $event['at'] !== null)
+            ->sortBy(fn (array $event) => $event['at']->getTimestamp())
+            ->values();
+
+        $approvalHistory = $order->histories
+            ->where('to_status', 'confirmed')
+            ->sortBy('created_at')
+            ->first();
+        $rejectionHistory = $order->histories
+            ->where('to_status', 'cancelled')
+            ->sortBy('created_at')
+            ->first();
+
+        return view('marketplace.reports.order-history-show', compact(
+            'order',
+            'auditLogs',
+            'vendorsById',
+            'timeline',
+            'approvalHistory',
+            'rejectionHistory',
+        ));
     }
 
     public function audit(Request $request)
@@ -249,11 +536,54 @@ class AdminAccessController extends Controller
         return back()->with('success', 'User access updated.');
     }
 
-    public function notifications()
+    public function notifications(Request $request)
     {
-        $notifications = auth()->user()->notifications()->paginate(20);
+        $user = $request->user();
+        $notificationQuery = $user->notifications();
+        $filter = 'all';
+        $search = '';
 
-        return view('marketplace.notifications.index', compact('notifications'));
+        $filters = $request->validate([
+            'filter' => ['nullable', 'in:all,unread,read'],
+            'q' => ['nullable', 'string', 'max:100'],
+        ]);
+        $filter = $filters['filter'] ?? 'all';
+        $search = trim($filters['q'] ?? '');
+
+        if ($filter === 'unread') {
+            $notificationQuery->whereNull('read_at');
+        } elseif ($filter === 'read') {
+            $notificationQuery->whereNotNull('read_at');
+        }
+
+        if ($search !== '') {
+            $term = '%'.$search.'%';
+            $notificationQuery->where(function ($query) use ($term) {
+                $query->where('data->title', 'like', $term)
+                    ->orWhere('data->body', 'like', $term);
+            });
+        }
+
+        $notifications = $notificationQuery->latest()->paginate(20)->withQueryString();
+        $notificationCounts = [
+            'all' => $user->notifications()->count(),
+            'unread' => $user->unreadNotifications()->count(),
+            'read' => $user->readNotifications()->count(),
+        ];
+
+        return view('marketplace.notifications.index', compact(
+            'notifications',
+            'notificationCounts',
+            'filter',
+            'search',
+        ));
+    }
+
+    public function unreadNotificationCount(Request $request)
+    {
+        return response()->json([
+            'count' => $request->user()->unreadNotifications()->count(),
+        ]);
     }
 
     public function readNotification(string $id)
@@ -262,6 +592,15 @@ class AdminAccessController extends Controller
         $notification->markAsRead();
 
         return redirect($notification->data['url'] ?? route('marketplace.notifications.index'));
+    }
+
+    public function markAllNotificationsRead(Request $request)
+    {
+        $request->user()->unreadNotifications->markAsRead();
+
+        return redirect()
+            ->route('marketplace.notifications.index')
+            ->with('success', 'All notifications have been marked as read.');
     }
 
     private function assignableRoles(User $actor)

@@ -9,6 +9,7 @@ use App\Http\Controllers\Marketplace\AdminAccessController;
 use App\Http\Controllers\PartnerController;
 use App\Http\Controllers\RequestServiceController;
 use App\Http\Controllers\SearchController;
+use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\ServiceController;
 use App\Http\Controllers\ShopCategoryController;
 use App\Http\Controllers\ShopProductController;
@@ -128,6 +129,23 @@ Route::middleware([
     });
 
     Route::middleware('permission:admin.access')->group(function () {
+        Route::prefix('/admin/settings')->name('admin.settings.')->controller(SettingsController::class)->group(function () {
+            Route::get('/', 'index')->name('index');
+            Route::get('/profile', 'profile')->name('profile');
+            Route::put('/profile', 'updateProfile')->name('profile.update');
+            Route::put('/password', 'updatePassword')->name('password.update');
+            Route::get('/business-profile', 'businessProfile')->name('business-profile');
+            Route::get('/shopping-orders', 'shoppingOrders')->name('shopping-orders');
+            Route::get('/payments-pricing', 'paymentsPricing')->name('payments-pricing');
+            Route::get('/delivery', 'delivery')->name('delivery');
+            Route::get('/products-stock', 'productsStock')->name('products-stock');
+            Route::get('/vendors-partners', 'vendorsPartners')->name('vendors-partners');
+            Route::get('/team-permissions', 'teamPermissions')->name('team-permissions');
+            Route::get('/messages-alerts', 'messagesAlerts')->name('messages-alerts');
+            Route::get('/website-appearance', 'websiteAppearance')->name('website-appearance');
+            Route::get('/security-system', 'securitySystem')->name('security-system');
+        });
+
         Route::get('/admin/shop-categories', [ShopCategoryController::class, 'index'])->name('shop-categories.index');
         Route::get('/admin/shop-categories/create', [ShopCategoryController::class, 'create'])->name('shop-categories.create');
         Route::post('/admin/shop-categories', [ShopCategoryController::class, 'store'])->name('shop-categories.store');

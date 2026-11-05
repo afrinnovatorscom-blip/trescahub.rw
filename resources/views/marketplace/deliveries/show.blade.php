@@ -1,9 +1,11 @@
-@extends('front.layouts.admin')
+﻿@extends('front.layouts.admin')
 @section('page-title', $task->reference)
 @section('content')
-<div class="container-fluid py-4">
+<div class="container-fluid py-4 delivery-record-page">
     @include('marketplace.partials.flash')
-    <h1 class="h3">Delivery {{ $task->reference }}</h1>
+    @if($task->status === 'delivered')
+        @include('marketplace.deliveries.completed-record')
+@else
     <p>Order {{ $task->order?->reference ?? 'Not recorded' }} · {{ $deliveryStatusLabel }}</p>
 
     <section class="card mb-3">
@@ -95,4 +97,7 @@
         @endforelse
     </ul>
 </div>
+    @endif
+</div>
 @endsection
+

@@ -46,10 +46,30 @@ class CatalogOperationsController extends Controller
 
     public function approve(Request $request, ShopProduct $shopProduct)
     {
-        $data = $request->validate(['note' => ['nullable', 'string', 'max:2000']]);
-        $this->workflow->approve($shopProduct, $request->user(), $data['note'] ?? null);
+        abort_unless(
+            $request->user()->hasPermission('products.approve')
+                && $request->user()->hasPermission('products.publish'),
+            403,
+        );
 
-        return back()->with('success', 'Product approved. Publish it when it should appear on the shop.');
+        $data = $request->validate([
+            'note' => ['nullable', 'string', 'max:2000'],
+            'price' => ['sometimes', 'numeric', 'gt:0'],
+        ]);
+        $approvedAndPublished = $this->workflow->approveAndPublish(
+            $shopProduct,
+            $request->user(),
+            $data['note'] ?? null,
+            array_key_exists('price', $data) ? (float) $data['price'] : null,
+        );
+
+        if (! $approvedAndPublished) {
+            return back()->withErrors([
+                'approval' => 'This product has already been approved and published or is no longer waiting for review.',
+            ]);
+        }
+
+        return back()->with('success', 'Product approved and published successfully.');
     }
 
     public function reject(Request $request, ShopProduct $shopProduct)

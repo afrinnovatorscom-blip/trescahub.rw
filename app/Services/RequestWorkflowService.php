@@ -73,7 +73,7 @@ class RequestWorkflowService
         }
 
         if ($product && ($data['request_type'] ?? 'purchase') === 'purchase') {
-            return $this->orders->place([
+            $order = $this->orders->place([
                 'name' => $data['customer_name'],
                 'email' => $data['email'] ?? null,
                 'phone' => $data['phone'],
@@ -90,6 +90,12 @@ class RequestWorkflowService
                 $customer instanceof Customer ? $customer : null,
                 'request_product',
                 $submissionKey);
+
+            if ($customer instanceof Customer) {
+                $this->notifier->customerOrderPlaced($order);
+            }
+
+            return $order;
         }
 
         $request = ProductRequest::query()->create([

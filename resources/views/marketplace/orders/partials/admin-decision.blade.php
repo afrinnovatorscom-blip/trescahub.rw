@@ -71,6 +71,8 @@
                     <select id="payment-method" name="payment_method" class="form-select">
                         <option value="cash_on_delivery" @selected(old('payment_method', $order->payment_method) === 'cash_on_delivery')>Cash</option>
                         <option value="bank_transfer" @selected(old('payment_method', $order->payment_method) === 'bank_transfer')>Bank transfer</option>
+                        <option value="mtn_mobile_money" @selected(old('payment_method', $order->payment_method) === 'mtn_mobile_money')>MTN Mobile Money</option>
+                        <option value="airtel_money" @selected(old('payment_method', $order->payment_method) === 'airtel_money')>Airtel Money</option>
                     </select>
 
                     <div id="partial-payment-amount" class="mt-3" hidden>

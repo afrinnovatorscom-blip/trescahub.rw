@@ -26,6 +26,14 @@
             </div>
         @endif
 
+        @if(session('error'))
+            <div class="alert alert-danger alert-dismissible fade show partner-alert" role="alert">
+                <i class="bi bi-exclamation-circle me-2" aria-hidden="true"></i>
+                {{ session('error') }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Dismiss"></button>
+            </div>
+        @endif
+
         @if($partners->isNotEmpty())
             <div class="partner-list-card">
                 <div class="partner-list-meta">
@@ -87,6 +95,14 @@
                                             <i class="bi bi-pencil" aria-hidden="true"></i>
                                             <span>Edit</span>
                                         </a>
+                                        <form action="{{ route('partners.destroy', $partner) }}" method="POST" class="d-inline">
+                                            @csrf
+                                            @method('DELETE')
+                                            <button type="submit" class="partner-action-link partner-delete-link" aria-label="Delete {{ $partner->title }}" onclick="return confirm('Delete this partner?')">
+                                                <i class="bi bi-trash" aria-hidden="true"></i>
+                                                <span>Delete</span>
+                                            </button>
+                                        </form>
                                     </td>
                                 </tr>
                             @endforeach

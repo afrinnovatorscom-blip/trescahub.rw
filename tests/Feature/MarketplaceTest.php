@@ -227,7 +227,8 @@ class MarketplaceTest extends TestCase
         $manager = $this->user('product-manager');
         $admin = $this->user('administrator');
 
-        $this->actingAs($vendorUser)->get(route('vendor.products.create'))
+        $vendorCreateResponse = $this->actingAs($vendorUser)->get(route('vendor.products.create'));
+        $vendorCreateResponse
             ->assertOk()
             ->assertSee('Product Information')
             ->assertSee('Pricing')
@@ -241,15 +242,19 @@ class MarketplaceTest extends TestCase
             ->assertSee('Submit Product')
             ->assertDontSee('name="sku"', false)
             ->assertDontSee('Additional Settings')
-            ->assertDontSee('Assign to Vendor')
+            ->assertDontSee('Assign Product to Vendor')
             ->assertDontSee('Track physical stock')
             ->assertDontSee('Enable Discount')
-            ->assertDontSee('Delivery Time (working days)')
-            ->assertSee('name="working_days" value="1"', false)
+            ->assertDontSee('Working Days')
+            ->assertSee('Delivery Time (days)')
+            ->assertSee('name="delivery_time"', false)
             ->assertSee('This quantity stays pending until an administrator approves the product.')
             ->assertDontSee('Approve Now')
             ->assertDontSee('Publish Now')
             ->assertDontSee('Publish after saving');
+        preg_match('/<input[^>]*name="delivery_time"[^>]*>/', $vendorCreateResponse->getContent(), $vendorCreateDeliveryInput);
+        $this->assertNotEmpty($vendorCreateDeliveryInput);
+        $this->assertStringContainsString('value="1"', $vendorCreateDeliveryInput[0]);
 
         $imageContent = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lXcAAAAASUVORK5CYII=');
         $thumbnail = UploadedFile::fake()->createWithContent('vendor-main.png', $imageContent);
@@ -257,7 +262,7 @@ class MarketplaceTest extends TestCase
         $this->actingAs($vendorUser)->post(route('vendor.products.store'), [
             'product_name' => 'Vendor Saw',
             'price' => 20000,
-            'working_days' => 3,
+            'delivery_time' => 3,
             'status' => 'in_stock',
             'shop_category_id' => $this->category->id,
             'is_popular' => 1,
@@ -288,19 +293,27 @@ class MarketplaceTest extends TestCase
         $this->assertFileExists(public_path('assets/'.$galleryPath));
         $this->assertTrue($product->hasValidDiscount());
         $this->get('/shop')->assertDontSee('Vendor Saw');
-        $this->actingAs($vendorUser)->get(route('vendor.products.edit', $product->slug))
+        $vendorEditResponse = $this->actingAs($vendorUser)->get(route('vendor.products.edit', $product->slug));
+        $vendorEditResponse
             ->assertOk()
             ->assertSee('Product Information')
+            ->assertSee('Delivery Time (days)')
+            ->assertSee('name="delivery_time"', false)
+            ->assertDontSee('Working Days')
+            ->assertDontSee('Assign Product to Vendor')
             ->assertSee('Additional Product Images (Optional)')
             ->assertSee('Save Changes')
             ->assertDontSee('name="sku"', false)
             ->assertDontSee('Approve Now')
             ->assertDontSee('Publish Now');
+        preg_match('/<input[^>]*name="delivery_time"[^>]*>/', $vendorEditResponse->getContent(), $vendorEditDeliveryInput);
+        $this->assertNotEmpty($vendorEditDeliveryInput);
+        $this->assertStringContainsString('value="3"', $vendorEditDeliveryInput[0]);
 
         $this->actingAs($vendorUser)->put(route('vendor.products.update', $product->slug), [
             'product_name' => $product->product_name,
             'price' => $product->price,
-            'working_days' => $product->working_days,
+            'delivery_time' => 5,
             'status' => 'in_stock',
             'shop_category_id' => $this->category->id,
             'discount_enabled' => 1,
@@ -309,6 +322,7 @@ class MarketplaceTest extends TestCase
             'gallery_order_present' => 1,
             'gallery_order' => ['existing:'.base64_encode($galleryPath)],
         ])->assertRedirect(route('vendor.products.index'));
+        $this->assertSame(5, (int) $product->fresh()->working_days);
         $this->assertNull($product->fresh()->thumbnail);
         $this->assertSame([$galleryPath], $product->fresh()->images);
         $this->assertFileExists(public_path('assets/'.$galleryPath));
@@ -359,7 +373,7 @@ class MarketplaceTest extends TestCase
                     'is_default' => 0,
                 ],
             ],
-            'working_days' => 1,
+            'delivery_time' => 1,
             'shop_category_id' => $this->category->id,
             'tracks_inventory' => 0,
             'thumbnail' => $thumbnail,
@@ -424,7 +438,7 @@ class MarketplaceTest extends TestCase
         $this->actingAs($vendorUser)->put(route('vendor.products.update', $product->slug), [
             'product_name' => $product->product_name,
             'description' => $product->description,
-            'working_days' => $product->working_days,
+            'delivery_time' => $product->working_days,
             'status' => 'in_stock',
             'shop_category_id' => $this->category->id,
             'price_variations_enabled' => 1,

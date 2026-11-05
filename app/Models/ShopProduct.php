@@ -82,6 +82,7 @@ class ShopProduct extends Model
         'pending_payload' => 'array',
         'price' => 'decimal:2',
         'acquisition_cost' => 'decimal:2',
+        'working_days' => 'integer',
         'shop_category_id' => 'integer',
         'subcategory_id' => 'integer',
         'stock_quantity' => 'integer',

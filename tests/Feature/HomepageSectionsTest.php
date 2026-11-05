@@ -117,4 +117,31 @@ class HomepageSectionsTest extends TestCase
             ->assertSee('Affordable services')
             ->assertSee('Find support for your next step.');
     }
+
+    public function test_online_shopping_service_category_links_to_the_shop(): void
+    {
+        $category = Category::create([
+            'title' => 'Online Shopping & Supplies',
+            'slug' => 'online-shopping-supplies',
+            'description' => 'Shop online for supplies.',
+        ]);
+
+        Service::create([
+            'title' => 'Supply sourcing',
+            'slug' => 'supply-sourcing',
+            'price' => 12000,
+            'classification_name' => $category->id,
+            'is_in_stock' => true,
+        ]);
+
+        $this->get('/')
+            ->assertOk()
+            ->assertSee(route('shop'), false)
+            ->assertDontSee(route('services.category', $category->slug), false);
+
+        $this->get('/services')
+            ->assertOk()
+            ->assertSee(route('shop'), false)
+            ->assertDontSee(route('services.category', $category->slug), false);
+    }
 }

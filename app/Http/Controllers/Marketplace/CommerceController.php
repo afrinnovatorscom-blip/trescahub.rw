@@ -110,123 +110,54 @@ class CommerceController extends Controller
         $user = $request->user();
         abort_unless($user->hasAnyPermission(['orders.view_all', 'orders.view_assigned']), 403);
         $filters = $request->validate([
-            'tab' => ['nullable', 'in:pending,paid,in_delivery,completed,cancelled'],
+            'tab' => ['nullable', 'in:pending,approved'],
             'q' => ['nullable', 'string', 'max:100'],
-            'status' => ['nullable', 'in:'.implode(',', array_keys(config('marketplace.order_transitions', [])))],
-            'payment' => ['nullable', 'in:pending,partially_paid,paid,failed,refunded'],
             'vendor' => ['nullable', 'integer', 'exists:vendors,id'],
-            'responsible' => ['nullable', 'in:vendor,admin,unassigned'],
             'date_from' => ['nullable', 'date'],
             'date_to' => ['nullable', 'date', 'after_or_equal:date_from'],
         ]);
-        if (($filters['tab'] ?? null) === 'in_delivery') {
-            return ($user->hasPermission('deliveries.manage') || $user->hasPermission('orders.view_assigned'))
-                ? redirect()->route('marketplace.deliveries.index')
-                : redirect()->route('marketplace.orders.index', ['tab' => 'pending']);
-        }
-        if (in_array($filters['tab'] ?? null, ['completed', 'cancelled'], true)) {
-            return $user->hasPermission('reports.view')
-                ? redirect()->route('marketplace.reports.index', ['category' => 'orders'])
-                : redirect()->route('marketplace.orders.index', ['tab' => 'pending']);
-        }
-        $vendorId = $filters['vendor'] ?? null;
-        if ($vendorId !== null) {
-            abort_unless($user->hasPermission('vendors.view'), 403);
-        }
-
-        $vendorAssignmentStatuses = ['assigned', 'accepted', 'clarification'];
-        $hasVendorAssignment = static fn ($items) => $items
-            ->whereNotNull('vendor_id')
-            ->whereIn('assignment_status', $vendorAssignmentStatuses);
-        $makeQuery = function () use ($user, $filters, $vendorId, $hasVendorAssignment) {
-            return Order::query()
-                ->when(! $user->hasPermission('orders.view_all'), function ($query) use ($user) {
-                    $query->where(function ($inner) use ($user) {
-                        $inner->where('assigned_officer_id', $user->id)
-                            ->orWhere('delivery_officer_id', $user->id);
-                    });
-                })
-                ->when(! empty($filters['q']), function ($query) use ($filters) {
-                    $search = '%'.$filters['q'].'%';
-                    $query->where(function ($inner) use ($search) {
-                        $inner->where('reference', 'like', $search)
-                            ->orWhere('customer_name', 'like', $search);
-                    });
-                })
-                ->when(! empty($filters['status']), fn ($query) => $query->where('fulfillment_status', $filters['status']))
-                ->when(! empty($filters['payment']), fn ($query) => $query->where('payment_status', $filters['payment']))
-                ->when(! empty($filters['date_from']), fn ($query) => $query->whereDate('created_at', '>=', $filters['date_from']))
-                ->when(! empty($filters['date_to']), fn ($query) => $query->whereDate('created_at', '<=', $filters['date_to']))
-                ->when($vendorId !== null, fn ($query) => $query->whereHas('items', fn ($items) => $hasVendorAssignment($items)->where('vendor_id', $vendorId)))
-                ->when(($filters['responsible'] ?? null) === 'vendor', fn ($query) => $query->whereHas('items', $hasVendorAssignment))
-                ->when(($filters['responsible'] ?? null) === 'admin', function ($query) {
-                    $query->where(function ($inner) {
-                        $inner->whereNotNull('assigned_officer_id')
-                            ->orWhereNotNull('delivery_officer_id')
-                            ->orWhereHas('items', fn ($items) => $items->where('assignment_status', 'admin_handled'));
-                    });
-                })
-                ->when(($filters['responsible'] ?? null) === 'unassigned', function ($query) {
-                    $query->whereNull('assigned_officer_id')
-                        ->whereNull('delivery_officer_id')
-                        ->whereDoesntHave('items', fn ($items) => $items->whereNotNull('vendor_id')
-                            ->orWhere('assignment_status', 'admin_handled'));
+        $tab = $filters['tab'] ?? 'pending';
+        $base = Order::query()
+            ->when(! $user->hasPermission('orders.view_all'), fn ($query) => $query->where(function ($inner) use ($user) {
+                $inner->where('assigned_officer_id', $user->id)->orWhere('delivery_officer_id', $user->id);
+            }))
+            ->when(! empty($filters['q']), function ($query) use ($filters) {
+                $search = '%'.$filters['q'].'%';
+                $query->where(function ($inner) use ($search) {
+                    $inner->where('reference', 'like', $search)->orWhere('customer_name', 'like', $search);
                 });
-        };
-
-        $terminalFulfillmentStatuses = ['completed', 'returned', 'cancelled'];
-        $activeFulfillmentStatuses = ['dispatched', 'out_for_delivery', 'delivered'];
-        $activeDeliveryStatuses = ['assigned', 'in_transit', 'delivered'];
-        $confirmedFulfillmentStatuses = ['confirmed', 'processing', 'awaiting_stock', 'ready_for_dispatch'];
-        $unpreparedAdminItems = static fn ($items) => $items
-            ->whereNull('vendor_id')
-            ->where('assignment_status', 'admin_handled')
-            ->whereIn('fulfillment_status', $confirmedFulfillmentStatuses)
-            ->whereNotIn('id', DeliveryTask::query()->select('order_item_id')->whereNotNull('order_item_id'));
-        $pendingOrders = fn ($query) => $query->where(function ($orders) use ($confirmedFulfillmentStatuses) {
-            $orders->whereNotIn('fulfillment_status', $confirmedFulfillmentStatuses)
-                ->orWhereHas('items', fn ($items) => $items->whereNull('vendor_id'));
-        })
-            ->where(function ($orders) {
-                $orders->whereIn('fulfillment_status', ['pending_confirmation', 'cancellation_requested', 'return_requested'])
-                    ->orWhere(function ($awaitingPayment) {
-                        $awaitingPayment->where('payment_status', '!=', 'paid');
-                    });
             })
-            ->whereNotIn('fulfillment_status', $terminalFulfillmentStatuses)
-            ->where(function ($orders) use ($activeFulfillmentStatuses, $activeDeliveryStatuses) {
-                $orders->whereNotIn('fulfillment_status', $activeFulfillmentStatuses)
-                    ->whereDoesntHave('deliveries', fn ($deliveries) => $deliveries->whereIn('status', $activeDeliveryStatuses))
-                    ->orWhereIn('fulfillment_status', ['cancellation_requested', 'return_requested']);
-            });
-        $paidOrders = fn ($query) => $query
-            ->where('payment_status', 'paid')
-            ->whereIn('fulfillment_status', $confirmedFulfillmentStatuses)
-            ->whereDoesntHave('deliveries', fn ($deliveries) => $deliveries
-                ->whereNull('order_item_id')
-                ->whereNull('vendor_id'))
-            ->whereHas('items', $unpreparedAdminItems);
-        $filteredOrders = $makeQuery();
-        $tabCounts = [
-            'pending' => $pendingOrders(clone $filteredOrders)->count(),
-            'paid' => $paidOrders(clone $filteredOrders)->count(),
-        ];
-        $tab = $filters['tab'] ?? (($filters['payment'] ?? null) === 'paid' ? 'paid' : 'pending');
-        $ordersQuery = $makeQuery()
-            ->with([
-                'items.vendor',
-                'officer:id,name',
-                'deliveries:id,order_id,order_item_id,vendor_id,reference,status,dispatched_at,delivered_at',
-            ])
-            ->when($tab === 'pending', $pendingOrders)
-            ->when($tab === 'paid', $paidOrders);
-        $orders = $ordersQuery->orderByDesc('created_at')->orderByDesc('id')->paginate(20)->withQueryString();
-        $vendors = $user->hasPermission('vendors.view') ? Vendor::query()->orderBy('business_name')->get() : collect();
-        $statuses = array_keys(config('marketplace.order_transitions', []));
+            ->when(! empty($filters['date_from']), fn ($query) => $query->whereDate('created_at', '>=', $filters['date_from']))
+            ->when(! empty($filters['date_to']), fn ($query) => $query->whereDate('created_at', '<=', $filters['date_to']))
+            ->with(['customer:id,name,phone', 'items.vendor', 'officer:id,name', 'deliveries:id,order_id,vendor_id,status']);
 
-        return view('marketplace.orders.index', compact('orders', 'vendors', 'vendorId', 'filters', 'tab', 'tabCounts', 'statuses'));
+        // An order is pending admin review only while none of its product lines
+        // has been allocated or handled outside the pending queue.
+        $pending = (clone $base)
+            ->whereIn('fulfillment_status', ['pending_confirmation', 'cancellation_requested'])
+            ->whereNull('cancellation_reason')
+            ->whereDoesntHave('items', fn ($items) => $items->where(function ($query) {
+                $query->whereNotNull('vendor_id')
+                    ->orWhereIn('assignment_status', ['assigned', 'accepted', 'clarification', 'admin_handled']);
+            }));
+        $approved = (clone $base)
+            ->whereIn('fulfillment_status', ['confirmed', 'processing', 'awaiting_stock', 'ready_for_dispatch', 'dispatched', 'out_for_delivery', 'delivered', 'completed'])
+            ->whereHas('items', fn ($items) => $items->where(function ($query) {
+                $query->whereNotNull('vendor_id')
+                    ->orWhere('assignment_status', 'admin_handled');
+            }))
+            ->whereDoesntHave('deliveries');
+
+        if (! empty($filters['vendor'])) {
+            $vendorFilter = $filters['vendor'];
+            $approved->whereHas('items', fn ($items) => $items->where('vendor_id', $vendorFilter));
+        }
+
+        $orders = ($tab === 'approved' ? $approved : $pending)->orderByDesc('created_at')->orderByDesc('id')->paginate(20)->withQueryString();
+        $tabCounts = ['pending' => (clone $pending)->count(), 'approved' => (clone $approved)->count()];
+        $vendors = $user->hasPermission('vendors.view') ? Vendor::query()->where('status', 'active')->orderBy('business_name')->get() : collect();
+        return view('marketplace.orders.index', compact('orders', 'vendors', 'filters', 'tab', 'tabCounts'));
     }
-
     public function showOrder(Request $request, Order $order)
     {
         $user = auth()->user();
@@ -266,14 +197,11 @@ class CommerceController extends Controller
             );
         $hasSavedAllocation = $order->items->isNotEmpty()
             && $order->items->every(
-                fn (OrderItem $item) => $item->assignment_status === 'admin_handled' && $item->vendor_id === null
+                fn (OrderItem $item) => ($item->assignment_status === 'admin_handled' && $item->vendor_id === null)
+                    || ($item->assignment_status === 'assigned' && $item->vendor_id !== null)
             );
         $allocationMode = $reviewMode && $canManageOrders && ! $hasSavedAllocation;
-        $acceptMode = $reviewMode && $canManageOrders && $allItemsHandledByAdmin && (
-            $request->boolean('accept')
-            || $request->session()->has('errors')
-            || $hasSavedAllocation
-        );
+        $acceptMode = $reviewMode && $canManageOrders && $hasSavedAllocation;
         $amountPaid = (float) $order->payments->sum(fn ($payment) => (float) $payment->amount);
         if ($amountPaid === 0.0 && $order->payment_status === 'paid') {
             $amountPaid = (float) $order->total;
@@ -318,6 +246,65 @@ class CommerceController extends Controller
             'canAllocate',
             'deliveryRequestAssignments',
         ));
+    }
+
+    public function approveOrder(Request $request, Order $order)
+    {
+        abort_unless($request->user()->hasPermission('orders.manage'), 403);
+        $this->orders->saveProcessingChanges(
+            $order,
+            $request->user(),
+            [],
+            false,
+            null,
+            null,
+            null,
+            null,
+            true,
+        );
+        if ($request->expectsJson()) {
+            return response()->json([
+                'message' => 'Order approved successfully.',
+                'redirect_url' => route('marketplace.orders.index', ['tab' => 'approved']),
+            ]);
+        }
+        return redirect()->route('marketplace.orders.index', ['tab' => 'approved'])->with('success', 'Order approved successfully.');
+    }
+
+    public function sendOrderToDelivery(Request $request, Order $order)
+    {
+        $user = $request->user();
+        abort_unless($user->hasPermission('orders.manage') && $user->hasPermission('deliveries.manage'), 403);
+
+        DB::transaction(function () use ($order, $user) {
+            $locked = Order::query()->whereKey($order->id)->lockForUpdate()->firstOrFail();
+            if (! in_array($locked->fulfillment_status, ['confirmed', 'processing', 'awaiting_stock', 'ready_for_dispatch'], true)) {
+                throw ValidationException::withMessages(['delivery' => 'Only approved orders can be sent to delivery.']);
+            }
+            if ($locked->deliveries()->exists()) {
+                return;
+            }
+            $items = $locked->items()->lockForUpdate()->get();
+            if ($items->isEmpty()) {
+                throw ValidationException::withMessages(['delivery' => 'This order has no products to send to delivery.']);
+            }
+            foreach ($items as $item) {
+                DeliveryTask::query()->create([
+                    'order_id' => $locked->id,
+                    'order_item_id' => $item->id,
+                    'vendor_id' => $item->assignment_status === 'admin_handled' ? null : $item->vendor_id,
+                    'product_location_id' => $item->product_location_id,
+                    'status' => 'assigned',
+                    'reference' => 'DLV-'.strtoupper(substr(str_replace('-', '', $locked->reference), 0, 10)).'-'.$item->id,
+                ]);
+            }
+        });
+
+        $redirect = route('marketplace.deliveries.index', ['status' => 'assigned']);
+        if ($request->expectsJson()) {
+            return response()->json(['message' => 'Order sent to Admin Deliveries Pending.', 'redirect_url' => $redirect]);
+        }
+        return redirect()->to($redirect)->with('success', 'Order sent to Admin Deliveries Pending.');
     }
 
     public function reviewOrder(Request $request, Order $order)
@@ -429,7 +416,7 @@ class CommerceController extends Controller
             'accept_order' => ['nullable', 'in:yes'],
             'has_paid' => ['required', 'in:no,yes'],
             'payment_type' => ['required_if:has_paid,yes', 'nullable', 'in:full,partial'],
-            'payment_method' => ['required_if:has_paid,yes', 'nullable', 'in:cash_on_delivery,bank_transfer'],
+            'payment_method' => ['required_if:has_paid,yes', 'nullable', 'in:cash_on_delivery,bank_transfer,mtn_mobile_money,airtel_money'],
             'partial_amount' => ['nullable', 'numeric', 'gt:0'],
             'submission_key' => ['required', 'uuid'],
         ]);
@@ -466,7 +453,7 @@ class CommerceController extends Controller
         } elseif (($data['allocate_order'] ?? null) === 'yes') {
             if ($data['order_allocation'] !== 'admin') {
                 $vendor = Vendor::query()->whereKey((int) $data['order_allocation'])->where('status', 'active')->firstOrFail();
-                $message = 'Order successfully allocated to '.$vendor->business_name.'.';
+                $message = 'Order #'.$order->reference.' has been successfully allocated to '.$vendor->business_name.'.';
                 $redirectUrl = route('marketplace.orders.index', ['tab' => 'pending']);
             } else {
                 $message = 'Order allocated to Admin. Review the saved allocation to accept or reject it.';
@@ -477,11 +464,22 @@ class CommerceController extends Controller
             $redirectUrl = route('marketplace.orders.show', $order);
         }
 
+        if (($data['allocate_order'] ?? null) === 'yes' && ($data['order_allocation'] ?? null) !== 'admin') {
+            $request->session()->flash('allocation_success', $message);
+        }
+
         if ($request->expectsJson()) {
             return response()->json([
                 'message' => $message,
                 'redirect_url' => $redirectUrl,
+                'allocation_type' => ($data['allocate_order'] ?? null) === 'yes'
+                    ? (($data['order_allocation'] ?? null) === 'admin' ? 'admin' : 'vendor')
+                    : null,
             ]);
+        }
+
+        if (($data['allocate_order'] ?? null) === 'yes' && ($data['order_allocation'] ?? null) !== 'admin') {
+            return redirect()->to($redirectUrl)->with('allocation_success', $message);
         }
 
         return redirect()->to($redirectUrl)->with('success', $message);
@@ -563,7 +561,7 @@ class CommerceController extends Controller
             $eligibleItems = fn ($items) => $items
                 ->whereNull('vendor_id')
                 ->where('assignment_status', 'admin_handled')
-                ->whereIn('fulfillment_status', ['confirmed', 'processing', 'awaiting_stock', 'ready_for_dispatch'])
+                ->where('fulfillment_status', 'ready_for_dispatch')
                 ->whereNotIn('id', DeliveryTask::query()->select('order_item_id')->whereNotNull('order_item_id'));
 
             $preparationOrders = Order::query()
@@ -578,7 +576,7 @@ class CommerceController extends Controller
                             ->orWhereHas('items', fn ($items) => $items
                                 ->whereNull('vendor_id')
                                 ->where('assignment_status', 'admin_handled')
-                                ->whereIn('fulfillment_status', ['confirmed', 'processing', 'awaiting_stock', 'ready_for_dispatch'])
+                                ->where('fulfillment_status', 'ready_for_dispatch')
                                 ->whereNotIn('id', DeliveryTask::query()->select('order_item_id')->whereNotNull('order_item_id'))
                                 ->where('product_name', 'like', $search));
                     });
@@ -604,7 +602,7 @@ class CommerceController extends Controller
             ->whereHas('items', fn ($items) => $items
                 ->whereNull('vendor_id')
                 ->where('assignment_status', 'admin_handled')
-                ->whereIn('fulfillment_status', ['confirmed', 'processing', 'awaiting_stock', 'ready_for_dispatch'])
+                ->where('fulfillment_status', 'ready_for_dispatch')
                 ->whereNotIn('id', DeliveryTask::query()->select('order_item_id')->whereNotNull('order_item_id')))
             ->firstOrFail();
 
@@ -626,7 +624,7 @@ class CommerceController extends Controller
             ->where('order_id', $order->id)
             ->whereNull('vendor_id')
             ->where('assignment_status', 'admin_handled')
-            ->whereIn('fulfillment_status', ['confirmed', 'processing', 'awaiting_stock', 'ready_for_dispatch'])
+            ->where('fulfillment_status', 'ready_for_dispatch')
             ->whereNotIn('id', DeliveryTask::query()->select('order_item_id')->whereNotNull('order_item_id'))
             ->with(['product.category', 'product.subcategory'])
             ->orderBy('id')
@@ -662,12 +660,15 @@ class CommerceController extends Controller
         $user = $request->user();
         abort_unless($user->hasPermission('orders.manage') && $user->hasPermission('deliveries.manage'), 403);
         $this->authorizeOrder($user, $order);
+        $source = $request->validate([
+            'delivery_source' => ['required', 'in:paid_orders,preparation'],
+        ])['delivery_source'];
         if ($order->payment_status !== 'paid'
             || ! in_array($order->fulfillment_status, [
                 'confirmed', 'processing', 'awaiting_stock', 'ready_for_dispatch',
             ], true)) {
             throw ValidationException::withMessages([
-                'delivery' => 'The order must be confirmed, paid, and eligible for Admin-managed delivery preparation.',
+                'delivery' => 'The order must be confirmed and paid, and its products must be marked Ready for Delivery before delivery can be created.',
             ]);
         }
         $data = $this->deliveryPreparationData($request);
@@ -675,7 +676,7 @@ class CommerceController extends Controller
             ->where('order_id', $order->id)
             ->whereNull('vendor_id')
             ->where('assignment_status', 'admin_handled')
-            ->whereIn('fulfillment_status', ['confirmed', 'processing', 'awaiting_stock', 'ready_for_dispatch'])
+            ->where('fulfillment_status', 'ready_for_dispatch')
             ->whereNotIn('id', DeliveryTask::query()->select('order_item_id')->whereNotNull('order_item_id'))
             ->orderBy('id')
             ->get();
@@ -695,6 +696,7 @@ class CommerceController extends Controller
                 $user,
                 $data,
                 $proofPath,
+                $source === 'paid_orders',
             );
             $saved = true;
         } finally {
@@ -705,11 +707,18 @@ class CommerceController extends Controller
 
         $message = 'Delivery created and moved to Admin Deliveries. It remains Pending until it is dispatched.';
         if ($request->expectsJson()) {
+            $pendingDeliveries = DeliveryTask::query()->where('status', 'assigned');
+            if (! $user->hasPermission('orders.view_all')) {
+                $pendingDeliveries->where('delivery_officer_id', $user->id);
+            }
+
             return response()->json([
                 'message' => $message,
                 'deliveries_url' => route('marketplace.deliveries.index', ['status' => 'assigned']),
-                'redirect_url' => route('marketplace.orders.index', ['tab' => 'paid']),
+                'order_id' => $order->id,
+                'pending_delivery_count' => $pendingDeliveries->count(),
                 'delivery_references' => $tasks->pluck('reference')->values(),
+                'removed_from_paid_orders' => $source === 'paid_orders',
             ]);
         }
 
@@ -791,7 +800,20 @@ class CommerceController extends Controller
             abort(403);
         }
 
-        $deliveryTask->load(['order', 'item', 'location', 'attempts.actor', 'officer', 'vendor']);
+        $deliveryTask->load([
+            'order.customer',
+            'order.items.product.category',
+            'order.items.vendor',
+            'order.histories.actor',
+            'order.officer',
+            'item.product.category',
+            'item.vendor',
+            'location',
+            'attempts.actor',
+            'officer',
+            'assignedOfficer',
+            'vendor',
+        ]);
         $officers = User::query()->orderBy('name')->limit(100)->get();
         $deliveryStatusLabel = match ($deliveryTask->status) {
             'assigned' => 'Pending',
@@ -804,11 +826,35 @@ class CommerceController extends Controller
             ['dispatched', 'out_for_delivery', 'delivered'],
         ));
 
+        $auditType = $deliveryTask->getMorphClass();
+        $deliveryAudits = AuditLog::query()
+            ->with('actor')
+            ->where('auditable_type', $auditType)
+            ->where('auditable_id', $deliveryTask->id)
+            ->orderBy('created_at')
+            ->get();
+        $orderAuditType = $deliveryTask->order?->getMorphClass();
+        $orderAudits = $orderAuditType && $deliveryTask->order
+            ? AuditLog::query()->with('actor')
+                ->where('auditable_type', $orderAuditType)
+                ->where('auditable_id', $deliveryTask->order->id)
+                ->orderBy('created_at')
+                ->get()
+            : collect();
+
+        $customerConfirmation = $deliveryAudits->first(function (AuditLog $audit) {
+            return $audit->action === 'delivery.completed'
+                && data_get($audit->meta, 'actor_type') === 'customer';
+        });
+
         return view('marketplace.deliveries.show', [
             'task' => $deliveryTask,
             'officers' => $officers,
             'deliveryStatusLabel' => $deliveryStatusLabel,
             'deliveryStatuses' => $deliveryStatuses,
+            'deliveryAudits' => $deliveryAudits,
+            'orderAudits' => $orderAudits,
+            'customerConfirmation' => $customerConfirmation,
         ]);
     }
 

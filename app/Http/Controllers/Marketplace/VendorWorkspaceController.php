@@ -188,7 +188,7 @@ class VendorWorkspaceController extends Controller
         $user = $request->user();
         abort_unless($user->hasPermission('orders.view_assigned'), 403);
         $filters = $request->validate([
-            'tab' => ['nullable', 'in:pending,paid'],
+            'tab' => ['nullable', 'in:pending,paid,approved'],
             'q' => ['nullable', 'string', 'max:100'],
             'status' => ['nullable', 'in:'.implode(',', array_keys(config('marketplace.order_transitions', [])))],
             'payment' => ['nullable', 'in:pending,partially_paid,paid,failed,refunded'],
@@ -221,26 +221,38 @@ class VendorWorkspaceController extends Controller
             ->whereIn('assignment_status', ['assigned', 'accepted', 'clarification'])
             ->whereIn('fulfillment_status', $confirmedFulfillmentStatuses)
             ->whereNotIn('id', DeliveryTask::query()->select('order_item_id')->whereNotNull('order_item_id'));
-        $pendingOrders = fn ($query) => $query->where(function ($orders) {
-            $orders->whereIn('fulfillment_status', ['pending_confirmation', 'cancellation_requested', 'return_requested'])
-                ->orWhere('payment_status', '!=', 'paid');
-        })
+        $pendingOrders = fn ($query) => $query
             ->whereNotIn('fulfillment_status', $terminalFulfillmentStatuses)
-            ->where(function ($orders) use ($activeFulfillmentStatuses, $activeDeliveryStatuses) {
-                $orders->whereNotIn('fulfillment_status', $activeFulfillmentStatuses)
-                    ->whereDoesntHave('deliveries', fn ($deliveries) => $deliveries->whereIn('status', $activeDeliveryStatuses))
-                    ->orWhereIn('fulfillment_status', ['cancellation_requested', 'return_requested']);
-            });
-        $paidOrders = fn ($query) => $query
-            ->where('payment_status', 'paid')
-            ->whereIn('fulfillment_status', $confirmedFulfillmentStatuses)
+            ->whereNull('cancellation_reason')
+            ->whereHas('items', fn ($items) => $items
+                ->ownedByVendor($vendorId)
+                ->whereIn('assignment_status', ['assigned', 'clarification'])
+                ->whereNotIn('fulfillment_status', $terminalFulfillmentStatuses))
+            ->whereDoesntHave('items', fn ($items) => $items
+                ->ownedByVendor($vendorId)
+                ->where('assignment_status', 'accepted')
+                ->whereNotIn('fulfillment_status', $terminalFulfillmentStatuses))
             ->whereDoesntHave('deliveries', fn ($deliveries) => $deliveries
-                ->whereNull('order_item_id')
-                ->where('vendor_id', $vendorId))
-            ->whereHas('items', $vendorItemsWithoutDelivery);
+                ->where(fn ($delivery) => $delivery->where('vendor_id', $vendorId)
+                    ->orWhereHas('item', fn ($items) => $items->ownedByVendor($vendorId))));
+        $approvedOrders = fn ($query) => $query
+            ->whereNotIn('fulfillment_status', $terminalFulfillmentStatuses)
+            ->whereNull('cancellation_reason')
+            ->whereHas('items', fn ($items) => $items
+                ->ownedByVendor($vendorId)
+                ->where('assignment_status', 'accepted')
+                ->whereNotIn('fulfillment_status', $terminalFulfillmentStatuses))
+            ->whereDoesntHave('items', fn ($items) => $items
+                ->ownedByVendor($vendorId)
+                ->whereIn('assignment_status', ['assigned', 'clarification'])
+                ->whereNotIn('fulfillment_status', $terminalFulfillmentStatuses))
+            ->whereDoesntHave('deliveries', fn ($deliveries) => $deliveries
+                ->where(fn ($delivery) => $delivery->where('vendor_id', $vendorId)
+                    ->orWhereHas('item', fn ($items) => $items->ownedByVendor($vendorId))));
+        $paidOrders = $approvedOrders;
         $tabCounts = [
             'pending' => $pendingOrders(clone $makeQuery())->count(),
-            'paid' => $paidOrders(clone $makeQuery())->count(),
+            'approved' => $approvedOrders(clone $makeQuery())->count(),
         ];
         $tab = $filters['tab'] ?? (($filters['payment'] ?? null) === 'paid' ? 'paid' : 'pending');
         $ordersQuery = $makeQuery()
@@ -255,7 +267,8 @@ class VendorWorkspaceController extends Controller
                 }),
             ])
             ->when($tab === 'pending', $pendingOrders)
-            ->when($tab === 'paid', $paidOrders);
+            ->when($tab === 'paid', $paidOrders)
+            ->when($tab === 'approved', $approvedOrders);
         $orders = $ordersQuery->orderByDesc('created_at')->orderByDesc('id')->paginate(20)->withQueryString();
         $statuses = array_keys(config('marketplace.order_transitions', []));
 
@@ -285,6 +298,17 @@ class VendorWorkspaceController extends Controller
             ->orderBy('id')
             ->get();
         abort_if($items->isEmpty(), 404);
+
+        $approvedByVendor = $items->isNotEmpty()
+            && $items->every(fn ($item) => $item->assignment_status === 'accepted');
+        if ($approvedByVendor && ! $order->deliveries()->where(function ($query) use ($vendorId) {
+            $query->where('vendor_id', $vendorId)
+                ->orWhereHas('item', fn ($items) => $items->ownedByVendor($vendorId));
+        })->exists()) {
+            // Approved review requests return to the Approved tab instead of remaining actionable.
+            return redirect()->route('vendor.orders.index', ['tab' => 'approved']);
+        }
+
         $recordedAmount = (int) round((float) $order->payments()->sum('amount') * 100);
         $outstandingBalance = max(0, (int) round((float) $order->total * 100) - $recordedAmount);
         $assignmentHistory = AuditLog::query()
@@ -302,7 +326,16 @@ class VendorWorkspaceController extends Controller
             ->limit(50)
             ->get();
 
-        return view('vendor.orders.show', compact('order', 'items', 'assignmentHistory', 'outstandingBalance'));
+        $canDecide = $items->isNotEmpty()
+            && $items->every(fn ($item) => $item->assignment_status === 'assigned')
+            && in_array($order->fulfillment_status, ['pending_confirmation', 'confirmed', 'processing', 'awaiting_stock', 'ready_for_dispatch'], true)
+            && is_null($order->cancellation_reason)
+            && ! $order->deliveries()->where(function ($query) use ($vendorId) {
+                $query->where('vendor_id', $vendorId)
+                    ->orWhereHas('item', fn ($items) => $items->ownedByVendor($vendorId));
+            })->exists();
+
+        return view('vendor.orders.show', compact('order', 'items', 'assignmentHistory', 'outstandingBalance', 'canDecide'));
     }
 
     public function markOrderReadyForDelivery(Request $request, string $reference)
@@ -338,11 +371,6 @@ class VendorWorkspaceController extends Controller
             ->where('reference', $reference)
             ->whereHas('items', fn ($items) => $items->ownedByVendor($user->vendor_id))
             ->firstOrFail();
-        if ($order->payment_status !== 'paid') {
-            throw ValidationException::withMessages([
-                'delivery' => 'The order must be paid before it can be sent to delivery.',
-            ]);
-        }
         abort_if(in_array($order->fulfillment_status, [
             'pending_confirmation', 'delivered', 'completed', 'cancelled', 'returned',
         ], true), 404);
@@ -352,13 +380,13 @@ class VendorWorkspaceController extends Controller
             ->orderBy('id')
             ->get();
         abort_if($items->isEmpty(), 404);
-        foreach ($items as $item) {
-            if (! in_array($item->assignment_status, ['assigned', 'accepted'], true)
-                || ! in_array($item->fulfillment_status, ['confirmed', 'processing', 'awaiting_stock', 'ready_for_dispatch'], true)) {
-                throw ValidationException::withMessages([
-                    'delivery' => 'Every product assigned to your business must be accepted and eligible for delivery.',
-                ]);
-            }
+
+        if (! in_array($order->fulfillment_status, ['confirmed', 'processing', 'awaiting_stock', 'ready_for_dispatch'], true)
+            || $items->contains(fn ($item) => $item->assignment_status !== 'accepted')
+            || $items->contains(fn ($item) => in_array($item->fulfillment_status, ['delivered', 'completed', 'cancelled', 'returned'], true))) {
+            throw ValidationException::withMessages([
+                'delivery' => 'This order is not an approved vendor assignment eligible for delivery.',
+            ]);
         }
 
         $data = $this->deliveryPreparationData($request);
@@ -380,7 +408,7 @@ class VendorWorkspaceController extends Controller
             }
         }
 
-        $message = 'Order sent to Delivery successfully. Status: Pending.';
+        $message = 'Order #'.$order->reference.' was successfully sent to Delivery and is now Pending.';
         $redirectUrl = route('vendor.deliveries.index', ['status' => 'assigned']);
         if ($request->expectsJson()) {
             return response()->json([
@@ -570,55 +598,50 @@ class VendorWorkspaceController extends Controller
         $data = $request->validate([
             'decision' => ['required', 'in:accept,decline'],
             'note' => ['nullable', 'required_if:decision,decline', 'string', 'max:230'],
-            'has_paid' => ['required_if:decision,accept', 'nullable', 'in:no,yes'],
-            'payment_type' => ['nullable', 'in:full,partial'],
-            'payment_method' => ['nullable', 'in:cash_on_delivery,bank_transfer'],
-            'partial_amount' => ['nullable', 'numeric', 'gt:0'],
-            'submission_key' => ['required_if:decision,accept', 'nullable', 'uuid'],
+            'submission_key' => ['nullable', 'uuid'],
         ]);
-
-        if (($data['decision'] === 'accept') && (($data['has_paid'] ?? null) === 'yes')) {
-            if (! isset($data['payment_type'], $data['payment_method'])) {
-                throw ValidationException::withMessages([
-                    'payment_type' => 'Choose a payment type and method when the customer has paid.',
-                ]);
-            }
-            if (($data['payment_type'] === 'partial') && ! isset($data['partial_amount'])) {
-                throw ValidationException::withMessages([
-                    'partial_amount' => 'Enter the amount paid for a partial payment.',
-                ]);
-            }
-        }
 
         $this->orders->vendorDecisionForOrder(
             $order,
             $user,
             $data['decision'],
             $data['note'] ?? null,
-            $data['decision'] === 'accept' && ($data['has_paid'] ?? 'no') === 'yes',
-            $data['payment_type'] ?? null,
-            $data['payment_method'] ?? null,
-            isset($data['partial_amount']) ? (float) $data['partial_amount'] : null,
+            false,
+            null,
+            null,
+            null,
             $data['submission_key'] ?? null,
         );
 
         $message = $data['decision'] === 'accept'
-            ? 'Order accepted successfully and moved to Paid Orders.'
-            : 'Order cancelled and returned for reassignment.';
+            ? 'Order approved successfully and moved to Approved Orders.'
+            : 'Order rejected and removed from Pending Orders.';
+
+        if ($data['decision'] === 'accept') {
+            $message = 'Order #'.$order->reference.' has been successfully approved.';
+        }
 
         if ($request->expectsJson()) {
+            if ($data['decision'] === 'accept') {
+                session()->flash('vendor_order_approval_success', $message);
+            } else {
+                session()->flash('success', $message);
+            }
             return response()->json([
                 'message' => $message,
                 'redirect_url' => $data['decision'] === 'accept'
-                    ? route('vendor.orders.index', ['tab' => 'paid'])
+                    ? route('vendor.orders.index', ['tab' => 'approved'])
                     : route('vendor.orders.index', ['tab' => 'pending']),
             ]);
         }
 
-        return redirect()->to($data['decision'] === 'accept'
-            ? route('vendor.orders.index', ['tab' => 'paid'])
-            : route('vendor.orders.index', ['tab' => 'pending']))
-            ->with('success', $message);
+        $redirect = redirect()->to($data['decision'] === 'accept'
+            ? route('vendor.orders.index', ['tab' => 'approved'])
+            : route('vendor.orders.index', ['tab' => 'pending']));
+
+        return $data['decision'] === 'accept'
+            ? $redirect->with('vendor_order_approval_success', $message)
+            : $redirect->with('success', $message);
     }
 
     public function progressOrder(Request $request, OrderItem $item)
@@ -690,7 +713,7 @@ class VendorWorkspaceController extends Controller
         $tasks = $baseTasks
             ->where('delivery_tasks.status', $status)
             ->latest()
-            ->paginate(15)
+            ->paginate($status === 'delivered' ? 20 : 15)
             ->withQueryString();
 
         return view('vendor.deliveries.index', compact('tasks', 'tabCounts', 'status', 'filters'));

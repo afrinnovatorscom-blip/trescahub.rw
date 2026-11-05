@@ -1,7 +1,7 @@
 @extends('front.layouts.guest')
 @section('content')
 
-<main class="py-5" style="padding-top: 5rem !important; padding-bottom: 5rem !important; background-color: #f9f9f6;">
+<main class="py-5 partners-page" style="padding-top: 5rem !important; padding-bottom: 5rem !important; background-color: #f9f9f6;">
     <div class="container" style="max-width: 780px;">
 
         {{-- Header --}}
@@ -41,31 +41,6 @@
 
         </div>
 
-        {{-- Partners --}}
-        @if(isset($partners) && $partners->count() > 0)
-        <div class="mt-5 pt-5" style="border-top: 1px solid #e5e7eb;">
-            <h2 class="fw-bold mb-4" style="color: #111;">Our Partners</h2>
-            <div class="d-flex flex-column" style="gap: 20px;">
-                @foreach($partners as $partner)
-                <div class="partner-card p-4 rounded-4"
-                     style="background: #fff;
-                            border: 1px solid #e5e7eb;
-                            box-shadow: 0 1px 4px rgba(0,0,0,0.06);
-                            transition: all 0.3s cubic-bezier(0.4,0,0.2,1);">
-                    <h5 class="fw-bold mb-2" style="color: #111; font-size: 1rem;">
-                        {{ $partner->title }}
-                    </h5>
-                    <p class="mb-0" style="color: #6b7280; font-size: 0.85rem; line-height: 1.6;
-                                           display: -webkit-box; -webkit-line-clamp: 3;
-                                           -webkit-box-orient: vertical; overflow: hidden;">
-                        {{ $partner->description }}
-                    </p>
-                </div>
-                @endforeach
-            </div>
-        </div>
-        @endif
-
         {{-- CTA --}}
         <div class="mt-5 text-center">
             <a href="{{ route('request-service') }}"
@@ -82,16 +57,96 @@
 </main>
 
 <style>
-    .partner-card:hover {
+    .partners-page .partner-card:hover {
         transform: translateY(-2px);
         box-shadow: 0 8px 24px rgba(0,0,0,0.08) !important;
     }
-    .btn:hover {
+    .partners-page .btn:hover {
         opacity: 0.9;
         transform: translateY(-1px);
     }
-    @media (max-width: 576px) {
-        h1 { font-size: 2rem !important; }
+
+    @media (max-width: 767.98px) {
+        .partners-page {
+            overflow-x: clip;
+            padding-top: 3rem !important;
+            padding-bottom: 3rem !important;
+        }
+
+        .partners-page > .container {
+            padding-right: max(1rem, env(safe-area-inset-right));
+            padding-left: max(1rem, env(safe-area-inset-left));
+        }
+
+        .partners-page h1 {
+            max-width: 100%;
+            font-size: clamp(2rem, 6vw, 2.45rem) !important;
+            overflow-wrap: anywhere;
+        }
+
+        .partners-page > .container > p {
+            font-size: 1rem !important;
+            line-height: 1.65 !important;
+            overflow-wrap: anywhere;
+        }
+
+        .partners-page .partner-card {
+            min-width: 0;
+            padding: 1.15rem !important;
+            border-radius: 12px !important;
+        }
+
+        .partners-page .partner-card h5,
+        .partners-page .partner-card p {
+            overflow-wrap: anywhere;
+        }
+
+        .partners-page .partner-card h5 {
+            font-size: .98rem !important;
+        }
+
+        .partners-page .partner-card p {
+            font-size: .88rem !important;
+        }
+
+        .partners-page .btn {
+            min-height: 48px;
+            padding: 13px 28px !important;
+        }
+    }
+
+    @media (max-width: 575.98px) {
+        .partners-page {
+            padding-top: 2.25rem !important;
+            padding-bottom: 2.5rem !important;
+        }
+
+        .partners-page > .container > span {
+            font-size: 2.8rem !important;
+            margin-bottom: 12px !important;
+        }
+
+        .partners-page h1 {
+            margin-bottom: .75rem !important;
+            font-size: clamp(1.8rem, 8vw, 2.15rem) !important;
+            line-height: 1.15 !important;
+            letter-spacing: -.35px !important;
+        }
+
+        .partners-page .partner-card {
+            padding: 1rem !important;
+        }
+
+        .partners-page .mt-5 {
+            margin-top: 1.75rem !important;
+        }
+
+        .partners-page .btn {
+            display: inline-flex;
+            width: 100%;
+            align-items: center;
+            justify-content: center;
+        }
     }
 </style>
 

@@ -31,7 +31,13 @@ class VendorAdminController extends Controller
             ->paginate(15)
             ->withQueryString();
 
-        return view('marketplace.vendors.index', compact('vendors'));
+        $summary = [
+            'total' => Vendor::query()->count(),
+            'active' => Vendor::query()->where('status', 'active')->count(),
+            'terminated' => Vendor::query()->where('status', 'inactive')->count(),
+        ];
+
+        return view('marketplace.vendors.index', compact('vendors', 'summary'));
     }
 
     public function create()

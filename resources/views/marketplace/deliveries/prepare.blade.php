@@ -91,6 +91,9 @@
 
     <form method="POST" action="{{ $deliveryTask ? route('marketplace.deliveries.prepare.update', $deliveryTask) : route('marketplace.orders.deliveries.store', $order) }}" enctype="multipart/form-data" data-preparation-form>
         @csrf
+        @unless($deliveryTask)
+            <input type="hidden" name="delivery_source" value="preparation">
+        @endunless
 
         <section class="preparation-card mb-3" aria-labelledby="delivery-order-information">
             <header class="preparation-card-header">
