@@ -56,7 +56,15 @@
                     <form method="POST" action="{{ route('marketplace.wallet.payout') }}" id="payout-form">
                         @csrf
                         <label class="form-label" for="payout-phone">Mobile money number</label>
-                        <input id="payout-phone" type="tel" name="phone" required value="{{ old('phone') }}" placeholder="078 123 4567" class="form-control mb-2">
+                        <input id="payout-phone" type="tel" name="phone" required value="{{ old('phone') }}" placeholder="078 123 4567" autocomplete="off"
+                               class="form-control mb-2 @error('phone') is-invalid @enderror">
+                        @error('phone')<div class="invalid-feedback mb-2">{{ $message }}</div>@enderror
+                        <label class="form-label" for="payout-phone-confirm">Confirm mobile money number</label>
+                        <input id="payout-phone-confirm" type="tel" name="phone_confirmation" required value="" placeholder="Type the number again" autocomplete="off"
+                               class="form-control @error('phone_confirmation') is-invalid @enderror">
+                        <div id="payout-phone-match" class="small mb-2" aria-live="polite">
+                            @error('phone_confirmation')<span class="text-danger">{{ $message }}</span>@enderror
+                        </div>
                         <label class="form-label" for="payout-amount">Amount (RWF)</label>
                         <input id="payout-amount" type="number" name="amount" required min="100" step="1" value="{{ old('amount') }}"
                                @if($balance !== null) max="{{ (int) $balance }}" @endif class="form-control mb-2">
@@ -149,8 +157,35 @@
             }
         });
 
+        // Phone typed twice: compare as you type, block pasting into the confirmation field.
+        const phone = document.getElementById('payout-phone');
+        const phoneConfirm = document.getElementById('payout-phone-confirm');
+        const phoneMatch = document.getElementById('payout-phone-match');
+        const normalize = (value) => {
+            let digits = String(value).replace(/\D+/g, '');
+            if (digits.startsWith('250')) digits = digits.slice(3);
+            return digits.replace(/^0+/, '');
+        };
+        const checkMatch = () => {
+            if (!phoneConfirm.value) { phoneMatch.innerHTML = ''; phoneConfirm.setCustomValidity(''); return; }
+            const ok = normalize(phone.value) !== '' && normalize(phone.value) === normalize(phoneConfirm.value);
+            phoneMatch.innerHTML = ok
+                ? '<span class="text-success"><i class="bi bi-check-circle"></i> Numbers match</span>'
+                : '<span class="text-danger"><i class="bi bi-x-circle"></i> Numbers do not match</span>';
+            phoneConfirm.setCustomValidity(ok ? '' : 'The two phone numbers do not match.');
+            phoneConfirm.classList.toggle('is-invalid', !ok);
+            phoneConfirm.classList.toggle('is-valid', ok);
+        };
+        phone?.addEventListener('input', checkMatch);
+        phoneConfirm?.addEventListener('input', checkMatch);
+        phoneConfirm?.addEventListener('paste', (event) => {
+            event.preventDefault();
+            phoneMatch.innerHTML = '<span class="text-warning-emphasis">Please type the number — pasting is disabled here.</span>';
+        });
+
         document.getElementById('payout-form')?.addEventListener('submit', (event) => {
             const form = event.target;
+            if (!form.reportValidity()) { event.preventDefault(); return; }
             const message = 'Send RWF ' + Number(form.amount.value).toLocaleString() + ' to ' + form.phone.value + '?\n\nThis cannot be undone.';
             if (!confirm(message)) { event.preventDefault(); return; }
             form.querySelector('button[type="submit"]').disabled = true;

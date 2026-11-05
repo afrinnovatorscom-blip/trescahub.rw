@@ -167,14 +167,25 @@ class PaymentAdminController extends Controller
     {
         $this->authorizePayouts($request);
 
-        $request->merge(['phone' => preg_replace('/\s+/', '', (string) $request->input('phone'))]);
+        $request->merge([
+            'phone' => preg_replace('/\s+/', '', (string) $request->input('phone')),
+            'phone_confirmation' => preg_replace('/\s+/', '', (string) $request->input('phone_confirmation')),
+        ]);
         $data = $request->validate([
             'phone' => ['required', 'string', 'max:20', 'regex:#^(07|\+?2507)[0-9]{8}$#'],
+            // The number is typed twice to avoid sending money to a mistyped number.
+            'phone_confirmation' => ['required', 'string', 'max:20', function ($attribute, $value, $fail) use ($request) {
+                $first = MobileMoneyPaymentService::normalizePhone((string) $request->input('phone'));
+                if ($first === null || MobileMoneyPaymentService::normalizePhone((string) $value) !== $first) {
+                    $fail('The two phone numbers do not match. Please type the recipient number again.');
+                }
+            }],
             'amount' => ['required', 'numeric', 'min:100', 'max:5000000'],
             'reason' => ['required', 'string', 'max:100'],
             'confirm' => ['accepted'],
         ], [
             'phone.regex' => 'Enter a valid MTN or Airtel number, e.g. 0788123456.',
+            'phone_confirmation.required' => 'Type the recipient number a second time to confirm it.',
             'confirm.accepted' => 'Please confirm the payout details.',
         ]);
 

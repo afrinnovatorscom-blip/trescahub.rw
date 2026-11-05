@@ -103,7 +103,7 @@ class PaymentAdminTest extends TestCase
         $admin = $this->user('administrator');
 
         $this->actingAs($admin, 'web')->post(route('marketplace.wallet.payout'), [
-            'phone' => '+250 781 234 567', 'amount' => 1500, 'reason' => 'Vendor settlement', 'confirm' => 1,
+            'phone' => '+250 781 234 567', 'phone_confirmation' => '078 123 4567', 'amount' => 1500, 'reason' => 'Vendor settlement', 'confirm' => 1,
         ])->assertSessionHas('success', 'Sent RWF 1,500 to 0781234567.');
 
         $payout = Payout::query()->firstOrFail();
@@ -125,17 +125,46 @@ class PaymentAdminTest extends TestCase
         $admin = $this->user('administrator');
 
         $this->actingAs($admin, 'web')->post(route('marketplace.wallet.payout'), [
-            'phone' => '0781234567', 'amount' => 5000, 'reason' => 'Too much', 'confirm' => 1,
+            'phone' => '0781234567', 'phone_confirmation' => '0781234567', 'amount' => 5000, 'reason' => 'Too much', 'confirm' => 1,
         ])->assertSessionHasErrors('amount');
         $this->post(route('marketplace.wallet.payout'), [
-            'phone' => '0781234567', 'amount' => 500, 'reason' => 'No confirm',
+            'phone' => '0781234567', 'phone_confirmation' => '0781234567', 'amount' => 500, 'reason' => 'No confirm',
         ])->assertSessionHasErrors('confirm');
         $this->post(route('marketplace.wallet.payout'), [
-            'phone' => '0123', 'amount' => 500, 'reason' => 'Bad phone', 'confirm' => 1,
+            'phone' => '0123', 'phone_confirmation' => '0123', 'amount' => 500, 'reason' => 'Bad phone', 'confirm' => 1,
         ])->assertSessionHasErrors('phone');
 
         $this->assertDatabaseCount('payouts', 0);
         Http::assertNotSent(fn (HttpRequest $request) => str_ends_with($request->url(), '/requestdeposit/'));
+    }
+
+    public function test_payout_requires_the_phone_number_twice_and_matching(): void
+    {
+        $this->fakeIntouch(50000);
+        $admin = $this->user('administrator');
+
+        $this->actingAs($admin, 'web')->get(route('marketplace.wallet.index'))
+            ->assertSee('Confirm mobile money number')
+            ->assertSee('name="phone_confirmation"', false);
+
+        // Missing confirmation
+        $this->post(route('marketplace.wallet.payout'), [
+            'phone' => '0781234567', 'amount' => 500, 'reason' => 'Test', 'confirm' => 1,
+        ])->assertSessionHasErrors('phone_confirmation');
+
+        // One digit different
+        $this->post(route('marketplace.wallet.payout'), [
+            'phone' => '0781234567', 'phone_confirmation' => '0781234576', 'amount' => 500, 'reason' => 'Test', 'confirm' => 1,
+        ])->assertSessionHasErrors(['phone_confirmation' => 'The two phone numbers do not match. Please type the recipient number again.']);
+
+        $this->assertDatabaseCount('payouts', 0);
+        Http::assertNotSent(fn (HttpRequest $request) => str_ends_with($request->url(), '/requestdeposit/'));
+
+        // Same number written in a different format is accepted
+        $this->post(route('marketplace.wallet.payout'), [
+            'phone' => '0781234567', 'phone_confirmation' => '+250 78 123 4567', 'amount' => 500, 'reason' => 'Test', 'confirm' => 1,
+        ])->assertSessionHasNoErrors();
+        $this->assertDatabaseCount('payouts', 1);
     }
 
     public function test_failed_payout_is_recorded_and_reported(): void
@@ -144,7 +173,7 @@ class PaymentAdminTest extends TestCase
         $admin = $this->user('administrator');
 
         $this->actingAs($admin, 'web')->post(route('marketplace.wallet.payout'), [
-            'phone' => '0781234567', 'amount' => 1000, 'reason' => 'Test', 'confirm' => 1,
+            'phone' => '0781234567', 'phone_confirmation' => '0781234567', 'amount' => 1000, 'reason' => 'Test', 'confirm' => 1,
         ])->assertSessionHasErrors(['payout' => 'Payout failed: Insufficient Account Balance']);
 
         $this->assertSame('failed', Payout::query()->firstOrFail()->status);
@@ -157,7 +186,7 @@ class PaymentAdminTest extends TestCase
         $admin = $this->user('administrator');
 
         $this->actingAs($admin, 'web')->post(route('marketplace.wallet.payout'), [
-            'phone' => '0781234567', 'amount' => 1000, 'reason' => 'Test', 'confirm' => 1,
+            'phone' => '0781234567', 'phone_confirmation' => '0781234567', 'amount' => 1000, 'reason' => 'Test', 'confirm' => 1,
         ])->assertSessionHas('success', 'Payout submitted: RWF 1,000 to 0781234567.');
         $payout = Payout::query()->firstOrFail();
         $this->assertSame('pending', $payout->status);
@@ -179,7 +208,7 @@ class PaymentAdminTest extends TestCase
         $this->actingAs($manager, 'web')->get(route('marketplace.payments.index'))->assertForbidden();
         $this->get(route('marketplace.payments.logs'))->assertForbidden();
         $this->get(route('marketplace.wallet.index'))->assertForbidden();
-        $this->post(route('marketplace.wallet.payout'), ['phone' => '0781234567', 'amount' => 500, 'reason' => 'x', 'confirm' => 1])->assertForbidden();
+        $this->post(route('marketplace.wallet.payout'), ['phone' => '0781234567', 'phone_confirmation' => '0781234567', 'amount' => 500, 'reason' => 'x', 'confirm' => 1])->assertForbidden();
     }
 
     public function test_finance_viewer_without_payout_permission_cannot_send_money(): void
@@ -193,7 +222,7 @@ class PaymentAdminTest extends TestCase
             ->assertOk()
             ->assertSee('sending payouts needs the')
             ->assertDontSee('id="payout-form"', false);
-        $this->post(route('marketplace.wallet.payout'), ['phone' => '0781234567', 'amount' => 500, 'reason' => 'x', 'confirm' => 1])
+        $this->post(route('marketplace.wallet.payout'), ['phone' => '0781234567', 'phone_confirmation' => '0781234567', 'amount' => 500, 'reason' => 'x', 'confirm' => 1])
             ->assertForbidden();
         $this->assertDatabaseCount('payouts', 0);
     }
