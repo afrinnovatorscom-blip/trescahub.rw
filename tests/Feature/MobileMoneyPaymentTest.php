@@ -211,6 +211,36 @@ class MobileMoneyPaymentTest extends TestCase
         $this->assertSame(2, $order->paymentTransactions()->count(), 'A double submit reuses the pending prompt.');
     }
 
+    public function test_connection_errors_are_not_shown_to_customers(): void
+    {
+        Http::fake(fn () => throw new \Illuminate\Http\Client\ConnectionException(
+            'cURL error 60: SSL certificate problem: unable to get local issuer certificate'
+        ));
+
+        $transaction = $this->placeOrder();
+
+        $this->assertSame('failed', $transaction->status);
+        $this->get(route('checkout.payment.status', $transaction))
+            ->assertOk()
+            ->assertSee('We could not reach the mobile money service just now.')
+            ->assertDontSee('cURL error')
+            ->assertDontSee('intouch.test');
+        $this->assertDatabaseHas('payment_logs', ['payment_transaction_id' => $transaction->id, 'type' => 'request']);
+        $this->assertStringContainsString('cURL error 60', (string) $transaction->logs()->first()->message);
+    }
+
+    public function test_rejected_merchant_credentials_are_not_blamed_on_the_customer(): void
+    {
+        Http::fake(['intouch.test/api/requestpayment/' => Http::response(['success' => false, 'responsecode' => '0007', 'message' => 'No such user'])]);
+
+        $transaction = $this->placeOrder();
+
+        $this->assertSame('failed', $transaction->status);
+        $this->get(route('checkout.payment.status', $transaction))
+            ->assertSee('Mobile money payments are temporarily unavailable.')
+            ->assertDontSee('No such user');
+    }
+
     public function test_status_poll_marks_declined_payments_failed(): void
     {
         $this->fakeIntouchPay();

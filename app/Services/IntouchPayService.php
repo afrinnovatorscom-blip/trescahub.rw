@@ -27,7 +27,11 @@ class IntouchPayService
 
     public function getCallbackUrl(): string
     {
-        return rtrim((string) config('app.url'), '/').'/api/intouchpay/callback';
+        $configured = trim((string) config('services.intouchpay.callback_url'));
+
+        return $configured !== ''
+            ? $configured
+            : rtrim((string) config('app.url'), '/').'/api/intouchpay/callback';
     }
 
     /**
@@ -203,7 +207,14 @@ class IntouchPayService
 
     private function http(int $timeout = 60)
     {
-        return Http::timeout($timeout)->acceptJson();
+        $request = Http::timeout($timeout)->acceptJson();
+
+        $caBundle = (string) config('services.intouchpay.ca_bundle');
+        if ($caBundle !== '' && is_file($caBundle)) {
+            $request = $request->withOptions(['verify' => $caBundle]);
+        }
+
+        return $request;
     }
 
     /**

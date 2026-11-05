@@ -115,13 +115,46 @@ class MobileMoneyPaymentService
         } else {
             $transaction->update([
                 'status' => 'failed',
-                'failure_reason' => mb_substr((string) ($response['message'] ?? 'Payment request failed.'), 0, 255),
+                'failure_reason' => $this->customerFailureMessage($response),
             ]);
         }
 
         $order->update(['payment_method' => $method, 'payment_phone' => $phone]);
 
         return $transaction->refresh();
+    }
+
+    /**
+     * Message shown to the customer. Provider replies (e.g. "Insufficient balance") are passed on;
+     * connection or technical errors are replaced, since their details only belong in the payment logs.
+     */
+    private function customerFailureMessage(array $response): string
+    {
+        $message = trim((string) ($response['message'] ?? ''));
+        $code = (string) ($response['responsecode'] ?? '');
+
+        // Our own merchant account is rejected (wrong username/password/account number):
+        // the customer cannot fix this, so alert the team instead of showing the raw reply.
+        $merchantConfigError = $code === '0007'
+            || preg_match('/no such user|invalid (user|password|account)|authentication/i', $message) === 1;
+        if ($merchantConfigError) {
+            Log::channel('payment')->critical('IntouchPay rejected the merchant credentials. Check INTOUCHPAY_USERNAME, INTOUCHPAY_PASSWORD and INTOUCHPAY_ACCOUNT_NO.', [
+                'responsecode' => $code,
+                'message' => $message,
+            ]);
+
+            return 'Mobile money payments are temporarily unavailable. No money was taken. Please try again later or contact us.';
+        }
+
+        $technical = $message === ''
+            || str_starts_with($message, 'Service Failure')
+            || in_array($code, ['2500', '5005', '5006', '5008'], true);
+
+        if ($technical) {
+            return 'We could not reach the mobile money service just now. No money was taken. Please try again in a moment.';
+        }
+
+        return mb_substr($message, 0, 255);
     }
 
     /**
