@@ -159,6 +159,16 @@ class ShopProduct extends Model
         return $this->hasMany(ProductVariation::class, 'shop_product_id')->orderBy('id');
     }
 
+    public function reviews(): HasMany
+    {
+        return $this->hasMany(ProductReview::class, 'shop_product_id');
+    }
+
+    public function publishedReviews(): HasMany
+    {
+        return $this->reviews()->where('status', 'published');
+    }
+
     public function defaultVariation(): HasOne
     {
         return $this->hasOne(ProductVariation::class, 'shop_product_id')->where('is_default', true);

@@ -61,6 +61,11 @@ class Order extends Model
         return $this->hasMany(OrderPayment::class);
     }
 
+    public function paymentTransactions(): HasMany
+    {
+        return $this->hasMany(PaymentTransaction::class);
+    }
+
     public function recordedPaymentAmountInCents(): int
     {
         $payments = $this->relationLoaded('payments')

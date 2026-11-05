@@ -1,0 +1,239 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Models\Customer;
+use App\Models\Order;
+use App\Models\PaymentTransaction;
+use App\Models\Shopcategory;
+use App\Models\ShopProduct;
+use Database\Seeders\MarketplaceUserSeeder;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\Request as HttpRequest;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
+use Tests\TestCase;
+
+class MobileMoneyPaymentTest extends TestCase
+{
+    use RefreshDatabase;
+
+    private Customer $customer;
+
+    private ShopProduct $product;
+
+    /** What the fake IntouchPay status API answers. */
+    private string $intouchStatus = 'Pending';
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        config([
+            'services.intouchpay.api_url' => 'https://intouch.test/api',
+            'services.intouchpay.username' => 'tester',
+            'services.intouchpay.password' => 'secret',
+            'services.intouchpay.account_no' => 'SBX1',
+        ]);
+
+        $this->seed(MarketplaceUserSeeder::class);
+
+        $category = Shopcategory::query()->create(['name' => 'Payments', 'slug' => 'payments', 'active' => true]);
+        $this->product = ShopProduct::query()->create([
+            'product_name' => 'Paid Product',
+            'slug' => 'paid-product',
+            'status' => 'in_stock',
+            'price' => 15000,
+            'working_days' => 2,
+            'shop_category_id' => $category->id,
+            'approval_status' => 'approved',
+            'publication_status' => 'published',
+        ]);
+        $this->customer = Customer::query()->create([
+            'name' => 'Paying Customer',
+            'email' => 'payer@example.com',
+            'phone' => '0788000000',
+            'password' => 'valid-password',
+        ]);
+    }
+
+    /** Whether the fake IntouchPay accepts payment requests. */
+    private bool $requestAccepted = true;
+
+    private function fakeIntouchPay(bool $requestAccepted = true): void
+    {
+        $this->requestAccepted = $requestAccepted;
+
+        Http::fake([
+            'intouch.test/api/requestpayment/' => fn () => Http::response($this->requestAccepted
+                ? ['success' => true, 'responsecode' => '1000', 'transactionid' => 9001, 'message' => 'Pending']
+                : ['success' => false, 'responsecode' => '2400', 'message' => 'Insufficient balance']),
+            'intouch.test/api/gettransactionstatus/' => fn () => Http::response(match ($this->intouchStatus) {
+                'Successfull' => ['success' => true, 'responsecode' => '01', 'status' => 'Successfull', 'message' => 'Transaction successful'],
+                'Failed' => ['success' => true, 'responsecode' => '02', 'status' => 'Failed', 'message' => 'Transaction failed'],
+                default => ['success' => true, 'responsecode' => '1000', 'status' => 'Pending', 'message' => 'Pending'],
+            }),
+        ]);
+    }
+
+    private function placeOrder(string $phone = '+250 78 123 4567'): PaymentTransaction
+    {
+        $this->actingAs($this->customer, 'customers')
+            ->post(route('cart.add'), ['product' => $this->product->slug, 'quantity' => 2]);
+        $this->post(route('checkout.details'), [
+            'customer_name' => 'Paying Customer',
+            'email' => 'payer@example.com',
+            'phone' => '0788000000',
+            'delivery_address' => 'Kigali',
+        ])->assertRedirect(route('checkout.payment'));
+
+        $response = $this->post(route('checkout.place'), [
+            'payment_method' => 'mtn_mobile_money',
+            'payment_phone' => $phone,
+        ]);
+
+        $transaction = PaymentTransaction::query()->latest('id')->firstOrFail();
+        $response->assertRedirect(route('checkout.payment.status', $transaction));
+
+        return $transaction;
+    }
+
+    public function test_checkout_sends_a_mobile_money_prompt_for_the_order_total(): void
+    {
+        $this->fakeIntouchPay();
+
+        $transaction = $this->placeOrder();
+
+        $this->assertSame('pending', $transaction->status);
+        $this->assertSame('0781234567', $transaction->phone);
+        $this->assertSame(30000.0, (float) $transaction->amount);
+        $this->assertSame('9001', $transaction->transaction_id);
+        $this->assertSame('pending', $transaction->order->payment_status);
+
+        Http::assertSent(fn (HttpRequest $request) => str_ends_with($request->url(), '/requestpayment/')
+            && $request['mobilephone'] === '250781234567'
+            && (int) $request['amount'] === 30000
+            && $request['requesttransactionid'] === $transaction->request_transaction_id
+            && str_ends_with($request['callbackurl'], '/api/intouchpay/callback')
+            && $request['password'] === hash('sha256', 'testerSBX1secret'.$request['timestamp']));
+
+        $this->get(route('checkout.payment.status', $transaction))
+            ->assertOk()
+            ->assertSee('Approve the payment on your phone');
+        $this->getJson(route('checkout.payment.status', $transaction))
+            ->assertOk()
+            ->assertJson(['status' => 'pending']);
+        $this->assertDatabaseHas('payment_logs', ['payment_transaction_id' => $transaction->id, 'type' => 'request']);
+    }
+
+    public function test_verified_callback_marks_the_order_paid_exactly_once(): void
+    {
+        $this->fakeIntouchPay();
+        $transaction = $this->placeOrder();
+        $this->intouchStatus = 'Successfull';
+
+        $payload = ['jsonpayload' => [
+            'requesttransactionid' => $transaction->request_transaction_id,
+            'transactionid' => 9001,
+            'responsecode' => '01',
+            'status' => 'Successfull',
+            'statusdesc' => 'Successfully Processed Transaction',
+        ]];
+
+        $this->postJson('/api/intouchpay/callback', $payload)->assertOk()->assertJson(['success' => true]);
+        $this->postJson('/api/intouchpay/callback', $payload)->assertOk();
+
+        $order = $transaction->order->fresh('payments');
+        $this->assertSame('completed', $transaction->fresh()->status);
+        $this->assertSame('paid', $order->payment_status);
+        $this->assertCount(1, $order->payments);
+        $this->assertSame(30000.0, (float) $order->payments[0]->amount);
+        $this->assertSame('mtn_mobile_money', $order->payments[0]->method);
+        $this->assertTrue($order->hasConfirmedPaidPayment());
+        $this->assertSame(1, $this->customer->notifications()->where('data->dedupe_key', 'order-'.$order->id.'-paid')->count());
+
+        $this->getJson(route('checkout.payment.status', $transaction))->assertJson(['status' => 'completed']);
+        $this->get(route('checkout.done', $order->reference))->assertOk();
+    }
+
+    public function test_callback_claims_are_not_trusted_without_api_confirmation(): void
+    {
+        $this->fakeIntouchPay();
+        $transaction = $this->placeOrder();
+        // IntouchPay's status API still says pending, whatever the callback claims.
+
+        $this->post('/api/intouchpay/callback', [
+            'requesttransactionid' => $transaction->request_transaction_id,
+            'status' => 'Successfull',
+            'responsecode' => '01',
+        ])->assertOk();
+
+        $this->assertSame('pending', $transaction->fresh()->status);
+        $this->assertSame('pending', $transaction->order->fresh()->payment_status);
+        $this->assertDatabaseHas('payment_logs', ['payment_transaction_id' => $transaction->id, 'type' => 'callback']);
+
+        $this->postJson('/api/intouchpay/callback', ['requesttransactionid' => 'unknown'])->assertOk();
+        $this->assertDatabaseHas('payment_logs', ['request_transaction_id' => 'unknown', 'message' => 'Transaction not found']);
+    }
+
+    public function test_failed_payment_can_be_retried_for_the_same_order(): void
+    {
+        $this->fakeIntouchPay(requestAccepted: false);
+        $transaction = $this->placeOrder();
+
+        $this->assertSame('failed', $transaction->status);
+        $this->assertSame('Insufficient balance', $transaction->failure_reason);
+        $this->get(route('checkout.payment.status', $transaction))
+            ->assertOk()
+            ->assertSee('Payment not completed')
+            ->assertSee('Insufficient balance')
+            ->assertSee(route('account.orders.pay.submit', $transaction->order->reference), false);
+
+        $order = $transaction->order;
+        $this->get(route('account.orders.show', $order->reference))->assertSee('Pay now');
+
+        $this->requestAccepted = true;
+        $this->post(route('account.orders.pay.submit', $order->reference), [
+            'payment_method' => 'airtel_money',
+            'payment_phone' => '0731234567',
+        ]);
+
+        $retry = PaymentTransaction::query()->latest('id')->firstOrFail();
+        $this->assertNotSame($transaction->id, $retry->id);
+        $this->assertSame('pending', $retry->status);
+        $this->assertSame('airtel_money', $retry->method);
+        $this->assertSame(2, Order::query()->first()->paymentTransactions()->count());
+
+        $this->post(route('account.orders.pay.submit', $order->reference), [
+            'payment_method' => 'airtel_money',
+            'payment_phone' => '0731234567',
+        ])->assertRedirect(route('checkout.payment.status', $retry));
+        $this->assertSame(2, $order->paymentTransactions()->count(), 'A double submit reuses the pending prompt.');
+    }
+
+    public function test_status_poll_marks_declined_payments_failed(): void
+    {
+        $this->fakeIntouchPay();
+        $transaction = $this->placeOrder();
+        $this->intouchStatus = 'Failed';
+
+        $this->getJson(route('checkout.payment.status', $transaction))->assertJson(['status' => 'failed']);
+        $this->assertSame('pending', $transaction->order->fresh()->payment_status);
+    }
+
+    public function test_customers_cannot_see_other_customers_payments(): void
+    {
+        $this->fakeIntouchPay();
+        $transaction = $this->placeOrder();
+
+        $other = Customer::query()->create([
+            'name' => 'Other', 'email' => Str::random(6).'@example.com', 'phone' => '0788111111', 'password' => 'valid-password',
+        ]);
+
+        $this->actingAs($other, 'customers')->get(route('checkout.payment.status', $transaction))->assertNotFound();
+        $this->post(route('account.orders.pay.submit', $transaction->order->reference), [
+            'payment_method' => 'mtn_mobile_money',
+            'payment_phone' => '0781234567',
+        ])->assertNotFound();
+    }
+}

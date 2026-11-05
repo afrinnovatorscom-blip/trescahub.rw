@@ -8,6 +8,7 @@ use App\Models\Customer;
 use App\Models\Order;
 use App\Models\ProductVariation;
 use App\Models\ShopProduct;
+use App\Services\MobileMoneyPaymentService;
 use App\Services\OrderService;
 use App\Services\RequestWorkflowService;
 use App\Support\CustomerTracking;
@@ -23,6 +24,7 @@ class StorefrontCommerceController extends Controller
     public function __construct(
         private OrderService $orders,
         private RequestWorkflowService $requests,
+        private MobileMoneyPaymentService $mobileMoney,
     ) {}
 
     public function cart()
@@ -261,6 +263,14 @@ class StorefrontCommerceController extends Controller
         session()->forget('marketplace.cart');
         session()->forget('marketplace.checkout');
 
+        // Push the mobile money prompt to the customer's phone. A failed request still lands on the
+        // status page, which explains the problem and lets the customer try again for this order.
+        if ($this->mobileMoney->canPay($order)) {
+            $transaction = $this->mobileMoney->start($order, $data['payment_method'], $data['payment_phone'], $request->ip());
+
+            return redirect()->route('checkout.payment.status', $transaction);
+        }
+
         return redirect()->route('checkout.done', $order->reference)->with('placed_order', $order->reference);
     }
 
@@ -420,6 +430,7 @@ class StorefrontCommerceController extends Controller
             'order' => $order,
             'tracking' => CustomerTracking::present($order),
             'canCancel' => in_array($order->fulfillment_status, ['pending_confirmation', 'confirmed', 'processing', 'awaiting_stock'], true),
+            'canPay' => $this->mobileMoney->canPay($order),
         ]);
     }
 
@@ -581,7 +592,7 @@ class StorefrontCommerceController extends Controller
             ->where('reference', $reference)
             ->with([
                 'items:id,order_id,shop_product_id,vendor_id,product_name,sku,product_variation_id,variation_label,variation_value,unit_price,quantity,line_total,fulfillment_status,assignment_status,created_at,updated_at',
-                'items.product:id,product_name,thumbnail',
+                'items.product:id,product_name,slug,thumbnail',
                 'items.vendor:id,business_name',
                 'payments:id,order_id,amount,type,method,created_at',
                 'histories:id,order_id,from_status,to_status,customer_message,created_at',

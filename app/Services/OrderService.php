@@ -111,6 +111,7 @@ class OrderService
                 'customer_name' => $customer['name'],
                 'email' => $customer['email'] ?? null,
                 'phone' => $customer['phone'],
+                'payment_phone' => $customer['payment_phone'] ?? null,
                 'delivery_address' => $customer['delivery_address'],
                 'delivery_notes' => $customer['delivery_notes'] ?? null,
                 'subtotal' => 0,

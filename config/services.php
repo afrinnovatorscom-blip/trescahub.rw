@@ -28,6 +28,14 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+    'intouchpay' => [
+        // Sandbox: https://developer.intouchpay.co.rw/api/v1/sandbox  Production: https://www.intouchpay.co.rw/api
+        'api_url' => env('INTOUCHPAY_API_URL', 'https://www.intouchpay.co.rw/api'),
+        'username' => env('INTOUCHPAY_USERNAME'),
+        'password' => env('INTOUCHPAY_PASSWORD'),
+        'account_no' => env('INTOUCHPAY_ACCOUNT_NO'),
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),

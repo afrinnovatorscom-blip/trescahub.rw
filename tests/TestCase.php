@@ -11,5 +11,8 @@ abstract class TestCase extends BaseTestCase
         parent::setUp();
 
         $this->withoutVite();
+
+        // Never let a test reach a real payment provider or other external API.
+        \Illuminate\Support\Facades\Http::preventStrayRequests();
     }
 }

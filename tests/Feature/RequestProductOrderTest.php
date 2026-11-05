@@ -240,7 +240,11 @@ class RequestProductOrderTest extends TestCase
         ])->assertRedirect();
 
         $order = Order::query()->with('items')->firstOrFail();
-        $placeResponse->assertSessionHas('placed_order', $order->reference);
+        // Placing the order now sends a mobile money prompt and lands on the payment status page,
+        // which unlocks the confirmation page for this order.
+        $transaction = $order->paymentTransactions()->firstOrFail();
+        $placeResponse->assertRedirect(route('checkout.payment.status', $transaction));
+        $this->get(route('checkout.payment.status', $transaction))->assertOk();
         $this->get(route('checkout.done', $order->reference))
             ->assertOk()
             ->assertSee('Order Received Successfully')

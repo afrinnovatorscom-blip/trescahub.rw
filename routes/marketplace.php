@@ -4,6 +4,9 @@ use App\Http\Controllers\CustomerAccountController;
 use App\Http\Controllers\Marketplace\AdminAccessController;
 use App\Http\Controllers\Marketplace\CatalogOperationsController;
 use App\Http\Controllers\Marketplace\CommerceController;
+use App\Http\Controllers\Marketplace\OrderPaymentController;
+use App\Http\Controllers\Marketplace\ProductReviewAdminController;
+use App\Http\Controllers\Marketplace\ProductReviewController;
 use App\Http\Controllers\Marketplace\StorefrontCommerceController;
 use App\Http\Controllers\Marketplace\VendorAdminController;
 use App\Http\Controllers\Marketplace\VendorWorkspaceController;
@@ -25,6 +28,17 @@ Route::post('/checkout/details', [StorefrontCommerceController::class, 'saveChec
 Route::get('/checkout/payment', [StorefrontCommerceController::class, 'payment'])->middleware($customerAuth)->name('checkout.payment');
 Route::post('/checkout/payment', [StorefrontCommerceController::class, 'place'])->middleware(['auth:customers', 'throttle:marketplace-sensitive'])->name('checkout.place');
 Route::get('/checkout/complete/{reference}', [StorefrontCommerceController::class, 'done'])->name('checkout.done');
+
+// Product ratings & reviews (verified purchases only)
+Route::post('/shop/{shopProduct:slug}/reviews', [ProductReviewController::class, 'store'])->middleware(['auth:customers', 'throttle:marketplace-sensitive'])->name('shop-products.reviews.store');
+Route::delete('/shop/{shopProduct:slug}/reviews', [ProductReviewController::class, 'destroy'])->middleware(['auth:customers'])->name('shop-products.reviews.destroy');
+
+// IntouchPay mobile money (MTN MoMo / Airtel Money)
+Route::get('/checkout/payment/status/{transaction}', [OrderPaymentController::class, 'status'])->middleware($customerAuth)->name('checkout.payment.status');
+Route::get('/account/orders/{reference}/pay', [OrderPaymentController::class, 'show'])->middleware($customerAuth)->name('account.orders.pay');
+Route::post('/account/orders/{reference}/pay', [OrderPaymentController::class, 'pay'])->middleware(['auth:customers', 'throttle:marketplace-sensitive'])->name('account.orders.pay.submit');
+// Webhook: no auth and no CSRF (see bootstrap/app.php). Its payload is re-verified with IntouchPay before use.
+Route::post('/api/intouchpay/callback', [OrderPaymentController::class, 'callback'])->name('payment.intouchpay.callback');
 
 Route::get('/track-order', [StorefrontCommerceController::class, 'trackForm'])->name('track-order');
 Route::post('/track-order', [StorefrontCommerceController::class, 'track'])->middleware('throttle:marketplace-sensitive')->name('track-order.submit');
@@ -88,6 +102,8 @@ Route::middleware($auth)->group(function () {
 
     Route::prefix('admin/marketplace')->name('marketplace.')->group(function () {
         Route::get('/approvals', [CatalogOperationsController::class, 'approvals'])->name('approvals.index');
+        Route::get('/reviews', [ProductReviewAdminController::class, 'index'])->name('reviews.index');
+        Route::patch('/reviews/{review}', [ProductReviewAdminController::class, 'update'])->whereNumber('review')->name('reviews.update');
         Route::post('/products/{shopProduct}/approve', [CatalogOperationsController::class, 'approve'])->name('products.approve');
         Route::post('/products/{shopProduct}/reject', [CatalogOperationsController::class, 'reject'])->name('products.reject');
         Route::post('/products/{shopProduct}/changes', [CatalogOperationsController::class, 'requestChanges'])->name('products.changes');
