@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Shopcategory;
+use App\Models\ShopCategory;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -13,7 +13,7 @@ class ShopCategoryController extends Controller
     public function index()
     {
         $this->authorizeCatalog('products.view');
-        $categories = Shopcategory::with('subcategories')
+        $categories = ShopCategory::with('subcategories')
             ->whereNull('parent_id')
             ->latest()
             ->paginate(15);
@@ -50,7 +50,7 @@ class ShopCategoryController extends Controller
         $active = $validated['status'] === 'active';
 
         DB::transaction(function () use ($validated, $active) {
-            $category = Shopcategory::query()->create([
+            $category = ShopCategory::query()->create([
                 'name' => $validated['name'],
                 'slug' => $validated['slug'],
                 'description' => $validated['description'] ?? null,
@@ -72,7 +72,7 @@ class ShopCategoryController extends Controller
             ->with('success', 'Category created successfully!');
     }
 
-    public function show(Shopcategory $shopCategory)
+    public function show(ShopCategory $shopCategory)
     {
         $this->authorizeCatalog('products.view');
         $shopCategory->load(['subcategories', 'parent']);
@@ -80,7 +80,7 @@ class ShopCategoryController extends Controller
         return view('shop-categories.show', compact('shopCategory'));
     }
 
-    public function edit(Shopcategory $shopCategory)
+    public function edit(ShopCategory $shopCategory)
     {
         $this->authorizeCatalog('products.edit');
         $shopCategory->load(['subcategories', 'parent']);
@@ -88,7 +88,7 @@ class ShopCategoryController extends Controller
         return view('shop-categories.edit', compact('shopCategory'));
     }
 
-    public function update(Request $request, Shopcategory $shopCategory)
+    public function update(Request $request, ShopCategory $shopCategory)
     {
         $this->authorizeCatalog('products.edit');
 
@@ -154,7 +154,7 @@ class ShopCategoryController extends Controller
             ->with('success', 'Category updated successfully!');
     }
 
-    public function destroy(Shopcategory $shopCategory)
+    public function destroy(ShopCategory $shopCategory)
     {
         $this->authorizeCatalog('products.delete');
         $name = $shopCategory->name;
@@ -181,7 +181,7 @@ class ShopCategoryController extends Controller
         $candidate = $base;
         $suffix = 1;
 
-        while (Shopcategory::query()
+        while (ShopCategory::query()
             ->when($ignoreId, fn ($query) => $query->where('id', '!=', $ignoreId))
             ->where('slug', $candidate)
             ->exists()) {

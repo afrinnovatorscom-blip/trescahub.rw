@@ -7,7 +7,7 @@
 @php
     use App\Models\Service;
     use App\Models\ShopProduct;
-    use App\Models\Servicerequest;
+    use App\Models\ServiceRequest;
     use App\Models\Testimonial;
     use App\Models\Partner;
 

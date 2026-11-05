@@ -5,7 +5,7 @@ namespace Tests\Feature;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Models\ProductRequest;
-use App\Models\Shopcategory;
+use App\Models\ShopCategory;
 use App\Models\ShopProduct;
 use App\Models\User;
 use Database\Seeders\MarketplaceUserSeeder;
@@ -17,7 +17,7 @@ class RequestProductOrderTest extends TestCase
 {
     use RefreshDatabase;
 
-    private Shopcategory $category;
+    private ShopCategory $category;
 
     private User $admin;
 
@@ -25,7 +25,7 @@ class RequestProductOrderTest extends TestCase
     {
         parent::setUp();
 
-        $this->category = Shopcategory::query()->create([
+        $this->category = ShopCategory::query()->create([
             'name' => 'Request Product Tests',
             'slug' => 'request-product-tests',
             'active' => true,

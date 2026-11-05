@@ -6,7 +6,7 @@ use App\Models\Customer;
 use App\Models\DeliveryTask;
 use App\Models\Order;
 use App\Models\OrderItem;
-use App\Models\Shopcategory;
+use App\Models\ShopCategory;
 use App\Models\ShopProduct;
 use App\Models\User;
 use App\Models\Vendor;
@@ -855,7 +855,7 @@ class AdminOrdersPageTest extends TestCase
 
     public function test_order_review_shows_linked_customer_and_checkout_address_snapshot(): void
     {
-        $category = Shopcategory::query()->create([
+        $category = ShopCategory::query()->create([
             'name' => 'Checkout Test Category',
             'slug' => 'checkout-test-category',
             'active' => true,
@@ -1243,7 +1243,7 @@ class AdminOrdersPageTest extends TestCase
             'fulfillment_status' => 'ready_for_dispatch',
             'quantity' => 3,
         ]);
-        $category = Shopcategory::query()->create([
+        $category = ShopCategory::query()->create([
             'name' => 'Delivery Test Category',
             'slug' => 'delivery-test-category',
             'active' => true,

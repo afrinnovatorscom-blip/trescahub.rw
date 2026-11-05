@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Shopcategory;
+use App\Models\ShopCategory;
 use App\Models\ShopProduct;
 use App\Models\Vendor;
 use App\Services\ProductImageService;
@@ -80,7 +80,7 @@ class ShopProductController extends Controller
             ->groupBy('shop_category_id')
             ->pluck('products_count', 'shop_category_id');
 
-        $parentCategories = Shopcategory::with(['subcategories' => fn ($query) => $query->where('active', true)])
+        $parentCategories = ShopCategory::with(['subcategories' => fn ($query) => $query->where('active', true)])
             ->whereNull('parent_id')
             ->where('active', true)
             ->orderBy('name')
@@ -291,7 +291,7 @@ class ShopProductController extends Controller
 
     private function categories()
     {
-        return Shopcategory::with('subcategories')->whereNull('parent_id')->orderBy('name')->get();
+        return ShopCategory::with('subcategories')->whereNull('parent_id')->orderBy('name')->get();
     }
 
     private function vendorOptions()

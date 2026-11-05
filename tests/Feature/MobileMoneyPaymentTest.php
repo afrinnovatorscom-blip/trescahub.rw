@@ -5,7 +5,7 @@ namespace Tests\Feature;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Models\PaymentTransaction;
-use App\Models\Shopcategory;
+use App\Models\ShopCategory;
 use App\Models\ShopProduct;
 use Database\Seeders\MarketplaceUserSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -38,7 +38,7 @@ class MobileMoneyPaymentTest extends TestCase
 
         $this->seed(MarketplaceUserSeeder::class);
 
-        $category = Shopcategory::query()->create(['name' => 'Payments', 'slug' => 'payments', 'active' => true]);
+        $category = ShopCategory::query()->create(['name' => 'Payments', 'slug' => 'payments', 'active' => true]);
         $this->product = ShopProduct::query()->create([
             'product_name' => 'Paid Product',
             'slug' => 'paid-product',

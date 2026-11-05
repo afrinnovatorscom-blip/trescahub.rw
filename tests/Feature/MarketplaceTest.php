@@ -11,7 +11,7 @@ use App\Models\Permission;
 use App\Models\ProductLocation;
 use App\Models\ProductRequest;
 use App\Models\Role;
-use App\Models\Shopcategory;
+use App\Models\ShopCategory;
 use App\Models\ShopProduct;
 use App\Models\User;
 use App\Models\Vendor;
@@ -28,13 +28,13 @@ class MarketplaceTest extends TestCase
 {
     use RefreshDatabase;
 
-    private Shopcategory $category;
+    private ShopCategory $category;
 
     protected function setUp(): void
     {
         parent::setUp();
 
-        $this->category = Shopcategory::query()->create([
+        $this->category = ShopCategory::query()->create([
             'name' => 'General',
             'slug' => 'general',
             'active' => true,
@@ -640,12 +640,12 @@ class MarketplaceTest extends TestCase
             'stock_quantity' => 0,
             'stock_unit' => 'box',
         ]);
-        $emptyCategory = Shopcategory::query()->create([
+        $emptyCategory = ShopCategory::query()->create([
             'name' => 'Empty inventory category',
             'slug' => 'empty-inventory-category',
             'active' => true,
         ]);
-        $otherCategory = Shopcategory::query()->create([
+        $otherCategory = ShopCategory::query()->create([
             'name' => 'Separate inventory category',
             'slug' => 'separate-inventory-category',
             'active' => true,
@@ -817,7 +817,7 @@ class MarketplaceTest extends TestCase
     {
         $admin = $this->user('administrator');
         $vendorUser = $this->user('vendor', $this->vendor('Inventory Detail Vendor'));
-        $newCategory = Shopcategory::query()->create([
+        $newCategory = ShopCategory::query()->create([
             'name' => 'Inventory Category Update',
             'slug' => 'inventory-category-update',
             'active' => true,

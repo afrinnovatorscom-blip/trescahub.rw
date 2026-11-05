@@ -3,7 +3,7 @@
 namespace Database\Seeders;
 
 use App\Models\ProductVariation;
-use App\Models\Shopcategory;
+use App\Models\ShopCategory;
 use App\Models\ShopProduct;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Str;
@@ -41,14 +41,14 @@ class ProductSeeder extends Seeder
 
         $categories = [];
         foreach ($catalog as $name => $data) {
-            $parent = Shopcategory::query()->updateOrCreate(
+            $parent = ShopCategory::query()->updateOrCreate(
                 ['slug' => Str::slug($name)],
                 ['name' => $name, 'description' => $data['description'], 'parent_id' => null, 'active' => true],
             );
             $categories[$name] = ['model' => $parent, 'subs' => []];
 
             foreach ($data['subcategories'] as $subName) {
-                $categories[$name]['subs'][$subName] = Shopcategory::query()->updateOrCreate(
+                $categories[$name]['subs'][$subName] = ShopCategory::query()->updateOrCreate(
                     ['slug' => Str::slug($subName)],
                     ['name' => $subName, 'parent_id' => $parent->id, 'active' => true],
                 );

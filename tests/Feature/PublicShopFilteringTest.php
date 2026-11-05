@@ -2,7 +2,7 @@
 
 namespace Tests\Feature;
 
-use App\Models\Shopcategory;
+use App\Models\ShopCategory;
 use App\Models\ShopProduct;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -79,9 +79,9 @@ class PublicShopFilteringTest extends TestCase
             ->assertDontSee('Phone Alpha');
     }
 
-    private function category(string $name, ?Shopcategory $parent = null): Shopcategory
+    private function category(string $name, ?ShopCategory $parent = null): ShopCategory
     {
-        return Shopcategory::query()->create([
+        return ShopCategory::query()->create([
             'name' => $name,
             'slug' => str($name)->slug(),
             'parent_id' => $parent?->id,
@@ -89,7 +89,7 @@ class PublicShopFilteringTest extends TestCase
         ]);
     }
 
-    private function product(string $name, Shopcategory $parent, ?Shopcategory $subcategory = null, string $description = ''): ShopProduct
+    private function product(string $name, ShopCategory $parent, ?ShopCategory $subcategory = null, string $description = ''): ShopProduct
     {
         return ShopProduct::query()->create([
             'product_name' => $name,

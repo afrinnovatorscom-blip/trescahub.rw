@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Servicerequest;
+use App\Models\ServiceRequest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 

@@ -136,12 +136,12 @@ class ShopProduct extends Model
 
     public function category(): BelongsTo
     {
-        return $this->belongsTo(Shopcategory::class, 'shop_category_id');
+        return $this->belongsTo(ShopCategory::class, 'shop_category_id');
     }
 
     public function subcategory(): BelongsTo
     {
-        return $this->belongsTo(Shopcategory::class, 'subcategory_id');
+        return $this->belongsTo(ShopCategory::class, 'subcategory_id');
     }
 
     public function vendor(): BelongsTo

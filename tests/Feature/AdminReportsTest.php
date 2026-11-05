@@ -10,8 +10,8 @@ use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\OrderPayment;
 use App\Models\ProductRequest;
-use App\Models\Servicerequest;
-use App\Models\Shopcategory;
+use App\Models\ServiceRequest;
+use App\Models\ShopCategory;
 use App\Models\ShopProduct;
 use App\Models\User;
 use App\Models\Vendor;
@@ -46,7 +46,7 @@ class AdminReportsTest extends TestCase
             'district' => 'Kicukiro',
         ]);
 
-        $category = Shopcategory::query()->create([
+        $category = ShopCategory::query()->create([
             'name' => 'Laptops & Computers',
             'slug' => 'laptops-computers',
         ]);
@@ -521,7 +521,7 @@ class AdminReportsTest extends TestCase
     {
         $now = Carbon::now();
 
-        Servicerequest::query()->create([
+        ServiceRequest::query()->create([
             'name' => 'Alice Client',
             'phone' => '0788000111',
             'email' => 'alice@example.com',
@@ -532,7 +532,7 @@ class AdminReportsTest extends TestCase
             'updated_at' => $now,
         ]);
 
-        Servicerequest::query()->create([
+        ServiceRequest::query()->create([
             'name' => 'Bob Client',
             'phone' => '0788000222',
             'email' => 'bob@example.com',

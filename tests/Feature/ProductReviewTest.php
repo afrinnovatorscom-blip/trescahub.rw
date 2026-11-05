@@ -4,7 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Customer;
 use App\Models\ProductReview;
-use App\Models\Shopcategory;
+use App\Models\ShopCategory;
 use App\Models\ShopProduct;
 use App\Models\User;
 use App\Services\OrderService;
@@ -24,7 +24,7 @@ class ProductReviewTest extends TestCase
         parent::setUp();
 
         $this->seed(MarketplaceUserSeeder::class);
-        $category = Shopcategory::query()->create(['name' => 'Reviews', 'slug' => 'reviews', 'active' => true]);
+        $category = ShopCategory::query()->create(['name' => 'Reviews', 'slug' => 'reviews', 'active' => true]);
         $this->product = ShopProduct::query()->create([
             'product_name' => 'Reviewed Drill',
             'slug' => 'reviewed-drill',

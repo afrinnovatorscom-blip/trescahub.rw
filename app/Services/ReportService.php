@@ -9,7 +9,7 @@ use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\OrderPayment;
 use App\Models\ProductRequest;
-use App\Models\Servicerequest;
+use App\Models\ServiceRequest;
 use App\Models\ShopProduct;
 use App\Models\User;
 use App\Models\Vendor;
@@ -102,7 +102,7 @@ class ReportService
         $ordersQuery = Order::query()->whereBetween('created_at', [$fromBound, $toBound]);
         $orderItemsQuery = OrderItem::query()->whereHas('order', fn ($q) => $q->whereBetween('created_at', [$fromBound, $toBound]));
         $productRequestsQuery = ProductRequest::query()->whereBetween('created_at', [$fromBound, $toBound]);
-        $serviceRequestsQuery = Servicerequest::query()->whereBetween('created_at', [$fromBound, $toBound]);
+        $serviceRequestsQuery = ServiceRequest::query()->whereBetween('created_at', [$fromBound, $toBound]);
         $inventoryMovementsQuery = InventoryMovement::query()->whereBetween('created_at', [$fromBound, $toBound]);
         $paymentsQuery = OrderPayment::query()->whereBetween('created_at', [$fromBound, $toBound]);
         // Reports must describe completed deliveries from the Deliveries page.
