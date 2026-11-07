@@ -7,7 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Models\InventoryAdjustmentRequest;
 use App\Models\InventoryMovement;
 use App\Models\ProductLocation;
-use App\Models\Shopcategory;
+use App\Models\ShopCategory;
 use App\Models\ShopProduct;
 use App\Models\Vendor;
 use App\Services\AuditLogger;
@@ -241,7 +241,7 @@ class CatalogOperationsController extends Controller
         }
 
         $products = $baseProducts->paginate(20)->withQueryString();
-        $categories = Shopcategory::query()->whereNull('parent_id')->orderBy('name')->get();
+        $categories = ShopCategory::query()->whereNull('parent_id')->orderBy('name')->get();
         $vendors = Vendor::query()->orderBy('business_name')->get(['id', 'business_name']);
         $productOptions = ShopProduct::query()->where('tracks_inventory', true)
             ->when($filters['vendor_id'] ?? null, fn ($query, $vendorId) => $query->where('vendor_id', $vendorId))
@@ -284,7 +284,7 @@ class CatalogOperationsController extends Controller
     {
         abort_unless($request->user()->hasPermission('admin.access') && $request->user()->hasPermission('inventory.manage'), 403);
 
-        $category = Shopcategory::query()->whereNull('parent_id')->findOrFail($categoryId);
+        $category = ShopCategory::query()->whereNull('parent_id')->findOrFail($categoryId);
         $products = ShopProduct::query()
             ->where('shop_category_id', $category->id)
             ->with(['locations' => fn ($query) => $query->orderByDesc('is_primary')->orderBy('id')])

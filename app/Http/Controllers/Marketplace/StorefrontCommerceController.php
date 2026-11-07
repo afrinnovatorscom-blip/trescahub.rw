@@ -8,12 +8,14 @@ use App\Models\Customer;
 use App\Models\Order;
 use App\Models\ProductVariation;
 use App\Models\ShopProduct;
+use App\Services\MobileMoneyPaymentService;
 use App\Services\OrderService;
 use App\Services\RequestWorkflowService;
 use App\Support\CustomerTracking;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -23,6 +25,7 @@ class StorefrontCommerceController extends Controller
     public function __construct(
         private OrderService $orders,
         private RequestWorkflowService $requests,
+        private MobileMoneyPaymentService $mobileMoney,
     ) {}
 
     public function cart()
@@ -173,9 +176,15 @@ class StorefrontCommerceController extends Controller
             return redirect()->route('checkout');
         }
 
-        return view('front.pages.checkout-payment', [
-            'customer' => Auth::guard('customers')->user(),
-            'checkoutDetails' => session('marketplace.checkout.details'),
+        $amountDue = (int) round($lines->sum(
+            fn ($line) => (float) ($line['variation']?->price ?? $line['product']->price) * (int) $line['quantity']
+        ));
+
+        return view('front.pages.order-payment', [
+            'order' => null,
+            'transaction' => null,
+            'canPay' => true,
+            'amountDue' => $amountDue,
             'paymentMethod' => old('payment_method', session('marketplace.checkout.payment_method')),
             'paymentPhone' => old(
                 'payment_phone',
@@ -258,8 +267,24 @@ class StorefrontCommerceController extends Controller
             throw ValidationException::withMessages(['cart' => $exception->getMessage()]);
         }
 
-        session()->forget('marketplace.cart');
-        session()->forget('marketplace.checkout');
+        // Push the mobile money prompt to the customer's phone. A failed request still lands on the
+        // status page, which explains the problem and lets the customer try again for this order.
+        if ($this->mobileMoney->canPay($order)) {
+            try {
+                $transaction = $this->mobileMoney->start($order, $data['payment_method'], $data['payment_phone'], $request->ip());
+            } catch (\Throwable $exception) {
+                Log::channel('payment')->error('Checkout payment initiation failed unexpectedly', [
+                    'order_reference' => $order->reference,
+                    'exception' => $exception::class,
+                    'error' => $exception->getMessage(),
+                ]);
+
+                return redirect()->route('account.orders.pay', $order->reference)
+                    ->withErrors(['payment' => MobileMoneyPaymentService::TEMPORARY_FAILURE_MESSAGE]);
+            }
+
+            return redirect()->route('checkout.payment.status', $transaction);
+        }
 
         return redirect()->route('checkout.done', $order->reference)->with('placed_order', $order->reference);
     }
@@ -278,8 +303,13 @@ class StorefrontCommerceController extends Controller
 
     public function done(Request $request, string $reference)
     {
-        abort_unless(session('placed_order') === $reference, 404);
         $order = Order::query()->where('reference', $reference)->firstOrFail();
+        abort_unless(session('placed_order') === $reference, 404);
+        if ($order->source === 'cart_checkout'
+            && in_array($order->payment_method, MobileMoneyPaymentService::METHODS, true)) {
+            abort_unless($order->hasConfirmedPaidPayment(), 404);
+        }
+
         $customer = $request->user('customers');
         $trackingUrl = $customer && (int) $order->customer_id === (int) $customer->id
             ? route('account.orders.show', $order->reference)
@@ -420,6 +450,7 @@ class StorefrontCommerceController extends Controller
             'order' => $order,
             'tracking' => CustomerTracking::present($order),
             'canCancel' => in_array($order->fulfillment_status, ['pending_confirmation', 'confirmed', 'processing', 'awaiting_stock'], true),
+            'canPay' => $this->mobileMoney->canPay($order),
         ]);
     }
 
@@ -581,7 +612,7 @@ class StorefrontCommerceController extends Controller
             ->where('reference', $reference)
             ->with([
                 'items:id,order_id,shop_product_id,vendor_id,product_name,sku,product_variation_id,variation_label,variation_value,unit_price,quantity,line_total,fulfillment_status,assignment_status,created_at,updated_at',
-                'items.product:id,product_name,thumbnail',
+                'items.product:id,product_name,slug,thumbnail',
                 'items.vendor:id,business_name',
                 'payments:id,order_id,amount,type,method,created_at',
                 'histories:id,order_id,from_status,to_status,customer_message,created_at',

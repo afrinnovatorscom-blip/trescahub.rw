@@ -6,7 +6,7 @@ use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\ProductRequest;
 use App\Models\ShopProduct;
-use App\Models\Shopcategory;
+use App\Models\ShopCategory;
 use App\Models\User;
 use App\Models\Vendor;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -18,7 +18,7 @@ class VendorDashboardTest extends TestCase
 
     public function test_dashboard_shows_vendor_scoped_summary_recent_activity_and_actions(): void
     {
-        $category = Shopcategory::query()->create([
+        $category = ShopCategory::query()->create([
             'name' => 'Vendor Dashboard Category',
             'slug' => 'vendor-dashboard-category',
             'active' => true,
@@ -78,7 +78,7 @@ class VendorDashboardTest extends TestCase
         ]);
     }
 
-    private function product(Shopcategory $category, Vendor $vendor, string $name, string $approvalStatus): ShopProduct
+    private function product(ShopCategory $category, Vendor $vendor, string $name, string $approvalStatus): ShopProduct
     {
         return ShopProduct::query()->create([
             'product_name' => $name,

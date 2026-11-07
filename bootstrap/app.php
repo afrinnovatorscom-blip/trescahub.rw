@@ -67,6 +67,9 @@ return Application::configure(basePath: dirname(__DIR__))
                 : route('login');
         });
 
+        // IntouchPay posts its payment webhook without a CSRF token.
+        $middleware->validateCsrfTokens(except: ['api/intouchpay/callback']);
+
         $middleware->alias([
             'permission' => \App\Http\Middleware\EnsurePermission::class,
             'vendor.active' => \App\Http\Middleware\EnsureVendorIsActive::class,

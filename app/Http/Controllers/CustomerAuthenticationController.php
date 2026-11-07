@@ -50,7 +50,7 @@ class CustomerAuthenticationController extends Controller
         Auth::guard('customers')->login($customer);
         $request->session()->regenerate();
 
-        return redirect()->route('account.orders');
+        return redirect()->route('home');
     }
 
     public function logout(Request $request): RedirectResponse

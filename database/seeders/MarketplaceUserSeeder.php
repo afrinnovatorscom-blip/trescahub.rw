@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Models\Customer;
 use App\Models\Role;
 use App\Models\User;
 use App\Models\Vendor;
@@ -64,6 +65,31 @@ class MarketplaceUserSeeder extends Seeder
             $roleId = Role::query()->where('slug', $slug)->value('id');
             $user->roles()->sync([$roleId]);
             $user->forgetPermissionCache();
+        }
+
+        // Shop (storefront) customer. Customers sign in through the public site and live in
+        // their own "customers" table, separate from the staff accounts above.
+        $customer = Customer::query()->firstOrCreate(
+            ['email' => 'customer@example.com'],
+            [
+                'name' => 'Demo Customer',
+                'phone' => '0788001008',
+                'password' => 'password',
+                'email_verified_at' => now(),
+            ]
+        );
+
+        if (! $customer->addresses()->exists()) {
+            $customer->addresses()->create([
+                'label' => 'Home',
+                'recipient_name' => 'Demo Customer',
+                'recipient_phone' => '0788001008',
+                'recipient_email' => 'customer@example.com',
+                'address_line' => 'KG 11 Ave',
+                'city' => 'Kigali',
+                'district' => 'Gasabo',
+                'is_default' => true,
+            ]);
         }
     }
 }

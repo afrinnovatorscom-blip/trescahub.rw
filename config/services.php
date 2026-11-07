@@ -28,6 +28,20 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+    'intouchpay' => [
+        // Sandbox: https://developer.intouchpay.co.rw/api/v1/sandbox  Production: https://www.intouchpay.co.rw/api
+        'api_url' => env('INTOUCHPAY_API_URL', 'https://www.intouchpay.co.rw/api'),
+        'username' => env('INTOUCHPAY_USERNAME'),
+        'password' => env('INTOUCHPAY_PASSWORD'),
+        'account_no' => env('INTOUCHPAY_ACCOUNT_NO'),
+        // Optional path to a CA certificate bundle (cacert.pem). Only needed where PHP has no
+        // system certificates configured, e.g. PHP on Windows. SSL verification is never turned off.
+        'ca_bundle' => env('INTOUCHPAY_CA_BUNDLE'),
+        // Public URL IntouchPay posts payment results to. Defaults to APP_URL/api/intouchpay/callback.
+        // IntouchPay rejects localhost/private addresses, so set this to a public URL when testing locally.
+        'callback_url' => env('INTOUCHPAY_CALLBACK_URL'),
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),

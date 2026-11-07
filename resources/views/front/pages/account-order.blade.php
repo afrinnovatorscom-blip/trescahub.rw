@@ -23,6 +23,11 @@
             </div>
             <div class="tracking-header-badges">
                 <span class="tracking-badge is-order">{{ $tracking['status_label'] }}</span>
+                @if($canPay ?? false)
+                    <a class="tracking-receipt-button" href="{{ route('account.orders.pay', $tracking['reference']) }}">
+                        <i class="bi bi-phone" aria-hidden="true"></i> Pay now
+                    </a>
+                @endif
                 <a class="tracking-receipt-button" href="{{ route('account.orders.receipt', $tracking['reference']) }}">
                     <i class="bi bi-download" aria-hidden="true"></i> Download Receipt
                 </a>
@@ -118,6 +123,25 @@
                         </li>
                     @endforeach
                 </ul>
+
+                @php
+                    $reviewableProducts = in_array($order->fulfillment_status, \App\Services\ProductReviewService::REVIEWABLE_ORDER_STATUSES, true)
+                        ? $order->items->pluck('product')->filter(fn ($product) => $product && $product->slug)->unique('id')
+                        : collect();
+                @endphp
+                @if($reviewableProducts->isNotEmpty())
+                    <div class="tracking-review-prompt">
+                        <h3><i class="bi bi-star" aria-hidden="true"></i> How was your order?</h3>
+                        <p>Rate the products you received to help other customers.</p>
+                        <div class="tracking-review-links">
+                            @foreach($reviewableProducts as $reviewProduct)
+                                <a href="{{ route('shop-products.show', $reviewProduct->slug) }}#reviews">
+                                    Review {{ \Illuminate\Support\Str::limit($reviewProduct->product_name, 40) }}
+                                </a>
+                            @endforeach
+                        </div>
+                    </div>
+                @endif
 
                 <div class="tracking-order-date">
                     <span>Customer</span>
@@ -550,6 +574,13 @@
     .tracking-order-date,
     .tracking-address,
     .tracking-last-update,
+    .tracking-review-prompt { margin-top: 1rem; padding: .9rem 1rem; border: 1px solid #f3e2b8; border-radius: 10px; background: #fffbf0; }
+    .tracking-review-prompt h3 { margin: 0 0 .2rem; font-size: .9rem; font-weight: 700; color: #39413c; }
+    .tracking-review-prompt h3 i { color: #f5a623; }
+    .tracking-review-prompt p { margin: 0 0 .6rem; color: #606a64; font-size: .8rem; }
+    .tracking-review-links { display: flex; flex-wrap: wrap; gap: .45rem; }
+    .tracking-review-links a { border: 1px solid #16803c; border-radius: 999px; padding: .25rem .75rem; color: #16803c; font-size: .78rem; font-weight: 600; text-decoration: none; }
+    .tracking-review-links a:hover { background: #16803c; color: #fff; }
     .tracking-payment-records {
         border-top: 1px solid #e9edea;
         padding-top: .85rem;

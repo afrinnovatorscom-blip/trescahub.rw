@@ -85,7 +85,7 @@ class User extends Authenticatable
 
     public function serviceRequests(): HasMany
     {
-        return $this->hasMany(Servicerequest::class);
+        return $this->hasMany(ServiceRequest::class);
     }
 
     public function assignRole(string $slug): void

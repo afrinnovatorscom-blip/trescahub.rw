@@ -5,7 +5,7 @@ namespace Tests\Feature;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Models\ProductRequest;
-use App\Models\Shopcategory;
+use App\Models\ShopCategory;
 use App\Models\ShopProduct;
 use App\Models\User;
 use Database\Seeders\MarketplaceUserSeeder;
@@ -17,7 +17,7 @@ class RequestProductOrderTest extends TestCase
 {
     use RefreshDatabase;
 
-    private Shopcategory $category;
+    private ShopCategory $category;
 
     private User $admin;
 
@@ -25,7 +25,7 @@ class RequestProductOrderTest extends TestCase
     {
         parent::setUp();
 
-        $this->category = Shopcategory::query()->create([
+        $this->category = ShopCategory::query()->create([
             'name' => 'Request Product Tests',
             'slug' => 'request-product-tests',
             'active' => true,
@@ -36,7 +36,7 @@ class RequestProductOrderTest extends TestCase
         $this->admin = $this->admin->fresh();
     }
 
-    public function test_cart_checkout_notifies_admin_when_a_new_order_is_received(): void
+    public function test_mobile_money_checkout_is_not_announced_before_payment_is_verified(): void
     {
         $customer = $this->customer();
         $product = $this->product(['price' => 12500]);
@@ -64,14 +64,9 @@ class RequestProductOrderTest extends TestCase
         $order = Order::query()->where('submission_key', $submissionKey)->firstOrFail();
         $notification = $this->admin->notifications()
             ->where('data->dedupe_key', 'customer-order-placed-'.$order->id)
-            ->firstOrFail();
+            ->first();
 
-        $this->assertSame('New order received from '.$customer->name.'.', $notification->data['title']);
-        $this->assertSame(
-            'Order '.$order->reference.' | 1 item | RWF 25,000.00',
-            $notification->data['body'],
-        );
-        $this->assertSame(route('marketplace.orders.show', $order), $notification->data['url']);
+        $this->assertNull($notification, 'A mobile-money checkout is not announced before payment verification.');
     }
 
     public function test_catalog_request_creates_an_owned_order_and_repeated_submission_reuses_it(): void
@@ -215,17 +210,15 @@ class RequestProductOrderTest extends TestCase
 
         $this->get(route('checkout.payment'))
             ->assertOk()
-            ->assertSee('Checkout Details')
-            ->assertSee('Confirmation')
+            ->assertSee('Pay for your order')
             ->assertSee('MTN Mobile Money')
-            ->assertSee('Pay using your MTN number.')
             ->assertSee('Airtel Money')
-            ->assertSee('Pay using your Airtel number.')
             ->assertSee('assets/payment-providers/mtn-momo.png')
             ->assertSee('assets/payment-providers/airtel-money.svg')
             ->assertSee('value="'.$customer->phone.'"', false)
-            ->assertSee("phoneLabel.textContent = selected.value === 'airtel_money'", false)
-            ->assertSee('Back to Checkout');
+            ->assertSee('action="'.route('checkout.place').'"', false)
+            ->assertSee('id="order-payment-form"', false)
+            ->assertDontSee('checkout-payment-page');
 
         $this->get(route('checkout'))
             ->assertOk()
@@ -240,14 +233,12 @@ class RequestProductOrderTest extends TestCase
         ])->assertRedirect();
 
         $order = Order::query()->with('items')->firstOrFail();
-        $placeResponse->assertSessionHas('placed_order', $order->reference);
+        // The order remains pending until the gateway verifies the payment.
+        $transaction = $order->paymentTransactions()->firstOrFail();
+        $placeResponse->assertRedirect(route('checkout.payment.status', $transaction));
+        $this->get(route('checkout.payment.status', $transaction))->assertOk();
         $this->get(route('checkout.done', $order->reference))
-            ->assertOk()
-            ->assertSee('Order Received Successfully')
-            ->assertSee('Thank you for your order. We have received your order and it will be processed soon.')
-            ->assertSee($order->reference)
-            ->assertDontSee('Payment records')
-            ->assertDontSee('Payment:');
+            ->assertNotFound();
         $this->assertDatabaseCount('order_payments', 0);
         $this->assertSame('pending', $order->payment_status);
         $this->assertSame('cart_checkout', $order->source);
@@ -259,23 +250,28 @@ class RequestProductOrderTest extends TestCase
         $this->assertSame('mtn_mobile_money', $order->payment_method);
         $this->assertSame('+250780111222', $order->payment_phone);
         $this->assertSame('Call at the gate.', $order->delivery_notes);
-        $this->post(route('checkout.place'), [
+        $this->assertSame([$first->slug => 2, $second->slug => 3], session('marketplace.cart'));
+        $this->get(route('checkout'))
+            ->assertOk()
+            ->assertSee($first->product_name)
+            ->assertSee($second->product_name);
+        $repeatResponse = $this->post(route('checkout.place'), [
             'payment_method' => 'mtn_mobile_money',
             'payment_phone' => '+250780111222',
-        ])->assertRedirect(route('checkout'));
+        ])->assertRedirect();
         $this->assertSame(1, Order::query()->count());
+        $latestTransaction = $order->paymentTransactions()->latest('id')->firstOrFail();
+        $repeatResponse->assertRedirect(route('checkout.payment.status', $latestTransaction));
 
         $this->actingAs($this->admin, 'web')
             ->get(route('marketplace.orders.index', ['tab' => 'pending']))
             ->assertOk()
-            ->assertSee($order->reference)
-            ->assertSee($customer->name);
+            ->assertDontSee($order->reference);
 
         $notification = $this->admin->notifications()
             ->where('data->dedupe_key', 'customer-order-placed-'.$order->id)
-            ->firstOrFail();
-        $this->assertSame('New order received from '.$customer->name.'.', $notification->data['title']);
-        $this->assertSame(route('marketplace.orders.show', $order), $notification->data['url']);
+            ->first();
+        $this->assertNull($notification);
 
         $vendorUser = User::factory()->create();
         $vendorUser->assignRole('vendor');
@@ -284,18 +280,21 @@ class RequestProductOrderTest extends TestCase
             0,
             $customer->notifications()->where('data->dedupe_key', 'customer-order-placed-'.$order->id)->count(),
         );
+        $this->assertSame(
+            0,
+            $customer->notifications()->where('data->dedupe_key', 'order-'.$order->id.'-pending_confirmation')->count(),
+        );
 
         $this->actingAs($this->admin, 'web');
         $this->getJson(route('marketplace.notifications.unread-count'))
             ->assertOk()
-            ->assertExactJson(['count' => 1]);
+            ->assertExactJson(['count' => 0]);
 
         $this->get(route('marketplace.orders.index'))
             ->assertOk()
-            ->assertSee($order->reference);
+            ->assertDontSee($order->reference);
         $this->get(route('marketplace.orders.show', $order))
-            ->assertOk()
-            ->assertSee('Cart Checkout');
+            ->assertOk();
     }
 
     public function test_checkout_continue_button_follows_summary_for_responsive_layout(): void

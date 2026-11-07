@@ -150,6 +150,36 @@ class MarketplaceNotifier
         }
     }
 
+    public function orderPaid(Order $order, float $amount, string $method): void
+    {
+        $order->loadMissing(['accountCustomer', 'user']);
+        $amountLabel = 'RWF '.number_format($amount, 2, '.', ',');
+        $methodLabel = ucwords(str_replace('_', ' ', $method));
+
+        if ($customer = $order->accountCustomer ?? $order->user) {
+            $this->send(
+                $customer,
+                'Payment received',
+                'We received your payment of '.$amountLabel.' for order '.$order->reference.'.',
+                route('account.orders.show', $order->reference),
+                'order-'.$order->id.'-paid',
+                false,
+            );
+        }
+
+        foreach ($this->staff('orders.view_all')->filter(
+            fn (User $user) => $user->hasPermission('admin.access')
+        ) as $user) {
+            $this->send(
+                $user,
+                'Payment received for order '.$order->reference.'.',
+                $amountLabel.' via '.$methodLabel.' from '.$order->customer_name,
+                route('marketplace.orders.show', $order),
+                'order-paid-'.$order->id,
+            );
+        }
+    }
+
     public function hasVendorDeliveryRequest(Order $order, int $vendorId): bool
     {
         $dedupeKey = 'vendor-delivery-request-'.$order->id.'-'.$vendorId;

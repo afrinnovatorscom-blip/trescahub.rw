@@ -4,7 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\InventoryMovement;
 use App\Models\Permission;
-use App\Models\Shopcategory;
+use App\Models\ShopCategory;
 use App\Models\ShopProduct;
 use App\Models\User;
 use App\Models\Vendor;
@@ -16,14 +16,14 @@ class ProductInitialStockTest extends TestCase
 {
     use RefreshDatabase;
 
-    private Shopcategory $category;
+    private ShopCategory $category;
 
     protected function setUp(): void
     {
         parent::setUp();
         $this->seed(MarketplaceUserSeeder::class);
 
-        $this->category = Shopcategory::query()->create([
+        $this->category = ShopCategory::query()->create([
             'name' => 'Initial Stock Test Products',
             'slug' => 'initial-stock-test-products',
             'active' => true,

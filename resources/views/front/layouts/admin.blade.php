@@ -364,7 +364,7 @@
 
     @php
         $pendingTestimonials    = \App\Models\Testimonial::pending()->count();
-        $pendingServiceRequests = \App\Models\Servicerequest::pending()->count();
+        $pendingServiceRequests = \App\Models\ServiceRequest::pending()->count();
         $headerUser = auth()->user();
         $unreadNotificationCount = $headerUser->unreadNotifications()->count();
     @endphp

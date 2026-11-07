@@ -41,7 +41,7 @@ class CustomerAccountTest extends TestCase
             'phone' => '+250 780 123 456',
             'password' => 'Strong-password-123',
             'password_confirmation' => 'Strong-password-123',
-        ])->assertRedirect(route('account.orders'));
+        ])->assertRedirect(route('home'));
 
         $customer = Customer::query()->where('email', 'customer@example.com')->firstOrFail();
         $this->assertAuthenticatedAs($customer, 'customers');

@@ -7,7 +7,7 @@ use App\Models\Category;
 use App\Models\Cta;
 use App\Models\CtaCategory;
 use App\Models\Service;
-use App\Models\Shopcategory;
+use App\Models\ShopCategory;
 use App\Models\ShopProduct;
 use App\Models\Work;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -77,7 +77,7 @@ class HomepageSectionsTest extends TestCase
 
         Work::create(['title' => 'Browse', 'description' => 'Explore available services.']);
 
-        $shopCategory = Shopcategory::create([
+        $shopCategory = ShopCategory::create([
             'name' => 'Electronics',
             'slug' => 'electronics',
         ]);

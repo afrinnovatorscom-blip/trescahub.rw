@@ -4,7 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Customer;
 use App\Models\ProductRequest;
-use App\Models\Servicerequest;
+use App\Models\ServiceRequest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -121,7 +121,7 @@ class CustomerAccountController extends Controller
 
         return view('front.pages.account-requests', [
             'productRequests' => ProductRequest::query()->where('customer_id', $customer->id)->latest()->limit(50)->get(),
-            'serviceRequests' => Servicerequest::query()->where('customer_id', $customer->id)->latest()->limit(50)->get(),
+            'serviceRequests' => ServiceRequest::query()->where('customer_id', $customer->id)->latest()->limit(50)->get(),
         ]);
     }
 

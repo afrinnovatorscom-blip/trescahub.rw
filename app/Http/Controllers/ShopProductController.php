@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Shopcategory;
+use App\Models\ShopCategory;
 use App\Models\ShopProduct;
 use App\Models\Vendor;
 use App\Services\ProductImageService;
@@ -80,7 +80,7 @@ class ShopProductController extends Controller
             ->groupBy('shop_category_id')
             ->pluck('products_count', 'shop_category_id');
 
-        $parentCategories = Shopcategory::with(['subcategories' => fn ($query) => $query->where('active', true)])
+        $parentCategories = ShopCategory::with(['subcategories' => fn ($query) => $query->where('active', true)])
             ->whereNull('parent_id')
             ->where('active', true)
             ->orderBy('name')
@@ -105,10 +105,29 @@ class ShopProductController extends Controller
             ->with(['category', 'subcategory'])
             ->where('shop_category_id', $shopProduct->shop_category_id)
             ->where('id', '!=', $shopProduct->id)
-            ->limit(4)
+            ->withAvg('publishedReviews as rating_average', 'rating')
+            ->withCount('publishedReviews as rating_count')
+            ->limit(12)
             ->get();
 
-        return view('front.pages.shopproduct', compact('shopProduct', 'related'));
+        // Ratings & reviews
+        $reviewService = app(\App\Services\ProductReviewService::class);
+        $reviewSort = array_key_exists(request('reviews_sort'), \App\Services\ProductReviewService::SORTS)
+            ? request('reviews_sort')
+            : 'recent';
+        $reviewRating = request()->integer('reviews_rating') ?: null;
+        $reviewSummary = $reviewService->summary($shopProduct);
+        $reviews = $reviewService->list($shopProduct, $reviewSort, $reviewRating);
+
+        $customer = auth('customers')->user();
+        $ownReview = $customer
+            ? $shopProduct->reviews()->where('customer_id', $customer->id)->first()
+            : null;
+        $canReview = $customer !== null && $reviewService->verifiedOrder($customer, $shopProduct) !== null;
+
+        return view('front.pages.shopproduct', compact(
+            'shopProduct', 'related', 'reviewSummary', 'reviews', 'reviewSort', 'reviewRating', 'ownReview', 'canReview',
+        ));
     }
 
     public function publicApi(Request $request)
@@ -272,7 +291,7 @@ class ShopProductController extends Controller
 
     private function categories()
     {
-        return Shopcategory::with('subcategories')->whereNull('parent_id')->orderBy('name')->get();
+        return ShopCategory::with('subcategories')->whereNull('parent_id')->orderBy('name')->get();
     }
 
     private function vendorOptions()

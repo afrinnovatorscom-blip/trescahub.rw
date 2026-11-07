@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Models\Vendor;
 use App\Services\AuditLogger;
 use App\Services\MarketplaceNotifier;
+use App\Services\MobileMoneyPaymentService;
 use App\Services\OrderService;
 use App\Services\RequestWorkflowService;
 use Illuminate\Http\Request;
@@ -129,6 +130,13 @@ class CommerceController extends Controller
             })
             ->when(! empty($filters['date_from']), fn ($query) => $query->whereDate('created_at', '>=', $filters['date_from']))
             ->when(! empty($filters['date_to']), fn ($query) => $query->whereDate('created_at', '<=', $filters['date_to']))
+            ->where(function ($query) {
+                $query->where('source', '!=', 'cart_checkout')
+                    ->orWhereNull('source')
+                    ->orWhereNull('payment_method')
+                    ->orWhereNotIn('payment_method', MobileMoneyPaymentService::METHODS)
+                    ->orWhere('payment_status', 'paid');
+            })
             ->with(['customer:id,name,phone', 'items.vendor', 'officer:id,name', 'deliveries:id,order_id,vendor_id,status']);
 
         // An order is pending admin review only while none of its product lines

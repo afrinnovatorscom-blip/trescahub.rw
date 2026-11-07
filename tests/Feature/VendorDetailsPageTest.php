@@ -5,7 +5,7 @@ namespace Tests\Feature;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Role;
-use App\Models\Shopcategory;
+use App\Models\ShopCategory;
 use App\Models\ShopProduct;
 use App\Models\User;
 use App\Models\Vendor;
@@ -17,13 +17,13 @@ class VendorDetailsPageTest extends TestCase
 {
     use RefreshDatabase;
 
-    private Shopcategory $category;
+    private ShopCategory $category;
 
     protected function setUp(): void
     {
         parent::setUp();
         $this->seed(MarketplaceUserSeeder::class);
-        $this->category = Shopcategory::query()->create([
+        $this->category = ShopCategory::query()->create([
             'name' => 'Vendor Detail Category',
             'slug' => 'vendor-detail-category',
             'active' => true,

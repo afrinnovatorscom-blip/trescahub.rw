@@ -136,12 +136,12 @@ class ShopProduct extends Model
 
     public function category(): BelongsTo
     {
-        return $this->belongsTo(Shopcategory::class, 'shop_category_id');
+        return $this->belongsTo(ShopCategory::class, 'shop_category_id');
     }
 
     public function subcategory(): BelongsTo
     {
-        return $this->belongsTo(Shopcategory::class, 'subcategory_id');
+        return $this->belongsTo(ShopCategory::class, 'subcategory_id');
     }
 
     public function vendor(): BelongsTo
@@ -157,6 +157,16 @@ class ShopProduct extends Model
     public function variations(): HasMany
     {
         return $this->hasMany(ProductVariation::class, 'shop_product_id')->orderBy('id');
+    }
+
+    public function reviews(): HasMany
+    {
+        return $this->hasMany(ProductReview::class, 'shop_product_id');
+    }
+
+    public function publishedReviews(): HasMany
+    {
+        return $this->reviews()->where('status', 'published');
     }
 
     public function defaultVariation(): HasOne

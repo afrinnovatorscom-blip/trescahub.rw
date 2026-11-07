@@ -111,6 +111,7 @@ class OrderService
                 'customer_name' => $customer['name'],
                 'email' => $customer['email'] ?? null,
                 'phone' => $customer['phone'],
+                'payment_phone' => $customer['payment_phone'] ?? null,
                 'delivery_address' => $customer['delivery_address'],
                 'delivery_notes' => $customer['delivery_notes'] ?? null,
                 'subtotal' => 0,
@@ -152,8 +153,12 @@ class OrderService
             $order->update(['subtotal' => $subtotal, 'total' => $subtotal]);
             $this->history($order, $user, null, 'pending_confirmation', null, 'We have received your order.');
             AuditLogger::log($user, 'order.created', $order, ['total' => $subtotal]);
-            $this->notifier->customerOrderPlaced($order);
-            $this->notifier->customerOrder($order, 'Order received', 'We have received order '.$order->reference.'.');
+            $mobileMoneyCheckout = $source === 'cart_checkout'
+                && in_array($customer['payment_method'] ?? null, MobileMoneyPaymentService::METHODS, true);
+            if (! $mobileMoneyCheckout) {
+                $this->notifier->customerOrderPlaced($order);
+                $this->notifier->customerOrder($order, 'Order received', 'We have received order '.$order->reference.'.');
+            }
 
             return $order->load('items');
         });
@@ -181,6 +186,12 @@ class OrderService
         }
         if ($from === 'pending_confirmation' && $to === 'cancelled' && ! trim((string) $cancellationReason)) {
             throw ValidationException::withMessages(['cancellation_reason' => 'A rejection reason is required.']);
+        }
+        if ($this->requiresVerifiedCheckoutPayment($order)
+            && in_array($to, ['confirmed', 'processing', 'awaiting_stock', 'ready_for_dispatch', 'dispatched', 'out_for_delivery', 'delivered', 'completed'], true)) {
+            throw ValidationException::withMessages([
+                'payment' => 'A verified mobile money payment is required before this order can be processed.',
+            ]);
         }
         $this->assertTransition($from, $to);
         $this->assertActorCanTransition($order, $actor, $to);
@@ -308,6 +319,12 @@ class OrderService
 
         DB::transaction(function () use ($order, $actor, $allocations, $recordPayment, $paymentType, $paymentMethod, $partialAmount, $submissionKey, $acceptOrder, $allocateWholeOrder) {
             $lockedOrder = Order::query()->whereKey($order->id)->lockForUpdate()->firstOrFail();
+            if ($this->requiresVerifiedCheckoutPayment($lockedOrder)
+                && ($allocations !== [] || $recordPayment || $acceptOrder || $allocateWholeOrder)) {
+                throw ValidationException::withMessages([
+                    'payment' => 'A verified mobile money payment is required before this order can be processed.',
+                ]);
+            }
             if ($allocateWholeOrder && $lockedOrder->fulfillment_status !== 'pending_confirmation') {
                 throw ValidationException::withMessages([
                     'allocations' => 'This order is no longer awaiting allocation.',
@@ -836,6 +853,11 @@ class OrderService
 
         DB::transaction(function () use ($order, $vendorId, $actor) {
             $lockedOrder = Order::query()->whereKey($order->id)->lockForUpdate()->firstOrFail();
+            if ($this->requiresVerifiedCheckoutPayment($lockedOrder)) {
+                throw ValidationException::withMessages([
+                    'payment' => 'A verified mobile money payment is required before this order can be processed.',
+                ]);
+            }
             if (in_array($lockedOrder->fulfillment_status, [
                 'pending_confirmation', 'delivered', 'completed', 'cancelled', 'returned',
             ], true)) {
@@ -905,6 +927,11 @@ class OrderService
 
         return DB::transaction(function () use ($order, $itemIds, $vendorId, $actor, $details, $dispatchProofPath) {
                     $lockedOrder = Order::query()->whereKey($order->id)->lockForUpdate()->firstOrFail();
+                    if ($this->requiresVerifiedCheckoutPayment($lockedOrder)) {
+                        throw ValidationException::withMessages([
+                            'payment' => 'A verified mobile money payment is required before this order can be processed.',
+                        ]);
+                    }
                     if (in_array($lockedOrder->fulfillment_status, [
                         'pending_confirmation', 'delivered', 'completed', 'cancelled', 'returned',
                     ], true)) {
@@ -1331,6 +1358,20 @@ class OrderService
         if (! $actor->vendor_id || (int) $item->vendor_id !== (int) $actor->vendor_id) {
             abort(404);
         }
+
+        $item->loadMissing('order');
+        if ($item->order && $this->requiresVerifiedCheckoutPayment($item->order)) {
+            throw ValidationException::withMessages([
+                'payment' => 'A verified mobile money payment is required before this order can be processed.',
+            ]);
+        }
+    }
+
+    private function requiresVerifiedCheckoutPayment(Order $order): bool
+    {
+        return $order->source === 'cart_checkout'
+            && in_array($order->payment_method, MobileMoneyPaymentService::METHODS, true)
+            && ! $order->hasConfirmedPaidPayment();
     }
 
     private function history(Order $order, ?User $actor, ?string $from, string $to, ?string $note, ?string $customerMessage): void

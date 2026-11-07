@@ -2,7 +2,7 @@
 
 namespace Tests\Feature;
 
-use App\Models\Shopcategory;
+use App\Models\ShopCategory;
 use App\Models\ShopProduct;
 use App\Models\User;
 use App\Support\PublicAsset;
@@ -15,14 +15,14 @@ class ProductManagementTest extends TestCase
 {
     use RefreshDatabase;
 
-    private Shopcategory $category;
+    private ShopCategory $category;
 
     protected function setUp(): void
     {
         parent::setUp();
         $this->seed(MarketplaceUserSeeder::class);
 
-        $this->category = Shopcategory::query()->create([
+        $this->category = ShopCategory::query()->create([
             'name' => 'Test products',
             'slug' => 'test-products',
             'active' => true,
@@ -417,12 +417,12 @@ class ProductManagementTest extends TestCase
     public function test_product_validation_rejects_invalid_discount_status_and_cross_category_subcategory(): void
     {
         $admin = $this->admin();
-        $otherCategory = Shopcategory::query()->create([
+        $otherCategory = ShopCategory::query()->create([
             'name' => 'Other products',
             'slug' => 'other-products',
             'active' => true,
         ]);
-        $subcategory = Shopcategory::query()->create([
+        $subcategory = ShopCategory::query()->create([
             'name' => 'Other subcategory',
             'slug' => 'other-subcategory',
             'parent_id' => $otherCategory->id,

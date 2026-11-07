@@ -3,7 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Permission;
-use App\Models\Shopcategory;
+use App\Models\ShopCategory;
 use App\Models\ShopProduct;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -46,7 +46,7 @@ class ShopCategoryManagementTest extends TestCase
             'parent_id' => null,
             'active' => true,
         ]);
-        $this->assertSame(1, Shopcategory::query()->count());
+        $this->assertSame(1, ShopCategory::query()->count());
     }
 
     public function test_parent_and_multiple_subcategories_are_saved_together(): void
@@ -62,7 +62,7 @@ class ShopCategoryManagementTest extends TestCase
             ])
             ->assertRedirect(route('shop-categories.index'));
 
-        $parent = Shopcategory::query()->where('slug', 'computers')->firstOrFail();
+        $parent = ShopCategory::query()->where('slug', 'computers')->firstOrFail();
         $this->assertSame(2, $parent->subcategories()->count());
         $this->assertDatabaseHas('shop_categories', [
             'name' => 'Laptops',
@@ -90,7 +90,7 @@ class ShopCategoryManagementTest extends TestCase
             ])
             ->assertRedirect(route('shop-categories.index'));
 
-        $parent = Shopcategory::query()->where('slug', 'networking')->firstOrFail();
+        $parent = ShopCategory::query()->where('slug', 'networking')->firstOrFail();
         $this->assertSame(1, $parent->subcategories()->count());
         $this->assertSame('Routers', $parent->subcategories()->firstOrFail()->name);
     }
@@ -151,7 +151,7 @@ class ShopCategoryManagementTest extends TestCase
 
     public function test_duplicate_parent_slug_is_rejected(): void
     {
-        Shopcategory::query()->create(['name' => 'Existing', 'slug' => 'existing']);
+        ShopCategory::query()->create(['name' => 'Existing', 'slug' => 'existing']);
 
         $this->actingAs($this->administrator)
             ->from(route('shop-categories.create'))
@@ -181,12 +181,12 @@ class ShopCategoryManagementTest extends TestCase
             ->assertServerError();
 
         $this->assertDatabaseMissing('shop_categories', ['slug' => 'rollback-test']);
-        $this->assertSame(0, Shopcategory::query()->count());
+        $this->assertSame(0, ShopCategory::query()->count());
     }
 
     public function test_editing_a_category_preserves_existing_subcategory_product_assignments(): void
     {
-        $parent = Shopcategory::query()->create(['name' => 'Kitchen', 'slug' => 'kitchen']);
+        $parent = ShopCategory::query()->create(['name' => 'Kitchen', 'slug' => 'kitchen']);
         $subcategory = $parent->subcategories()->create([
             'name' => 'Cookware',
             'slug' => 'cookware',
@@ -229,7 +229,7 @@ class ShopCategoryManagementTest extends TestCase
 
     public function test_inactive_parent_hides_assigned_products_even_if_child_is_active(): void
     {
-        $parent = Shopcategory::query()->create([
+        $parent = ShopCategory::query()->create([
             'name' => 'Inactive Parent',
             'slug' => 'inactive-parent',
             'active' => false,

@@ -11,7 +11,7 @@ use App\Models\InventoryAdjustmentRequest;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\ProductRequest;
-use App\Models\Shopcategory;
+use App\Models\ShopCategory;
 use App\Models\ShopProduct;
 use App\Services\AuditLogger;
 use App\Services\InventoryAdjustmentRequestService;
@@ -98,7 +98,7 @@ class VendorWorkspaceController extends Controller
 
         return view('vendor.products.form', [
             'product' => new ShopProduct,
-            'parentCategories' => Shopcategory::with('subcategories')->whereNull('parent_id')->orderBy('name')->get(),
+            'parentCategories' => ShopCategory::with('subcategories')->whereNull('parent_id')->orderBy('name')->get(),
             'vendors' => collect(),
         ]);
     }
@@ -131,7 +131,7 @@ class VendorWorkspaceController extends Controller
 
         return view('vendor.products.form', [
             'product' => $product,
-            'parentCategories' => Shopcategory::with('subcategories')->whereNull('parent_id')->orderBy('name')->get(),
+            'parentCategories' => ShopCategory::with('subcategories')->whereNull('parent_id')->orderBy('name')->get(),
             'vendors' => collect(),
         ]);
     }
