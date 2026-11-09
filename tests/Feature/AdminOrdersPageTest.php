@@ -437,6 +437,54 @@ class AdminOrdersPageTest extends TestCase
         $this->assertDatabaseCount('delivery_tasks', 0);
     }
 
+    public function test_paid_mobile_money_order_is_prioritized_in_pending_until_admin_approval(): void
+    {
+        $paidOrder = $this->order('ORDER-PAID-PENDING', 'Paid Customer', 'pending_confirmation', 'paid');
+        $paidOrder->update([
+            'source' => 'cart_checkout',
+            'payment_method' => 'mtn_mobile_money',
+        ]);
+        $paidItem = $this->item($paidOrder, 'Paid Product', null);
+        $paidOrder->payments()->create([
+            'amount' => number_format((float) $paidOrder->total, 2, '.', ''),
+            'type' => 'full',
+            'method' => 'mtn_mobile_money',
+            'submission_key' => (string) \Illuminate\Support\Str::uuid(),
+        ]);
+        $this->assertSame(1, Order::query()->where('reference', 'ORDER-PAID-PENDING')->count());
+
+        $unpaidOrder = $this->order('ORDER-UNPAID-PENDING', 'Unpaid Customer', 'pending_confirmation', 'pending');
+        $this->item($unpaidOrder, 'Unpaid Product', null);
+
+        $pendingResponse = $this->actingAs($this->admin)
+            ->get(route('marketplace.orders.index', ['tab' => 'pending']))
+            ->assertOk()
+            ->assertSee('ORDER-PAID-PENDING')
+            ->assertSee('ORDER-UNPAID-PENDING');
+        $this->assertLessThan(
+            strpos($pendingResponse->getContent(), 'ORDER-UNPAID-PENDING'),
+            strpos($pendingResponse->getContent(), 'ORDER-PAID-PENDING'),
+            'Paid orders awaiting Admin review should be listed before other pending orders.',
+        );
+        $this->assertSame('paid', $paidOrder->fresh()->payment_status);
+        $this->assertSame('pending_confirmation', $paidOrder->fresh()->fulfillment_status);
+
+        $paidItem->update(['assignment_status' => 'admin_handled']);
+        $this->actingAs($this->admin)->post(route('marketplace.orders.approve', $paidOrder))
+            ->assertRedirect(route('marketplace.orders.index', ['tab' => 'approved']));
+
+        $this->assertSame('paid', $paidOrder->fresh()->payment_status);
+        $this->assertSame('confirmed', $paidOrder->fresh()->fulfillment_status);
+        $this->actingAs($this->admin)
+            ->get(route('marketplace.orders.index', ['tab' => 'pending']))
+            ->assertOk()
+            ->assertDontSee('ORDER-PAID-PENDING');
+        $this->actingAs($this->admin)
+            ->get(route('marketplace.orders.index', ['tab' => 'approved']))
+            ->assertOk()
+            ->assertSee('ORDER-PAID-PENDING');
+    }
+
     public function test_confirmed_payment_appears_in_admin_paid_orders_without_excluding_other_paid_fulfillment_states(): void
     {
         $order = $this->order('ORDER-VERIFIED-PAYMENT', 'Verified Payment Customer', 'pending_confirmation', 'pending');

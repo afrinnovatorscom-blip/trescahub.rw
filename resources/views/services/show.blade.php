@@ -1,5 +1,26 @@
 @extends('front.layouts.guest')
 @section('content')
+@php
+    $serviceImageUrl = function ($path) {
+        if (! is_string($path) || trim($path) === '') {
+            return null;
+        }
+
+        $path = str_replace('\\', '/', ltrim(trim($path), '/'));
+        $path = preg_replace('#^public/#', '', $path);
+
+        if ($path === '' || preg_match('#(^|/)\.\.(/|$)|^[a-z][a-z0-9+.-]*:#i', $path)) {
+            return null;
+        }
+
+        return is_file(public_path($path)) ? asset($path) : null;
+    };
+    $mainServiceImageUrl = $serviceImageUrl($service->thumbnail);
+    $galleryImageUrls = collect($service->other_images ?? [])
+        ->map($serviceImageUrl)
+        ->filter()
+        ->values();
+@endphp
 
 <div class="container py-5">
     {{-- Back Button --}}
@@ -8,109 +29,117 @@
         Back to {{ $service->category->title }}
     </a>
 
-    <div class="row g-5">
+    <div class="row g-4 g-lg-5 align-items-start service-detail-top">
         {{-- Service Images --}}
-        <div class="col-lg-6 mb-4">
-            @if($service->thumbnail)
-                <div class="service-images">
-                    {{-- Main Image --}}
-                    <div class="main-image mb-3" style="border-radius: 12px; overflow: hidden; background-color: #f3f4f6; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-                        <img id="mainImage" 
-                             src="{{ asset('' . $service->thumbnail) }}" 
+        <div class="col-lg-6 service-gallery-column">
+            <div class="service-images">
+                {{-- Main Image --}}
+                @if($mainServiceImageUrl || $galleryImageUrls->isNotEmpty())
+                    <div class="main-image service-main-image" style="display: {{ $mainServiceImageUrl ? 'block' : 'none' }};">
+                        <img id="mainImage"
+                             @if($mainServiceImageUrl) src="{{ $mainServiceImageUrl }}" @endif
                              alt="{{ $service->title }}"
-                             style="width: 100%; height: 400px; object-fit: cover;">
+                             onerror="this.closest('.main-image').style.display='none'"
+                             style="display: block; width: 100%; height: 100%; object-fit: cover;">
                     </div>
+                @endif
 
-                    {{-- Gallery Thumbnails --}}
-                    @if($service->other_images && count($service->other_images) > 0)
-                        <div class="gallery-thumbnails" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); gap: 10px;">
-                            <div class="gallery-item active" onclick="changeImage('{{ asset('public/' . $service->thumbnail) }}')" style="cursor: pointer; border: 2px solid #16a34a; border-radius: 8px; overflow: hidden; transition: all 0.3s ease;">
-                                <img src="{{ asset('' . $service->thumbnail) }}" alt="Main" style="width: 100%; height: 80px; object-fit: cover;">
+                {{-- Gallery Thumbnails --}}
+                @if($mainServiceImageUrl || $galleryImageUrls->isNotEmpty())
+                    <div class="gallery-thumbnails service-gallery-thumbnails">
+                        @if($mainServiceImageUrl)
+                            <div class="gallery-item active service-gallery-item" data-image-src="{{ $mainServiceImageUrl }}" onclick="changeImage(this)">
+                                <img src="{{ $mainServiceImageUrl }}" alt="Main" onerror="this.closest('.gallery-item').remove(); const gallery = document.querySelector('.gallery-thumbnails'); if (gallery && !gallery.querySelector('.gallery-item')) gallery.remove()">
                             </div>
-                            @foreach($service->other_images as $image)
-                                <div class="gallery-item" onclick="changeImage('{{ asset('public/' . $image) }}')" style="cursor: pointer; border: 2px solid #e5e7eb; border-radius: 8px; overflow: hidden; transition: all 0.3s ease;">
-                                    <img src="{{ asset('public' . $image) }}" alt="Gallery" style="width: 100%; height: 80px; object-fit: cover;">
-                                </div>
-                            @endforeach
-                        </div>
-                        <script>
-                            function changeImage(src) {
-                                document.getElementById('mainImage').src = src;
-                                document.querySelectorAll('.gallery-item').forEach(item => item.style.borderColor = '#e5e7eb');
-                                event.currentTarget.style.borderColor = '#16a34a';
-                            }
-                        </script>
-                    @endif
+                        @endif
+                        @foreach($galleryImageUrls as $galleryImageUrl)
+                            <div class="gallery-item service-gallery-item" data-image-src="{{ $galleryImageUrl }}" onclick="changeImage(this)">
+                                <img src="{{ $galleryImageUrl }}" alt="Gallery" onerror="this.closest('.gallery-item').remove(); const gallery = document.querySelector('.gallery-thumbnails'); if (gallery && !gallery.querySelector('.gallery-item')) gallery.remove()">
+                            </div>
+                        @endforeach
+                    </div>
+                @endif
+                <script>
+                    function changeImage(item) {
+                        const mainImage = document.getElementById('mainImage');
+                        if (!mainImage) {
+                            return;
+                        }
 
-                    {{-- Provider Info --}}
-                    @if($service->category)
-                        <div class="mt-4 p-3 rounded-2" style="background-color: #f0fdf4;">
-                            <p class="text-muted small mb-1" style="font-size: 0.8rem;">Provided by</p>
-                            <p class="fw-bold mb-0" style="color: #16a34a; font-size: 0.95rem;">
-                                TRESCA {{ $service->category->title }}
-                            </p>
-                        </div>
-                    @endif
-                </div>
-            @endif
+                        document.querySelectorAll('.gallery-item').forEach(galleryItem => galleryItem.style.borderColor = '#e5e7eb');
+                        item.style.borderColor = '#16a34a';
+
+                        mainImage.closest('.main-image').style.display = 'block';
+                        mainImage.src = item.dataset.imageSrc;
+                    }
+                </script>
+
+                {{-- Provider Info --}}
+                @if($service->category)
+                    <div class="service-provider">
+                        <p class="service-provider-label">Provided by</p>
+                        <p class="service-provider-name">
+                            TRESCA {{ $service->category->title }}
+                        </p>
+                    </div>
+                @endif
+            </div>
         </div>
 
         {{-- Service Details --}}
-        <div class="col-lg-6">
+        <div class="col-lg-6 service-detail-info">
             {{-- Category Badge --}}
             @if($service->category)
-                <div class="mb-3">
-                    <span class="badge" style="background-color: #d1fae5; color: #16a34a; font-size: 0.8rem; padding: 0.45rem 0.75rem; border-radius: 20px;">
+                <div class="service-category-wrap">
+                    <span class="service-category-label">
                         {{ $service->category->title }}
                     </span>
                 </div>
             @endif
 
             {{-- Title --}}
-            <h1 class="mb-3" style="font-size: 2rem; font-weight: 700; color: #1f2937; line-height: 1.2;">
+            <h1 class="service-detail-title">
                 {{ $service->title }}
             </h1>
 
             {{-- Description --}}
             @if($service->description)
-                <p class="text-muted mb-4" style="line-height: 1.6; font-size: 0.95rem; color: #6b7280;">
+                <p class="service-detail-description">
                     {{ $service->description }}
                 </p>
             @endif
 
             {{-- Price & Turnaround Box --}}
-            <div class="mb-4 p-4 rounded-3" style="background-color: #f0fdf4; border: 1px solid #dcfce7;">
-                <div class="mb-3">
-                    <span class="text-muted" style="font-size: 0.8rem; color: #6b7280;">Starting Price</span>
-                    <h3 class="fw-bold mb-0" style="font-size: 1.75rem; color: #16a34a;">
+            <div class="service-price-panel">
+                <div class="service-price-main">
+                    <span class="service-price-label">Starting Price</span>
+                    <h2 class="service-price-value">
                         From RWF {{ number_format($service->price, 0, '.', ',') }}
-                    </h3>
+                    </h2>
                 </div>
 
                 @if($service->working_day)
-                    <p class="text-muted small mb-0" style="font-size: 0.9rem;">
-                        <i class="bi bi-clock" style="color: #16a34a; margin-right: 0.5rem;"></i> 
-                        <strong>{{ $service->working_day }} working days</strong>
+                    <p class="service-turnaround">
+                        <i class="bi bi-clock" aria-hidden="true"></i>
+                        <span>{{ $service->working_day }} working days</span>
                     </p>
                 @endif
 
                 {{-- Order Button --}}
-                <div class="mt-4">
-                    <a href="https://wa.me/250780290040" target="_blank" class="btn btn-lg w-50" style="background-color: #16a34a; border: none; color: white; font-weight: 600;">
-                        <i class="bi bi-whatsapp me-2"></i> Order via WhatsApp
-                    </a>
-                </div>
+                <a href="https://wa.me/250780290040" target="_blank" class="service-order-button">
+                    <i class="bi bi-whatsapp" aria-hidden="true"></i> Order via WhatsApp
+                </a>
             </div>
 
             {{-- What's Included --}}
             @if($service->what_included && count($service->what_included) > 0)
-                <div class="mb-4">
-                    <h5 class="fw-bold mb-3" style="color: #1f2937; font-size: 1rem;">What's Included</h5>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                <div class="service-included">
+                    <h2 class="service-section-title">What's Included</h2>
+                    <div class="service-included-grid">
                         @foreach($service->what_included as $item)
-                            <div style="background-color: #f3f4f6; padding: 12px 14px; border-radius: 8px; display: flex; gap: 10px; align-items: flex-start;">
-                                <i class="bi bi-check-circle-fill" style="color: #16a34a; flex-shrink: 0; font-size: 1rem; margin-top: 2px;"></i>
-                                <span class="text-muted" style="font-size: 0.9rem; line-height: 1.4;">{{ $item }}</span>
+                            <div class="service-included-item">
+                                <i class="bi bi-check-circle-fill" aria-hidden="true"></i>
+                                <span>{{ $item }}</span>
                             </div>
                         @endforeach
                     </div>
@@ -121,28 +150,28 @@
 
     {{-- How Service Works --}}
     @if($service->how_service_works && count($service->how_service_works) > 0)
-        <div class="mt-5 rounded-3" style="background-color: #f9fafb; border: 1px solid #e5e7eb; padding: 0;">
-            <div style="padding: 28px;">
-                <h5 class="fw-bold mb-4" style="color: #1f2937; font-size: 1rem;">How This Service Works</h5>
-                <div style="display: flex; flex-direction: column;">
+        <section class="service-process-panel" aria-labelledby="service-process-title">
+            <div class="service-process-content">
+                <h2 id="service-process-title" class="service-section-title">How This Service Works</h2>
+                <div class="service-process-steps">
                     @foreach($service->how_service_works as $index => $step)
-                        <div style="display: flex; gap: 16px; padding: 16px 0; @if($index < count($service->how_service_works) - 1) border-bottom: 1px solid #e5e7eb; @endif">
-                            <div style="min-width: 28px; width: 28px; height: 28px; background-color: #16a34a; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: 600; flex-shrink: 0; font-size: 0.85rem;">
+                        <div class="service-process-step">
+                            <div class="service-process-number">
                                 {{ $index + 1 }}
                             </div>
-                            <p class="text-muted mb-0" style="font-size: 0.9rem; color: #6b7280; line-height: 1.5; display: flex; align-items: center;">{{ $step }}</p>
+                            <p>{{ $step }}</p>
                         </div>
                     @endforeach
                 </div>
             </div>
 
             {{-- WhatsApp Question Button --}}
-            <div style="padding: 16px 28px; border-top: 1px solid #e5e7eb;">
-                <a href="https://wa.me/250780290040" target="_blank" class="btn w-100" style="border: 1px solid #d1d5db; color: #6b7280; background-color: white;">
+            <div class="service-process-action">
+                <a href="https://wa.me/250780290040" target="_blank" class="service-question-button">
                     <i class="bi bi-chat-dots me-2"></i> Ask a Question on WhatsApp
                 </a>
             </div>
-        </div>
+        </section>
     @endif
 
     {{-- Related Services --}}
@@ -154,12 +183,14 @@
             <div class="row g-4">
                 @foreach($relatedServices as $related)
                     <div class="col-12 col-md-6 col-lg-4">
-                        <div class="card h-100 shadow-sm" style="border: none; border-radius: 12px; overflow: hidden; transition: all 0.3s ease; cursor: pointer;">
+                        <div class="card h-100 shadow-sm" data-service-url="{{ route('service.show', $related->slug) }}" role="link" tabindex="0" onclick="if (!event.target.closest('a, button')) window.location.assign(this.dataset.serviceUrl)" onkeydown="if ((event.key === 'Enter' || event.key === ' ') && !event.target.closest('a, button')) { event.preventDefault(); window.location.assign(this.dataset.serviceUrl); }" style="border: none; border-radius: 12px; overflow: hidden; transition: all 0.3s ease; cursor: pointer;">
                             {{-- Image --}}
-                            @if($related->thumbnail)
-                                <div style="overflow: hidden; height: 180px; background-color: #f3f4f6;">
-                                    <img src="{{ asset('' . $related->thumbnail) }}" 
+                            @php $relatedImageUrl = $serviceImageUrl($related->thumbnail); @endphp
+                            @if($relatedImageUrl)
+                                <div data-service-image-card style="overflow: hidden; height: 180px; background-color: #f3f4f6;">
+                                    <img src="{{ $relatedImageUrl }}"
                                          alt="{{ $related->title }}"
+                                         onerror="this.closest('[data-service-image-card]').remove()"
                                          style="width: 100%; height: 100%; object-fit: cover; transition: transform 0.3s ease;">
                                 </div>
                             @endif
@@ -215,6 +246,345 @@
 </div>
 
 <style>
+    .service-detail-top {
+        row-gap: 2rem;
+    }
+
+    .service-gallery-column,
+    .service-detail-info {
+        min-width: 0;
+    }
+
+    .service-main-image {
+        width: min(100%, 520px);
+        aspect-ratio: 1 / 1;
+        margin: 0 auto 1rem;
+        overflow: hidden;
+        border-radius: 12px;
+        background: #f3f4f6;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.07);
+    }
+
+    .service-gallery-thumbnails {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.625rem;
+        width: min(100%, 520px);
+        margin: 0 auto;
+    }
+
+    .service-gallery-item {
+        flex: 0 0 80px;
+        width: 80px;
+        aspect-ratio: 1 / 1;
+        overflow: hidden;
+        cursor: pointer;
+        border: 2px solid #e5e7eb;
+        border-radius: 8px;
+        transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .service-gallery-item.active {
+        border-color: #16a34a;
+    }
+
+    .service-gallery-item:hover,
+    .service-gallery-item:focus-visible {
+        box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.14);
+        outline: none;
+    }
+
+    .service-gallery-item img {
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    .service-provider {
+        width: min(100%, 520px);
+        margin: 1rem auto 0;
+        padding: 0.875rem 1rem;
+        border: 1px solid #dcfce7;
+        border-radius: 8px;
+        background: #f0fdf4;
+    }
+
+    .service-provider-label,
+    .service-provider-name {
+        margin: 0;
+    }
+
+    .service-provider-label {
+        margin-bottom: 0.2rem;
+        color: #6b7280;
+        font-size: 0.75rem;
+    }
+
+    .service-provider-name {
+        color: #15803d;
+        font-size: 0.9rem;
+        font-weight: 600;
+    }
+
+    .service-category-wrap {
+        margin-bottom: 0.75rem;
+    }
+
+    .service-category-label {
+        display: inline-flex;
+        align-items: center;
+        min-height: 28px;
+        padding: 0.3rem 0.65rem;
+        border-radius: 6px;
+        background: #f0fdf4;
+        color: #15803d;
+        font-size: 0.75rem;
+        font-weight: 600;
+        line-height: 1.3;
+    }
+
+    .service-detail-title {
+        margin: 0 0 0.75rem;
+        color: #1f2937;
+        font-size: clamp(1.5rem, 2.8vw, 1.9rem);
+        font-weight: 700;
+        line-height: 1.25;
+        letter-spacing: -0.02em;
+        overflow-wrap: anywhere;
+    }
+
+    .service-detail-description {
+        margin: 0 0 1.25rem;
+        color: #6b7280;
+        font-size: 0.9rem;
+        line-height: 1.65;
+    }
+
+    .service-price-panel {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 0.75rem 1rem;
+        margin-bottom: 1.5rem;
+        padding: 1.125rem;
+        border: 1px solid #dcfce7;
+        border-radius: 10px;
+        background: #f0fdf4;
+    }
+
+    .service-price-label {
+        display: block;
+        margin-bottom: 0.2rem;
+        color: #6b7280;
+        font-size: 0.75rem;
+        font-weight: 500;
+    }
+
+    .service-price-value {
+        margin: 0;
+        color: #15803d;
+        font-size: clamp(1.2rem, 2vw, 1.45rem);
+        font-weight: 700;
+        line-height: 1.3;
+        overflow-wrap: anywhere;
+    }
+
+    .service-turnaround {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        margin: 0;
+        color: #4b5563;
+        font-size: 0.8rem;
+        line-height: 1.45;
+    }
+
+    .service-turnaround i {
+        color: #15803d;
+    }
+
+    .service-order-button,
+    .service-question-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        min-height: 40px;
+        padding: 0.55rem 1rem;
+        border: 1px solid #15803d;
+        border-radius: 8px;
+        font-size: 0.875rem;
+        font-weight: 600;
+        line-height: 1.25;
+        text-align: center;
+        text-decoration: none;
+        transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .service-order-button {
+        grid-column: 1 / -1;
+        justify-self: start;
+        background: #15803d;
+        color: #fff;
+    }
+
+    .service-order-button:hover {
+        border-color: #166534;
+        background: #166534;
+        color: #fff;
+    }
+
+    .service-order-button:focus-visible,
+    .service-question-button:focus-visible {
+        outline: 3px solid rgba(22, 163, 74, 0.28);
+        outline-offset: 2px;
+    }
+
+    .service-included {
+        margin-bottom: 1.25rem;
+    }
+
+    .service-section-title {
+        margin: 0 0 0.75rem;
+        color: #1f2937;
+        font-size: 1.05rem;
+        font-weight: 700;
+        line-height: 1.35;
+    }
+
+    .service-included-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.625rem;
+    }
+
+    .service-included-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.55rem;
+        min-width: 0;
+        padding: 0.75rem;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        background: #fff;
+        color: #4b5563;
+        font-size: 0.85rem;
+        line-height: 1.45;
+        overflow-wrap: anywhere;
+    }
+
+    .service-included-item i {
+        flex: 0 0 auto;
+        margin-top: 0.12rem;
+        color: #16a34a;
+        font-size: 0.9rem;
+    }
+
+    .service-process-panel {
+        margin-top: 2rem;
+        overflow: hidden;
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        background: #f9fafb;
+    }
+
+    .service-process-content {
+        padding: 1.25rem;
+    }
+
+    .service-process-steps {
+        display: grid;
+        gap: 0.65rem;
+    }
+
+    .service-process-step {
+        display: grid;
+        grid-template-columns: 32px minmax(0, 1fr);
+        align-items: start;
+        gap: 0.75rem;
+        min-width: 0;
+        padding: 0.8rem;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        background: #fff;
+    }
+
+    .service-process-number {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 30px;
+        height: 30px;
+        border-radius: 8px;
+        background: #16a34a;
+        color: #fff;
+        font-size: 0.8rem;
+        font-weight: 600;
+    }
+
+    .service-process-step p {
+        align-self: center;
+        margin: 0;
+        color: #4b5563;
+        font-size: 0.875rem;
+        line-height: 1.55;
+        overflow-wrap: anywhere;
+    }
+
+    .service-process-action {
+        padding: 0.875rem 1.25rem;
+        border-top: 1px solid #e5e7eb;
+    }
+
+    .service-question-button {
+        background: #fff;
+        color: #15803d;
+    }
+
+    .service-question-button:hover {
+        border-color: #15803d;
+        background: #f0fdf4;
+        color: #166534;
+    }
+
+    @media (max-width: 767.98px) {
+        .service-detail-top {
+            row-gap: 1.5rem;
+        }
+
+        .service-detail-info {
+            padding-top: 0.25rem;
+        }
+    }
+
+    @media (max-width: 575.98px) {
+        .service-included-grid {
+            grid-template-columns: minmax(0, 1fr);
+        }
+
+        .service-price-panel {
+            grid-template-columns: minmax(0, 1fr);
+        }
+
+        .service-turnaround {
+            grid-row: 2;
+        }
+
+        .service-order-button,
+        .service-question-button {
+            width: 100%;
+        }
+
+        .service-process-content {
+            padding: 1rem;
+        }
+
+        .service-process-action {
+            padding: 0.75rem 1rem;
+        }
+    }
+
     .card:hover {
         box-shadow: 0 10px 15px rgba(22, 163, 74, 0.15) !important;
         transform: translateY(-4px);

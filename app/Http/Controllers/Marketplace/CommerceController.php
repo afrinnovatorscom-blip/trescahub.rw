@@ -161,7 +161,12 @@ class CommerceController extends Controller
             $approved->whereHas('items', fn ($items) => $items->where('vendor_id', $vendorFilter));
         }
 
-        $orders = ($tab === 'approved' ? $approved : $pending)->orderByDesc('created_at')->orderByDesc('id')->paginate(20)->withQueryString();
+        $orders = ($tab === 'approved' ? $approved : $pending)
+            ->when($tab === 'pending', fn ($query) => $query->orderByRaw("CASE WHEN payment_status = 'paid' THEN 1 ELSE 0 END DESC"))
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->paginate(20)
+            ->withQueryString();
         $tabCounts = ['pending' => (clone $pending)->count(), 'approved' => (clone $approved)->count()];
         $vendors = $user->hasPermission('vendors.view') ? Vendor::query()->where('status', 'active')->orderBy('business_name')->get() : collect();
         return view('marketplace.orders.index', compact('orders', 'vendors', 'filters', 'tab', 'tabCounts'));

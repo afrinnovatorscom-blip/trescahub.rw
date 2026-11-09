@@ -285,52 +285,6 @@
             </aside>
         </div>
 
-        {{-- ================= Recommendations ================= --}}
-        @if(isset($related) && $related->count() > 0)
-            <section class="pd-section pd-reco">
-                <div class="pd-reco-head">
-                    <h2 class="pd-section-title">Other recommendations for you</h2>
-                    <div class="pd-reco-nav">
-                        <button type="button" data-reco-scroll="-1" aria-label="Scroll left"><i class="bi bi-chevron-left"></i></button>
-                        <button type="button" data-reco-scroll="1" aria-label="Scroll right"><i class="bi bi-chevron-right"></i></button>
-                    </div>
-                </div>
-                <div class="pd-reco-track" id="recoTrack">
-                    @foreach($related as $relatedProduct)
-                        @php
-                            $relatedThumb = $relatedProduct->thumbnail
-                                ? asset('assets/' . ltrim(str_replace('public/assets/', '', $relatedProduct->thumbnail), '/'))
-                                : null;
-                        @endphp
-                        <a href="{{ route('shop-products.show', $relatedProduct) }}" class="pd-reco-card">
-                            <div class="pd-reco-image">
-                                @if($relatedThumb)
-                                    <img src="{{ $relatedThumb }}" alt="{{ $relatedProduct->product_name }}" loading="lazy">
-                                @else
-                                    <i class="bi bi-box-seam"></i>
-                                @endif
-                                @if($relatedProduct->hasValidDiscount())
-                                    <span class="pd-reco-badge">{{ $relatedProduct->discount_percentage }}% off</span>
-                                @endif
-                            </div>
-                            <div class="pd-reco-name">{{ $relatedProduct->product_name }}</div>
-                            @if(($relatedProduct->rating_count ?? 0) > 0)
-                                <div class="pd-reco-rating">
-                                    @include('front.pages.partials.rating-stars', ['rating' => $relatedProduct->rating_average, 'size' => '.75rem'])
-                                    <span>({{ $relatedProduct->rating_count }})</span>
-                                </div>
-                            @endif
-                            <div class="pd-reco-price">{{ $money($relatedProduct->price) }}</div>
-                            @if($relatedProduct->hasValidDiscount())
-                                <div class="pd-reco-old">{{ $money($relatedProduct->original_price) }}</div>
-                            @endif
-                            <div class="pd-reco-meta">{{ $relatedProduct->customerAvailability() === 'in_stock' ? 'In stock' : 'Out of stock' }} · {{ $relatedProduct->working_days }} day(s)</div>
-                        </a>
-                    @endforeach
-                </div>
-            </section>
-        @endif
-
         {{-- ================= Tabs + details ================= --}}
         <div class="pd-detail-layout">
             <div class="pd-detail-main">
@@ -396,6 +350,52 @@
                 @include('front.pages.partials.product-reviews')
             </div>
         </div>
+
+        {{-- ================= Recommendations ================= --}}
+        @if(isset($related) && $related->count() > 0)
+            <section class="pd-section pd-reco">
+                <div class="pd-reco-head">
+                    <h2 class="pd-section-title">Other recommendations for you</h2>
+                    <div class="pd-reco-nav">
+                        <button type="button" data-reco-scroll="-1" aria-label="Scroll left"><i class="bi bi-chevron-left"></i></button>
+                        <button type="button" data-reco-scroll="1" aria-label="Scroll right"><i class="bi bi-chevron-right"></i></button>
+                    </div>
+                </div>
+                <div class="pd-reco-track" id="recoTrack">
+                    @foreach($related as $relatedProduct)
+                        @php
+                            $relatedThumb = $relatedProduct->thumbnail
+                                ? asset('assets/' . ltrim(str_replace('public/assets/', '', $relatedProduct->thumbnail), '/'))
+                                : null;
+                        @endphp
+                        <a href="{{ route('shop-products.show', $relatedProduct) }}" class="pd-reco-card">
+                            <div class="pd-reco-image">
+                                @if($relatedThumb)
+                                    <img src="{{ $relatedThumb }}" alt="{{ $relatedProduct->product_name }}" loading="lazy">
+                                @else
+                                    <i class="bi bi-box-seam"></i>
+                                @endif
+                                @if($relatedProduct->hasValidDiscount())
+                                    <span class="pd-reco-badge">{{ $relatedProduct->discount_percentage }}% off</span>
+                                @endif
+                            </div>
+                            <div class="pd-reco-name">{{ $relatedProduct->product_name }}</div>
+                            @if(($relatedProduct->rating_count ?? 0) > 0)
+                                <div class="pd-reco-rating">
+                                    @include('front.pages.partials.rating-stars', ['rating' => $relatedProduct->rating_average, 'size' => '.75rem'])
+                                    <span>({{ $relatedProduct->rating_count }})</span>
+                                </div>
+                            @endif
+                            <div class="pd-reco-price">{{ $money($relatedProduct->price) }}</div>
+                            @if($relatedProduct->hasValidDiscount())
+                                <div class="pd-reco-old">{{ $money($relatedProduct->original_price) }}</div>
+                            @endif
+                            <div class="pd-reco-meta">{{ $relatedProduct->customerAvailability() === 'in_stock' ? 'In stock' : 'Out of stock' }} · {{ $relatedProduct->working_days }} day(s)</div>
+                        </a>
+                    @endforeach
+                </div>
+            </section>
+        @endif
     </div>
 </main>
 
