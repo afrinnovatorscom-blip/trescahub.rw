@@ -203,6 +203,13 @@
         outline: 3px solid #16a34a;
         outline-offset: -3px;
     }
+
+    @media (min-width: 992px) {
+        #mainNavbar .navbar-nav {
+            margin-left: auto;
+            margin-right: 1.5rem !important;
+        }
+    }
 </style>
 
 {{-- Mobile Bottom Navigation Bar --}}
@@ -244,6 +251,58 @@
 
 {{-- ── Live Search Styles & JS ── --}}
 <style>
+    #searchBox {
+        border-color: #dce4df !important;
+        background-color: #f8faf8 !important;
+        box-shadow: none;
+    }
+
+    #searchBox:focus-within {
+        border-color: #16a34a !important;
+        box-shadow: 0 0 0 3px rgba(22, 163, 74, .12);
+    }
+
+    #liveSearchInput,
+    #liveSearchInput:focus {
+        min-width: 0;
+        height: 100%;
+        padding: 0;
+        border: 0 !important;
+        outline: none !important;
+        box-shadow: none !important;
+        color: #172033;
+        caret-color: #16a34a;
+        line-height: 1.2;
+    }
+
+    #liveSearchInput::placeholder {
+        color: #7b8490;
+        opacity: 1;
+    }
+
+    @media (max-width: 991.98px) {
+        #mobileSearchBar .d-flex.align-items-center.border {
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        #mobileSearchBar .d-flex.align-items-center.border:focus-within {
+            border-color: #16a34a !important;
+            box-shadow: 0 0 0 3px rgba(22, 163, 74, .12);
+        }
+
+        #liveSearchMobile,
+        #liveSearchMobile:focus,
+        #liveSearchMobile:focus-visible {
+            -webkit-appearance: none;
+            appearance: none;
+            border: 0 !important;
+            outline: none !important;
+            box-shadow: none !important;
+            -webkit-tap-highlight-color: transparent;
+            caret-color: #16a34a;
+        }
+    }
+
     .search-result-item { display:flex; align-items:center; gap:12px; padding:10px 16px; text-decoration:none; color:inherit; transition:background 0.15s; border-bottom:1px solid #f3f4f6; }
     .search-result-item:last-child { border-bottom:none; }
     .search-result-item:hover { background:#f9fafb; }

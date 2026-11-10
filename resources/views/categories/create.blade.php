@@ -2,16 +2,202 @@
 
 @section('title', 'Create Category')
 
+@push('styles')
+<style>
+    .category-create-page {
+        color: #475569;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    .category-create-page .category-create-heading {
+        gap: 16px;
+        margin-bottom: 20px !important;
+    }
+
+    .category-create-page .category-create-title {
+        color: #0f172a;
+        font-size: 1.5rem;
+        font-weight: 700;
+        letter-spacing: -.025em;
+    }
+
+    .category-create-page .category-create-card {
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        background: #fff;
+        box-shadow: none;
+    }
+
+    .category-create-page .category-create-card-body {
+        padding: 24px !important;
+    }
+
+    .category-create-page .form-label {
+        margin-bottom: 7px;
+        color: #0f172a;
+        font-size: .8125rem;
+        font-weight: 600 !important;
+    }
+
+    .category-create-page .form-label small {
+        font-size: .75rem;
+    }
+
+    .category-create-page .form-control {
+        min-height: 42px;
+        border-color: #e2e8f0;
+        border-radius: 7px;
+        color: #0f172a;
+        font-size: .875rem;
+    }
+
+    .category-create-page textarea.form-control {
+        min-height: 112px;
+        resize: vertical;
+    }
+
+    .category-create-page .form-control::placeholder {
+        color: #94a3b8;
+        opacity: 1;
+    }
+
+    .category-create-page .form-control:focus {
+        border-color: #93c5fd;
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, .14);
+    }
+
+    .category-create-page .input-group-text {
+        min-height: 42px;
+        border-color: #e2e8f0;
+        background: #f8fafc;
+        color: #64748b;
+        font-size: .875rem;
+    }
+
+    .category-create-page .input-group > .form-control {
+        min-width: 0;
+    }
+
+    .category-create-page .btn {
+        min-height: 38px;
+        border-radius: 7px;
+        font-size: .8125rem;
+        font-weight: 600;
+    }
+
+    .category-create-page .btn-primary {
+        border-color: #2563eb;
+        background-color: #2563eb;
+    }
+
+    .category-create-page .btn-primary:hover {
+        border-color: #1d4ed8;
+        background-color: #1d4ed8;
+    }
+
+    .category-create-page .btn-outline-primary {
+        border-color: #bfdbfe;
+        color: #1d4ed8;
+    }
+
+    .category-create-page .btn-outline-primary:hover {
+        border-color: #2563eb;
+        background: #eff6ff;
+        color: #1d4ed8;
+    }
+
+    .category-create-page .btn-outline-secondary {
+        border-color: #cbd5e1;
+        color: #475569;
+    }
+
+    .category-create-page .btn-outline-secondary:hover {
+        background: #f8fafc;
+        color: #0f172a;
+    }
+
+    .category-create-page .invalid-feedback,
+    .category-create-page .text-danger.small {
+        color: #b91c1c !important;
+        font-size: .8125rem;
+    }
+
+    .category-create-page .is-invalid {
+        border-color: #b91c1c;
+    }
+
+    .category-create-page .is-invalid:focus {
+        border-color: #b91c1c;
+        box-shadow: 0 0 0 3px rgba(185, 28, 28, .12);
+    }
+
+    .category-create-page #classification-tags .badge,
+    .category-create-page #subcategory-tags .badge {
+        gap: 6px;
+        padding: 3px 0 !important;
+        border: 0;
+        border-radius: 0;
+        background: transparent !important;
+        color: #334155 !important;
+        font-size: .8125rem;
+        font-weight: 500;
+    }
+
+    .category-create-page #classification-tags .btn-close,
+    .category-create-page #subcategory-tags .btn-close {
+        filter: none;
+        opacity: .6;
+    }
+
+    .category-create-page #classification-tags .btn-close:hover,
+    .category-create-page #subcategory-tags .btn-close:hover {
+        opacity: 1;
+    }
+
+    .category-create-page hr {
+        border-color: #e2e8f0;
+        opacity: 1;
+    }
+
+    @media (max-width: 767.98px) {
+        .category-create-page .category-create-heading {
+            align-items: flex-start !important;
+            flex-wrap: wrap;
+        }
+
+        .category-create-page .category-create-title {
+            font-size: 1.25rem;
+        }
+
+        .category-create-page .category-create-card-body {
+            padding: 16px !important;
+        }
+    }
+
+    @media (max-width: 420px) {
+        .category-create-page .input-group > .btn {
+            padding-right: 10px;
+            padding-left: 10px;
+        }
+
+        .category-create-page .category-create-actions > .btn {
+            flex: 0 0 auto;
+        }
+    }
+</style>
+@endpush
+
 @section('content')
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <h4 class="fw-bold mb-0"><i class="bi bi-plus-circle-fill me-2 text-primary"></i>Create Category</h4>
+<div class="category-create-page">
+<div class="category-create-heading d-flex justify-content-between align-items-center mb-3">
+    <h4 class="category-create-title fw-bold mb-0"><i class="bi bi-plus-circle-fill me-2 text-primary"></i>Create Category</h4>
     <a href="{{ route('categories.index') }}" class="btn btn-outline-secondary btn-sm">
         <i class="bi bi-arrow-left me-1"></i> Back
     </a>
 </div>
 
-<div class="card">
-    <div class="card-body p-4">
+<div class="card category-create-card">
+    <div class="card-body category-create-card-body p-4">
         <form action="{{ route('categories.store') }}" method="POST">
             @csrf
 
@@ -111,15 +297,16 @@
             </div>
 
             <hr class="my-4">
-            <div class="d-flex gap-2">
+            <div class="category-create-actions d-flex justify-content-end gap-2">
+                <a href="{{ route('categories.index') }}" class="btn btn-outline-secondary px-4">Cancel</a>
                 <button type="submit" class="btn btn-primary px-4">
                     <i class="bi bi-check-lg me-1"></i> Save Category
                 </button>
-                <a href="{{ route('categories.index') }}" class="btn btn-outline-secondary px-4">Cancel</a>
             </div>
 
         </form>
     </div>
+</div>
 </div>
 @endsection
 

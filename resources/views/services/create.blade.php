@@ -2,15 +2,251 @@
 
 @section('title', 'Create Service')
 
-@section('content')
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <h4 class="fw-bold mb-0"><i class="bi bi-plus-circle-fill me-2 text-primary"></i>Create Service</h4>
-    <a href="{{ route('services.index') }}" class="btn btn-outline-secondary btn-sm">
-        <i class="bi bi-arrow-left me-1"></i> Back
-    </a>
-</div>
+@push('styles')
+<style>
+    .services-create-page {
+        --service-form-border: #e2e8f0;
+        --service-form-heading: #0f172a;
+        --service-form-body: #475569;
+        --service-form-muted: #64748b;
+        --service-form-surface: #fff;
+        --service-form-subtle: #f8fafc;
+        color: var(--service-form-body);
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
 
-<form action="{{ route('services.store') }}" method="POST" enctype="multipart/form-data">
+    .services-create-page .services-create-heading {
+        gap: 16px;
+        margin-bottom: 20px !important;
+    }
+
+    .services-create-page .services-create-title {
+        color: var(--service-form-heading);
+        font-size: 1.5rem;
+        font-weight: 700;
+        letter-spacing: -.025em;
+    }
+
+    .services-create-page .services-create-form .card {
+        overflow: hidden;
+        border: 1px solid var(--service-form-border);
+        border-radius: 12px;
+        background: var(--service-form-surface);
+        box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+    }
+
+    .services-create-page .services-create-form .card-header {
+        padding: 15px 20px;
+        border-bottom: 1px solid var(--service-form-border);
+        background: var(--service-form-subtle) !important;
+        color: var(--service-form-heading);
+        font-size: .9375rem;
+        font-weight: 600 !important;
+    }
+
+    .services-create-page .services-create-form .card-body {
+        padding: 20px;
+    }
+
+    .services-create-page .services-create-form .form-label {
+        margin-bottom: 7px;
+        color: var(--service-form-heading);
+        font-size: .8125rem;
+        font-weight: 600 !important;
+    }
+
+    .services-create-page .services-create-form .form-control,
+    .services-create-page .services-create-form .form-select {
+        min-height: 42px;
+        border-color: var(--service-form-border);
+        border-radius: 8px;
+        color: var(--service-form-heading);
+        font-size: .875rem;
+    }
+
+    .services-create-page .services-create-form textarea.form-control {
+        min-height: 112px;
+        resize: vertical;
+    }
+
+    .services-create-page .services-create-form .form-control::placeholder {
+        color: #94a3b8;
+        opacity: 1;
+    }
+
+    .services-create-page .services-create-form .form-control:focus,
+    .services-create-page .services-create-form .form-select:focus {
+        border-color: #93c5fd;
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, .14);
+    }
+
+    .services-create-page .services-create-form .form-control:disabled,
+    .services-create-page .services-create-form .form-select:disabled {
+        background-color: var(--service-form-subtle);
+        color: var(--service-form-muted);
+    }
+
+    .services-create-page .services-create-form .input-group-text {
+        min-height: 42px;
+        border-color: var(--service-form-border);
+        background: var(--service-form-subtle);
+        color: var(--service-form-muted);
+        font-size: .875rem;
+    }
+
+    .services-create-page .services-create-form .input-group > .form-control,
+    .services-create-page .services-create-form .input-group > .form-select {
+        min-width: 0;
+    }
+
+    .services-create-page .services-create-form .form-check {
+        min-height: auto;
+    }
+
+    .services-create-page .services-create-form .form-check-input {
+        border-color: #cbd5e1;
+        cursor: pointer;
+    }
+
+    .services-create-page .services-create-form .form-check-input:focus {
+        border-color: #93c5fd;
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, .14);
+    }
+
+    .services-create-page .services-create-form .form-check-input:checked {
+        border-color: #2563eb;
+        background-color: #2563eb;
+    }
+
+    .services-create-page .services-create-form .form-check-label {
+        color: var(--service-form-heading);
+        font-size: .875rem;
+    }
+
+    .services-create-page .services-create-form small.text-muted,
+    .services-create-page .services-create-form .text-muted {
+        color: var(--service-form-muted) !important;
+    }
+
+    .services-create-page .services-create-form .btn {
+        min-height: 38px;
+        border-radius: 8px;
+        font-size: .8125rem;
+        font-weight: 600;
+    }
+
+    .services-create-page .services-create-form .btn-primary {
+        border-color: #2563eb;
+        background-color: #2563eb;
+    }
+
+    .services-create-page .services-create-form .btn-primary:hover {
+        border-color: #1d4ed8;
+        background-color: #1d4ed8;
+    }
+
+    .services-create-page .services-create-form .btn-outline-primary {
+        border-color: #bfdbfe;
+        color: #1d4ed8;
+    }
+
+    .services-create-page .services-create-form .btn-outline-primary:hover {
+        border-color: #2563eb;
+        background: #eff6ff;
+        color: #1d4ed8;
+    }
+
+    .services-create-page .services-create-form .btn-outline-danger {
+        border-color: #fecaca;
+        color: #b91c1c;
+    }
+
+    .services-create-page .services-create-form .btn-outline-danger:hover {
+        border-color: #b91c1c;
+        background: #fef2f2;
+        color: #991b1b;
+    }
+
+    .services-create-page .services-create-form .form-control[type="file"] {
+        height: auto;
+        min-height: 44px;
+        padding: 6px 8px;
+        color: var(--service-form-muted);
+    }
+
+    .services-create-page .services-create-form .form-control[type="file"]::file-selector-button {
+        min-height: 30px;
+        margin: 0 10px 0 0;
+        padding: 4px 10px;
+        border: 1px solid var(--service-form-border);
+        border-radius: 6px;
+        background: var(--service-form-subtle);
+        color: var(--service-form-heading);
+        font-size: .8125rem;
+        font-weight: 500;
+    }
+
+    .services-create-page .services-create-form .step-num {
+        min-width: 42px;
+        justify-content: center;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .services-create-page .services-create-actions {
+        flex-wrap: wrap;
+    }
+
+    .services-create-page .services-create-form .services-create-actions .btn {
+        min-height: 42px;
+        padding-right: 18px !important;
+        padding-left: 18px !important;
+    }
+
+    .services-create-page #thumbnail-preview img,
+    .services-create-page #other-images-preview img {
+        border: 1px solid var(--service-form-border);
+        border-radius: 8px !important;
+        object-fit: cover;
+    }
+
+    @media (max-width: 767.98px) {
+        .services-create-page .services-create-heading {
+            align-items: flex-start !important;
+            flex-wrap: wrap;
+        }
+
+        .services-create-page .services-create-title {
+            font-size: 1.25rem;
+        }
+
+        .services-create-page .services-create-form .card-body {
+            padding: 16px;
+        }
+    }
+
+    @media (max-width: 420px) {
+        .services-create-page .services-create-form .input-group > .btn {
+            padding-right: 10px;
+            padding-left: 10px;
+        }
+
+        .services-create-page .services-create-actions > .btn {
+            flex: 1 1 100%;
+        }
+    }
+</style>
+@endpush
+
+@section('content')
+<div class="services-create-page">
+    <div class="services-create-heading d-flex justify-content-between align-items-center">
+        <h4 class="services-create-title fw-bold mb-0"><i class="bi bi-plus-circle-fill me-2 text-primary"></i>Create Service</h4>
+        <a href="{{ route('services.index') }}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left me-1"></i> Back
+        </a>
+    </div>
+
+<form action="{{ route('services.store') }}" method="POST" enctype="multipart/form-data" class="services-create-form">
 @csrf
 
 {{-- ── BASIC INFO ──────────────────────────────────────────────────────────── --}}
@@ -250,7 +486,7 @@
     </div>
 </div>
 
-<div class="d-flex gap-2 mb-5">
+<div class="services-create-actions d-flex gap-2 mb-5">
     <button type="submit" class="btn btn-primary px-4">
         <i class="bi bi-check-lg me-1"></i> Save Service
     </button>
@@ -258,6 +494,7 @@
 </div>
 
 </form>
+</div>
 @endsection
 
 @push('scripts')
