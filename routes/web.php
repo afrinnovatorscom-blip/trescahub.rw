@@ -9,8 +9,9 @@ use App\Http\Controllers\Marketplace\AdminAccessController;
 use App\Http\Controllers\PartnerController;
 use App\Http\Controllers\RequestServiceController;
 use App\Http\Controllers\SearchController;
-use App\Http\Controllers\SettingsController;
+use App\Http\Controllers\ServiceBookingController;
 use App\Http\Controllers\ServiceController;
+use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\ShopCategoryController;
 use App\Http\Controllers\ShopProductController;
 use App\Http\Controllers\TestimonialController;
@@ -75,6 +76,9 @@ Route::get('/', function () {
 Route::get('/services', [ServiceController::class, 'publicIndex'])->name('services');
 Route::get('/services/{category}', [ServiceController::class, 'showByCategory'])->name('services.category');
 Route::get('/service/{service:slug}', [ServiceController::class, 'publicShow'])->name('service.show');
+Route::post('/service/{service:slug}/bookings', [ServiceBookingController::class, 'store'])
+    ->middleware('throttle:marketplace-sensitive')
+    ->name('service-bookings.store');
 Route::get('/categories', [CategoryController::class, 'publicIndex'])->name('categories.public');
 
 // ── Request Service ───────────────────────────────────────────────────────────
@@ -214,6 +218,17 @@ Route::middleware([
         Route::get('/admin/service-requests', [RequestServiceController::class, 'index'])->name('service-requests.index');
         Route::patch('/admin/service-requests/{serviceRequest}/status', [RequestServiceController::class, 'updateStatus'])->name('service-requests.status');
         Route::delete('/admin/service-requests/{serviceRequest}', [RequestServiceController::class, 'destroy'])->name('service-requests.destroy');
+
+        // ── Service Bookings (Admin) ──────────────────────────────────────────────
+        Route::get('/admin/service-bookings', [ServiceBookingController::class, 'index'])->name('service-bookings.index');
+        Route::get('/admin/service-bookings/{serviceBooking}', [ServiceBookingController::class, 'show'])->name('service-bookings.show');
+        Route::get('/admin/service-bookings/{serviceBooking}/confirmed', [ServiceBookingController::class, 'showConfirmed'])->name('service-bookings.confirmed.show');
+        Route::get('/admin/service-bookings/{serviceBooking}/completed', [ServiceBookingController::class, 'showCompleted'])->name('service-bookings.completed.show');
+        Route::patch('/admin/service-bookings/{serviceBooking}/payment', [ServiceBookingController::class, 'recordPayment'])->name('service-bookings.payment');
+        Route::post('/admin/service-bookings/{serviceBooking}/additional-payment', [ServiceBookingController::class, 'recordAdditionalPayment'])->name('service-bookings.additional-payment');
+        Route::patch('/admin/service-bookings/{serviceBooking}/appointment', [ServiceBookingController::class, 'saveAppointment'])->name('service-bookings.appointment');
+        Route::post('/admin/service-bookings/{serviceBooking}/confirm', [ServiceBookingController::class, 'confirm'])->name('service-bookings.confirm');
+        Route::post('/admin/service-bookings/{serviceBooking}/complete', [ServiceBookingController::class, 'complete'])->name('service-bookings.complete');
     });
 
 });

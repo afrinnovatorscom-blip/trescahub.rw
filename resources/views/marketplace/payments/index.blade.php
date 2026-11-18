@@ -1,6 +1,21 @@
 @extends('front.layouts.admin')
 @section('page-title', 'Payments')
 @section('content')
+<style>
+    .payment-records-head { align-items: center; display: flex; justify-content: space-between; gap: .75rem; }
+    .payment-records-head .btn { flex: 0 0 auto; white-space: nowrap; }
+    .payment-records-pagination { align-items: center; display: flex; justify-content: flex-end; gap: 8px; }
+    .payment-records-pagination-button { align-items: center; background: #fff; border: 1px solid #e2e8f0; border-radius: 7px; color: #475569; display: inline-flex; font-size: 13px; font-weight: 600; gap: 6px; min-height: 36px; padding: 6px 11px; text-decoration: none; }
+    .payment-records-pagination-button:hover { background: #f8fafc; border-color: #cbd5e1; color: #1d4ed8; }
+    .payment-records-pagination-button:focus-visible { outline: 3px solid rgba(37, 99, 235, .25); outline-offset: 2px; }
+    .payment-records-pagination-button.is-disabled { background: #f8fafc; color: #94a3b8; cursor: not-allowed; }
+    .payment-records-pagination-page { color: #64748b; font-size: 12px; min-width: 64px; text-align: center; }
+    @media (max-width: 400px) {
+        .payment-records-head { align-items: flex-start; }
+        .payment-records-head .btn { font-size: .75rem; padding: .3rem .45rem; }
+        .payment-records-pagination { justify-content: center; }
+    }
+</style>
 <div class="pay-admin">
     <div class="pay-heading">
         <div>
@@ -42,6 +57,13 @@
     </form>
 
     <div class="pay-card">
+        <div class="pay-card-head payment-records-head">
+            <span>Payment records</span>
+            <a href="{{ route('marketplace.payments.export') }}" class="btn btn-outline-danger btn-sm">
+                <i class="bi bi-file-earmark-pdf" aria-hidden="true"></i>
+                <span>Download PDF</span>
+            </a>
+        </div>
         <div class="table-responsive">
             <table class="table pay-table">
                 <thead>
@@ -105,7 +127,29 @@
                 </tbody>
             </table>
         </div>
+        @if($transactions->total() > 20)
+            <nav class="payment-records-pagination px-3 py-3 border-top" aria-label="Payment records pagination">
+                @if($transactions->currentPage() > 1)
+                    <a class="payment-records-pagination-button" href="{{ $transactions->url($transactions->currentPage() - 1) }}" rel="prev">
+                        <i class="bi bi-arrow-left" aria-hidden="true"></i><span>Previous</span>
+                    </a>
+                @else
+                    <span class="payment-records-pagination-button is-disabled" aria-disabled="true">
+                        <i class="bi bi-arrow-left" aria-hidden="true"></i><span>Previous</span>
+                    </span>
+                @endif
+                <span class="payment-records-pagination-page">Page {{ $transactions->currentPage() }} of {{ $transactions->lastPage() }}</span>
+                @if($transactions->currentPage() < $transactions->lastPage())
+                    <a class="payment-records-pagination-button" href="{{ $transactions->url($transactions->currentPage() + 1) }}" rel="next">
+                        <span>Next</span><i class="bi bi-arrow-right" aria-hidden="true"></i>
+                    </a>
+                @else
+                    <span class="payment-records-pagination-button is-disabled" aria-disabled="true">
+                        <span>Next</span><i class="bi bi-arrow-right" aria-hidden="true"></i>
+                    </span>
+                @endif
+            </nav>
+        @endif
     </div>
-    <div class="mt-3">{{ $transactions->links() }}</div>
 </div>
 @endsection

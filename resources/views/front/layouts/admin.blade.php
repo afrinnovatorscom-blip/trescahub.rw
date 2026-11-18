@@ -445,6 +445,11 @@
                 <span class="nav-badge">{{ $pendingServiceRequests }}</span>
             @endif
         </a>
+        <a href="{{ route('service-bookings.index') }}"
+           class="nav-item-link {{ request()->routeIs('service-bookings.*') ? 'active' : '' }}">
+            <i class="bi bi-calendar2-check"></i>
+            Service Bookings
+        </a>
 
         @endif
 

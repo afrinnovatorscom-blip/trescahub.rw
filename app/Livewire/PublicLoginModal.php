@@ -20,10 +20,13 @@ class PublicLoginModal extends Component
 
     public string $notice = '';
 
-    public function mount(bool $openOnLoad = false, string $notice = ''): void
+    public string $redirectAfterLoginUrl = '';
+
+    public function mount(bool $openOnLoad = false, string $notice = '', string $redirectAfterLoginUrl = ''): void
     {
         $this->openOnLoad = $openOnLoad;
         $this->notice = $notice;
+        $this->redirectAfterLoginUrl = $redirectAfterLoginUrl;
     }
 
     public function login(): void
@@ -76,6 +79,21 @@ class PublicLoginModal extends Component
 
     private function redirectAfterLogin(): void
     {
+        if ($this->redirectAfterLoginUrl !== '') {
+            $parts = parse_url($this->redirectAfterLoginUrl);
+
+            if (
+                is_array($parts)
+                && ($parts['host'] ?? null) === request()->getHost()
+                && (int) ($parts['port'] ?? request()->getPort()) === (int) request()->getPort()
+            ) {
+                session()->forget(['customer.auth_redirect', 'url.intended']);
+                $this->redirect($this->redirectAfterLoginUrl);
+
+                return;
+            }
+        }
+
         $intended = session('customer.auth_redirect') ?? session('url.intended');
         session()->forget(['customer.auth_redirect', 'url.intended']);
 

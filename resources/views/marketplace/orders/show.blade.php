@@ -3,7 +3,7 @@
 
 @push('styles')
 <style>
-.review-page{color:#0f172a}.review-panel{background:#fff;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden}.review-heading{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #e2e8f0;padding:13px 16px;background:#fff}.review-heading h2{font-size:17px;line-height:1.25;margin:0;font-weight:600;letter-spacing:normal;color:#0f172a}.review-body{padding:16px}.review-label{color:#64748b;font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.04em}.review-value{font-size:.88rem}.review-table th{background:#f8fafc;color:#64748b;font-size:.72rem;text-transform:uppercase;letter-spacing:.025em;padding:10px}.review-table td{padding:11px 10px;font-size:.84rem;border-color:#eef2f7;vertical-align:middle}.product-thumb{width:52px;height:52px;object-fit:cover;border-radius:7px;border:1px solid #e2e8f0;background:#f8fafc}.product-placeholder{width:52px;height:52px;border-radius:7px;border:1px solid #e2e8f0;background:#f8fafc;color:#94a3b8;display:inline-flex;align-items:center;justify-content:center}.review-summary{max-width:380px;margin-left:auto}.review-summary div{display:flex;justify-content:space-between;padding:5px 0}.review-summary .total{border-top:1px solid #e2e8f0;margin-top:5px;padding-top:10px;font-weight:800}.allocation-grid{display:grid;grid-template-columns:170px minmax(220px,420px) auto;gap:12px;align-items:end}.allocation-grid label{margin-bottom:6px;font-weight:700;font-size:.82rem}.confirmed-assignee{display:inline-flex;align-items:center;gap:7px;border-radius:999px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;padding:7px 11px;font-size:.78rem;font-weight:800}.review-actions{display:flex;gap:10px}.btn-review{border-radius:6px;font-weight:750;min-height:40px;padding-inline:18px}.allocation-status{border:1px solid #dbeafe;background:#f8fbff;border-radius:8px;padding:12px}.toast-stack{position:fixed;right:18px;bottom:18px;z-index:1080;width:min(360px,calc(100vw - 36px))}.order-toast{border:1px solid #e2e8f0;box-shadow:0 12px 30px rgba(15,23,42,.14);border-radius:8px;background:#fff;padding:12px 14px;display:flex;align-items:flex-start;gap:10px}.order-toast.success{border-left:4px solid #16a34a}.order-toast.error{border-left:4px solid #dc2626}.modal-content{border-radius:10px;border:1px solid #e2e8f0}.modal-header,.modal-footer{border-color:#eef2f7}.approve-confirm .modal-body,.reject-modal .modal-body{padding-top:18px}@media(max-width:767px){.allocation-grid{grid-template-columns:1fr}.review-actions{flex-direction:column}.review-actions>*{width:100%}.review-table{min-width:620px}.review-heading{align-items:flex-start;gap:8px}.review-summary{max-width:none}}
+.review-page{color:#0f172a}.review-panel{background:#fff;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden}.review-heading{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #e2e8f0;padding:13px 16px;background:#fff}.review-heading h2{font-size:17px;line-height:1.25;margin:0;font-weight:600;letter-spacing:normal;color:#0f172a}.review-body{padding:16px}.review-label{color:#64748b;font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.04em}.review-value{font-size:.88rem}.review-table th{background:#f8fafc;color:#64748b;font-size:.72rem;text-transform:uppercase;letter-spacing:.025em;padding:10px}.review-table td{padding:11px 10px;font-size:.84rem;border-color:#eef2f7;vertical-align:middle}.product-thumb{width:52px;height:52px;object-fit:cover;border-radius:7px;border:1px solid #e2e8f0;background:#f8fafc}.product-placeholder{width:52px;height:52px;border-radius:7px;border:1px solid #e2e8f0;background:#f8fafc;color:#94a3b8;display:inline-flex;align-items:center;justify-content:center}.review-summary{max-width:380px;margin-left:auto}.review-summary div{display:flex;justify-content:space-between;padding:5px 0}.review-summary .total{border-top:1px solid #e2e8f0;margin-top:5px;padding-top:10px;font-weight:800}.availability-groups{display:grid;gap:14px}.availability-group{border:1px solid #e2e8f0;border-radius:8px;overflow:hidden}.availability-group-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;background:#f8fafc;padding:10px 12px;font-size:.85rem;font-weight:700}.availability-status{display:inline-flex;border:1px solid #e2e8f0;border-radius:999px;padding:4px 9px;background:#fff;color:#475569;font-size:.72rem;font-weight:700;white-space:nowrap}.availability-product{display:flex;align-items:center;gap:9px;min-width:180px}.availability-product .product-thumb,.availability-product .product-placeholder{width:40px;height:40px;flex:none}.availability-request-actions{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px}.allocation-grid{display:grid;grid-template-columns:170px minmax(220px,420px) auto;gap:12px;align-items:end}.allocation-grid label{margin-bottom:6px;font-weight:700;font-size:.82rem}.confirmed-assignee{display:inline-flex;align-items:center;gap:7px;border-radius:999px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;padding:7px 11px;font-size:.78rem;font-weight:800}.review-actions{display:flex;gap:10px}.btn-review{border-radius:6px;font-weight:750;min-height:40px;padding-inline:18px}.allocation-status{border:1px solid #dbeafe;background:#f8fbff;border-radius:8px;padding:12px}.toast-stack{position:fixed;right:18px;bottom:18px;z-index:1080;width:min(360px,calc(100vw - 36px))}.order-toast{border:1px solid #e2e8f0;box-shadow:0 12px 30px rgba(15,23,42,.14);border-radius:8px;background:#fff;padding:12px 14px;display:flex;align-items:flex-start;gap:10px}.order-toast.success{border-left:4px solid #16a34a}.order-toast.error{border-left:4px solid #dc2626}.modal-content{border-radius:10px;border:1px solid #e2e8f0}.modal-header,.modal-footer{border-color:#eef2f7}.approve-confirm .modal-body,.reject-modal .modal-body{padding-top:18px}@media(max-width:767px){.allocation-grid{grid-template-columns:1fr}.review-actions{flex-direction:column}.review-actions>*{width:100%}.review-table{min-width:620px}.review-heading{align-items:flex-start;gap:8px}.review-summary{max-width:none}.availability-request-actions{align-items:stretch;flex-direction:column}.availability-request-actions>*{width:100%}.availability-group-heading{align-items:flex-start;flex-direction:column}}
 </style>
 @endpush
 
@@ -28,6 +28,77 @@ $imageUrl = fn($path) => $path ? asset('assets/'.ltrim(str_replace('public/asset
 @php $thumbnail = $item->product?->thumbnail ?: ($item->product?->images[0] ?? null); @endphp
 <tr><td><div class="d-flex align-items-center gap-2">@if($thumbnail)<img class="product-thumb" src="{{ $imageUrl($thumbnail) }}" alt="{{ $item->product_name }}">@else<span class="product-placeholder"><i class="fa-solid fa-box"></i></span>@endif<span><strong>{{ $item->product_name }}</strong>@if($item->sku)<small class="d-block text-muted">SKU: {{ $item->sku }}</small>@endif</span></div></td><td>{{ $item->variation_label && $item->variation_value ? $item->variation_label.': '.$item->variation_value : '—' }}</td><td>{{ number_format((float) $item->quantity) }}</td><td class="text-end">{{ number_format((float) $item->unit_price, 2, '.', ',') }} RWF</td><td class="text-end fw-semibold">{{ number_format((float) $item->line_total, 2, '.', ',') }} RWF</td></tr>@endforeach</tbody></table></div>
 <div class="review-summary"><div><span>Subtotal</span><span>{{ number_format($subtotal,2,'.',',') }} RWF</span></div><div><span>Delivery fee</span><span>{{ number_format($deliveryFee,2,'.',',') }} RWF</span></div><div class="total"><span>Total</span><span>{{ number_format((float)$order->total,2,'.',',') }} RWF</span></div></div>
+</div></section>
+
+<section class="review-panel mb-3" aria-labelledby="availability-title">
+<div class="review-heading"><h2 id="availability-title"><i class="fa-solid fa-box-open me-2 text-primary"></i>Product Availability</h2><span class="availability-status">{{ $availabilityOverallStatus }}</span></div>
+<div class="review-body">
+@if($availabilityGroups->isEmpty())
+    @if($availabilityOwnershipIssues->isEmpty())
+        <p class="text-muted mb-0">No vendor-managed products require availability confirmation.</p>
+    @endif
+@else
+    <div class="availability-groups">
+        @foreach($availabilityGroups as $group)
+            @php
+                $availabilityRequest = $group['request'];
+                $groupStatus = match($availabilityRequest?->status) {
+                    'pending_confirmation' => 'Pending Confirmation',
+                    'available' => 'Available',
+                    'partially_available' => 'Partially Available',
+                    'unavailable' => 'Unavailable',
+                    default => 'Not Requested',
+                };
+            @endphp
+            <div class="availability-group">
+                <div class="availability-group-heading"><span>{{ $group['vendor']?->business_name ?? 'Vendor' }}</span><span class="availability-status">{{ $groupStatus }}</span></div>
+                <div class="table-responsive">
+                    <table class="table review-table mb-0">
+                        <thead><tr><th>Product</th><th>Variation</th><th>Ordered</th><th>Availability Response</th></tr></thead>
+                        <tbody>
+                        @foreach($group['items'] as $item)
+                            @php
+                                $response = $group['responses']->get($item->id);
+                                $thumbnail = $item->product?->thumbnail ?: ($item->product?->images[0] ?? null);
+                                $itemStatus = match($response?->status) {
+                                    'pending_confirmation' => 'Pending Confirmation',
+                                    'available' => 'Available',
+                                    'partially_available' => 'Partially Available',
+                                    'unavailable' => 'Unavailable',
+                                    default => 'Not Requested',
+                                };
+                            @endphp
+                            <tr>
+                                <td><div class="availability-product">@if($thumbnail)<img class="product-thumb" src="{{ $imageUrl($thumbnail) }}" alt="{{ $item->product_name }}">@else<span class="product-placeholder"><i class="fa-solid fa-box"></i></span>@endif<span><strong>{{ $item->product_name }}</strong>@if($item->sku)<small class="d-block text-muted">SKU: {{ $item->sku }}</small>@endif</span></div></td>
+                                <td>{{ $item->variation_label && $item->variation_value ? $item->variation_label.': '.$item->variation_value : '—' }}</td>
+                                <td>{{ number_format((int) $item->quantity) }}</td>
+                                <td><span class="fw-semibold">{{ $itemStatus }}</span>@if($response && $response->available_quantity !== null)<small class="d-block text-muted">Available quantity: {{ number_format((int) $response->available_quantity) }}</small>@endif @if($response?->reason)<small class="d-block text-muted">Reason: {{ $response->reason }}</small>@endif</td>
+                            </tr>
+                        @endforeach
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        @endforeach
+    </div>
+    @if($canRequestAvailability)
+        <form method="POST" action="{{ route('marketplace.orders.availability.request', $order) }}" class="availability-request-actions">
+            @csrf
+            <span class="small text-muted">Requests already pending will not be duplicated.</span>
+            <button type="submit" class="btn btn-primary btn-sm"><i class="fa-solid fa-paper-plane me-1"></i>{{ $availabilityOverallStatus === 'Not Requested' ? 'Request Availability Confirmation' : 'Resend Availability Confirmation' }}</button>
+        </form>
+    @endif
+@endif
+@if($availabilityOwnershipIssues->isNotEmpty())
+    <div class="alert alert-warning mt-3 mb-0" role="status">
+        <strong>Product ownership needs review.</strong>
+        <ul class="mb-0 mt-1">
+            @foreach($availabilityOwnershipIssues as $ownershipIssue)
+                <li>{{ $ownershipIssue['product_name'] }}: {{ $ownershipIssue['reason'] }}</li>
+            @endforeach
+        </ul>
+    </div>
+@endif
 </div></section>
 
 @if($order->fulfillment_status === 'pending_confirmation')

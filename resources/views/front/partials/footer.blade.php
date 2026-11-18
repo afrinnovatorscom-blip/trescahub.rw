@@ -93,16 +93,16 @@
                 </h4>
                 <ul class="list-unstyled mb-0" style="display:flex; flex-direction:column; gap:8px;">
                     <li style="color:#94a3b8; font-size:0.875rem; opacity:0.7;">
-                        📞 +250 786 908 916
+                        <i class="bi bi-telephone footer-contact-icon" aria-hidden="true"></i> +250 786 908 916
                     </li>
                     <li>
                         <a href="mailto:info@trescahub.com" class="text-decoration-none footer-link"
                            style="color:#94a3b8; font-size:0.875rem; opacity:0.7;">
-                            📧 info@trescahub.com
+                            <i class="bi bi-envelope footer-contact-icon" aria-hidden="true"></i> info@trescahub.com
                         </a>
                     </li>
                     <li style="color:#94a3b8; font-size:0.875rem; opacity:0.7;">
-                        📍 Kigali, Rwanda
+                        <i class="bi bi-geo-alt footer-contact-icon" aria-hidden="true"></i> Kigali, Rwanda
                     </li>
                 </ul>
             </div>
@@ -128,6 +128,12 @@
 </footer>
 
 <style>
+    .footer-contact-icon {
+        display: inline-block;
+        width: 1.25em;
+        text-align: center;
+    }
+
     .footer-link:hover {
         opacity: 1 !important;
         color: #fff !important;

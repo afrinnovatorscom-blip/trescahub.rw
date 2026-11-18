@@ -9,6 +9,7 @@ use App\Models\Payout;
 use App\Services\AuditLogger;
 use App\Services\IntouchPayService;
 use App\Services\MobileMoneyPaymentService;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
@@ -29,15 +30,59 @@ class PaymentAdminController extends Controller
     {
         $this->authorizeView($request);
 
-        $filters = $request->validate([
+        $filters = $this->validatedPaymentFilters($request);
+        $transactions = $this->paymentRecordsQuery($filters)
+            ->paginate(20)
+            ->withQueryString();
+
+        $completed = PaymentTransaction::query()->where('status', 'completed');
+        $stats = [
+            'collected' => (float) (clone $completed)->sum('amount'),
+            'completed' => (clone $completed)->count(),
+            'pending' => PaymentTransaction::query()->where('status', 'pending')->count(),
+            'failed' => PaymentTransaction::query()->where('status', 'failed')->count(),
+            'today' => (float) (clone $completed)->whereDate('paid_at', today())->sum('amount'),
+        ];
+
+        return view('marketplace.payments.index', compact('transactions', 'stats', 'filters'));
+    }
+
+    public function exportPaymentRecordsPdf(Request $request)
+    {
+        $this->authorizeView($request);
+
+        $transactions = $this->paymentRecordsQuery([])
+            ->with([
+                'order.items:id,order_id,product_name,quantity,unit_price,line_total,variation_label,variation_value',
+                'order.productRequest:id,order_id,product_name,quantity,instructions,variation_label,variation_value',
+            ])
+            ->get();
+        $generatedAt = now();
+
+        $pdf = Pdf::loadView('marketplace.payments.payment-records-pdf', compact('transactions', 'generatedAt'))
+            ->setPaper('a4', 'landscape');
+        $pdf->render();
+        $canvas = $pdf->getDomPDF()->getCanvas();
+        $font = $pdf->getDomPDF()->getFontMetrics()->getFont('DejaVu Sans', 'normal');
+        $canvas->page_text(28, 575, 'TRESCA Hub Payment Records - Page {PAGE_NUM} of {PAGE_COUNT}', $font, 7, [0.39, 0.45, 0.55]);
+
+        return $pdf->download('payment-records.pdf');
+    }
+
+    private function validatedPaymentFilters(Request $request): array
+    {
+        return $request->validate([
             'search' => ['nullable', 'string', 'max:120'],
             'status' => ['nullable', 'in:pending,completed,failed'],
             'method' => ['nullable', 'in:'.implode(',', MobileMoneyPaymentService::METHODS)],
             'date_from' => ['nullable', 'date'],
             'date_to' => ['nullable', 'date'],
         ]);
+    }
 
-        $transactions = PaymentTransaction::query()
+    private function paymentRecordsQuery(array $filters)
+    {
+        return PaymentTransaction::query()
             ->with('order:id,reference,customer_name,total,payment_status')
             ->when($filters['search'] ?? null, function ($query, $search) {
                 $query->where(function ($inner) use ($search) {
@@ -53,20 +98,7 @@ class PaymentAdminController extends Controller
             ->when($filters['method'] ?? null, fn ($query, $method) => $query->where('method', $method))
             ->when($filters['date_from'] ?? null, fn ($query, $date) => $query->whereDate('created_at', '>=', $date))
             ->when($filters['date_to'] ?? null, fn ($query, $date) => $query->whereDate('created_at', '<=', $date))
-            ->latest('id')
-            ->paginate(20)
-            ->withQueryString();
-
-        $completed = PaymentTransaction::query()->where('status', 'completed');
-        $stats = [
-            'collected' => (float) (clone $completed)->sum('amount'),
-            'completed' => (clone $completed)->count(),
-            'pending' => PaymentTransaction::query()->where('status', 'pending')->count(),
-            'failed' => PaymentTransaction::query()->where('status', 'failed')->count(),
-            'today' => (float) (clone $completed)->whereDate('paid_at', today())->sum('amount'),
-        ];
-
-        return view('marketplace.payments.index', compact('transactions', 'stats', 'filters'));
+            ->latest('id');
     }
 
     /** Ask IntouchPay again for the status of a pending payment. */
@@ -122,6 +154,11 @@ class PaymentAdminController extends Controller
     {
         $this->authorizeView($request);
 
+        $filters = $request->validate([
+            'date_from' => ['nullable', 'date'],
+            'date_to' => ['nullable', 'date', 'after_or_equal:date_from'],
+        ]);
+
         $balanceResponse = $this->intouchPay->getBalance();
         $balance = $this->balanceFrom($balanceResponse);
 
@@ -132,14 +169,42 @@ class PaymentAdminController extends Controller
             'payout_count' => Payout::query()->where('status', 'successful')->count(),
         ];
 
+        $payouts = Payout::query()
+            ->with('user:id,name')
+            ->when($filters['date_from'] ?? null, fn ($query, $date) => $query->whereDate('created_at', '>=', $date))
+            ->when($filters['date_to'] ?? null, fn ($query, $date) => $query->whereDate('created_at', '<=', $date))
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->paginate(15)
+            ->withQueryString();
+
         return view('marketplace.payments.wallet', [
             'balance' => $balance,
             'balanceError' => $balance === null ? ($balanceResponse['message'] ?? 'Could not load balance') : null,
             'stats' => $stats,
-            'payouts' => Payout::query()->with('user:id,name')->latest('id')->paginate(15),
+            'payouts' => $payouts,
+            'filters' => $filters,
             'canSendPayouts' => $request->user()->hasPermission('payouts.send'),
             'accountNo' => (string) config('services.intouchpay.account_no'),
         ]);
+    }
+
+    public function exportPayoutHistoryPdf(Request $request)
+    {
+        $this->authorizeView($request);
+
+        $payouts = Payout::query()
+            ->with('user:id,name')
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->get();
+
+        $pdf = Pdf::loadView('marketplace.payments.payout-history-pdf', [
+            'payouts' => $payouts,
+            'generatedAt' => now(),
+        ])->setPaper('a4', 'landscape');
+
+        return $pdf->download('payout-history.pdf');
     }
 
     /** Live balance as JSON, for the "Check balance" button. */

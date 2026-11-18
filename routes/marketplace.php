@@ -70,6 +70,7 @@ Route::middleware($auth)->group(function () {
     Route::middleware(['vendor.active'])->prefix('vendor')->name('vendor.')->group(function () {
         Route::get('/', [VendorWorkspaceController::class, 'dashboard'])->name('dashboard');
         Route::get('/products', [VendorWorkspaceController::class, 'productsIndex'])->name('products.index');
+        Route::post('/availability-requests/{availabilityRequest}/respond', [VendorWorkspaceController::class, 'respondAvailability'])->whereNumber('availabilityRequest')->name('availability.respond');
         Route::get('/products/create', [VendorWorkspaceController::class, 'createProduct'])->name('products.create');
         Route::post('/products', [VendorWorkspaceController::class, 'storeProduct'])->name('products.store');
         Route::get('/products/{slug}/edit', [VendorWorkspaceController::class, 'editProduct'])->name('products.edit');
@@ -107,9 +108,11 @@ Route::middleware($auth)->group(function () {
 
         // Mobile money: payment records, IntouchPay logs, wallet balance and payouts
         Route::get('/payments', [PaymentAdminController::class, 'index'])->name('payments.index');
+        Route::get('/payments/export', [PaymentAdminController::class, 'exportPaymentRecordsPdf'])->name('payments.export');
         Route::post('/payments/{transaction}/recheck', [PaymentAdminController::class, 'recheck'])->middleware('throttle:30,1')->name('payments.recheck');
         Route::get('/payments/logs', [PaymentAdminController::class, 'logs'])->name('payments.logs');
         Route::get('/wallet', [PaymentAdminController::class, 'wallet'])->name('wallet.index');
+        Route::get('/wallet/pdf', [PaymentAdminController::class, 'exportPayoutHistoryPdf'])->name('wallet.pdf');
         Route::get('/wallet/balance', [PaymentAdminController::class, 'balance'])->middleware('throttle:20,1')->name('wallet.balance');
         Route::post('/wallet/payouts', [PaymentAdminController::class, 'payout'])->middleware('throttle:5,1')->name('wallet.payout');
         Route::post('/wallet/payouts/{payout}/refresh', [PaymentAdminController::class, 'refreshPayout'])->whereNumber('payout')->name('wallet.payout.refresh');
@@ -151,6 +154,7 @@ Route::middleware($auth)->group(function () {
         Route::get('/orders', [CommerceController::class, 'orders'])->name('orders.index');
         Route::get('/orders/{order}', [CommerceController::class, 'showOrder'])->name('orders.show');
         Route::post('/orders/{order}/review', [CommerceController::class, 'reviewOrder'])->name('orders.review');
+        Route::post('/orders/{order}/availability-requests', [CommerceController::class, 'requestOrderAvailability'])->name('orders.availability.request');
         Route::post('/orders/{order}/approve', [CommerceController::class, 'approveOrder'])->name('orders.approve');
         Route::post('/orders/{order}/send-to-delivery', [CommerceController::class, 'sendOrderToDelivery'])->name('orders.send-delivery');
         Route::post('/orders/{order}/save-changes', [CommerceController::class, 'saveOrderChanges'])->name('orders.save-changes');
@@ -187,6 +191,7 @@ Route::middleware($auth)->group(function () {
         Route::get('/staff', [AdminAccessController::class, 'users'])->name('users.index');
         Route::get('/staff/create', [AdminAccessController::class, 'createUser'])->name('users.create');
         Route::post('/staff', [AdminAccessController::class, 'storeUser'])->name('users.store');
+        Route::put('/staff/{staff}/access', [AdminAccessController::class, 'updateStaffAccess'])->whereNumber('staff')->name('users.access');
         Route::put('/staff/{staff}', [AdminAccessController::class, 'updateUser'])->name('users.update');
         Route::get('/notifications', [AdminAccessController::class, 'notifications'])->name('notifications.index');
         Route::get('/notifications/unread-count', [AdminAccessController::class, 'unreadNotificationCount'])->name('notifications.unread-count');

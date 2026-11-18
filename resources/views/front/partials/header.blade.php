@@ -102,6 +102,7 @@
                     <livewire:public-login-modal
                         :open-on-load="request()->boolean('auth_required')"
                         :notice="request()->boolean('auth_required') ? 'Please sign in first to continue with your order.' : ''"
+                        :redirect-after-login-url="request()->boolean('booking_after_login') && request()->routeIs('service.show') ? request()->fullUrlWithQuery(['auth_required' => null, 'booking_after_login' => null, 'auto_book' => 1]) : ''"
                     />
                 @else
                     @php

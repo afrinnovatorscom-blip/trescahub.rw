@@ -63,6 +63,11 @@ class Customer extends Authenticatable
         return $this->hasMany(ServiceRequest::class);
     }
 
+    public function serviceBookings(): HasMany
+    {
+        return $this->hasMany(ServiceBooking::class);
+    }
+
     public function defaultAddress(): ?CustomerAddress
     {
         return $this->addresses()->where('is_default', true)->first();

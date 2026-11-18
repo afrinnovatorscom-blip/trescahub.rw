@@ -51,6 +51,11 @@ class Order extends Model
         return $this->hasMany(OrderItem::class);
     }
 
+    public function vendorAvailabilityRequests(): HasMany
+    {
+        return $this->hasMany(VendorAvailabilityRequest::class);
+    }
+
     public function histories(): HasMany
     {
         return $this->hasMany(OrderStatusHistory::class);

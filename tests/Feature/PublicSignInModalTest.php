@@ -292,6 +292,40 @@ class PublicSignInModalTest extends TestCase
         $this->assertAuthenticatedAs($customer, 'customers');
     }
 
+    public function test_customer_login_returns_to_service_and_opens_the_requested_booking(): void
+    {
+        $customer = $this->customer([
+            'email' => 'service-booking-login@example.com',
+            'password' => 'valid-password',
+        ]);
+        $service = \App\Models\Service::query()->create([
+            'title' => 'Booking Service',
+            'slug' => 'booking-service',
+            'price' => 100000,
+            'classification_name' => \App\Models\Category::query()->create([
+                'title' => 'Booking Services',
+                'slug' => 'booking-services',
+            ])->id,
+            'is_in_stock' => true,
+        ]);
+        $returnUrl = route('service.show', [
+            'service' => $service->slug,
+            'auto_book' => 1,
+        ]);
+
+        Livewire::test(PublicLoginModal::class, [
+            'openOnLoad' => true,
+            'notice' => 'Please sign in first to continue with your order.',
+            'redirectAfterLoginUrl' => $returnUrl,
+        ])
+            ->set('email', $customer->email)
+            ->set('password', 'valid-password')
+            ->call('login')
+            ->assertRedirect($returnUrl);
+
+        $this->assertAuthenticatedAs($customer, 'customers');
+    }
+
     public function test_customer_login_returns_to_the_intended_product_request_form(): void
     {
         $customer = $this->customer([

@@ -15,6 +15,13 @@
     .wallet-form .form-label { font-size: .84rem; font-weight: 600; margin-bottom: .25rem; }
     .wallet-form .form-control { font-size: .9rem; }
     .wallet-warning { background: #fff7ed; border: 1px solid #fed7aa; color: #9a3412; border-radius: 8px; padding: .55rem .7rem; font-size: .78rem; margin-bottom: .9rem; }
+    .payout-history-toolbar { display: flex; flex-wrap: wrap; gap: .75rem; align-items: end; padding: .85rem 1rem .4rem; border-bottom: 1px solid #eef2f7; }
+    .payout-history-field { display: flex; flex-direction: column; gap: .32rem; min-width: 160px; }
+    .payout-history-field label { color: #475569; font-size: .75rem; font-weight: 600; }
+    .payout-history-field input { height: 38px; min-width: 150px; }
+    .payout-history-actions { display: flex; align-items: center; gap: .5rem; }
+    .payout-history-card-head { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
+    .payout-history-card-head .btn { white-space: nowrap; }
     @media (max-width: 991.98px) { .wallet-top, .wallet-bottom { grid-template-columns: 1fr; } }
 </style>
 
@@ -83,7 +90,37 @@
         </div>
 
         <div class="pay-card">
-            <div class="pay-card-head">Payout history</div>
+            <div class="pay-card-head payout-history-card-head">
+                <span>Payout history</span>
+                <a href="{{ route('marketplace.wallet.pdf') }}" class="btn btn-outline-danger btn-sm">
+                    <i class="bi bi-file-earmark-pdf"></i>
+                    <span>Download PDF</span>
+                </a>
+            </div>
+
+            <form method="GET" action="{{ route('marketplace.wallet.index') }}" class="payout-history-toolbar" aria-label="Filter payout history by date">
+                <div class="payout-history-field">
+                    <label for="date_from">From Date</label>
+                    <input id="date_from" name="date_from" type="date" class="form-control form-control-sm @error('date_to') is-invalid @enderror" value="{{ request('date_from') }}">
+                </div>
+                <div class="payout-history-field">
+                    <label for="date_to">To Date</label>
+                    <input id="date_to" name="date_to" type="date" class="form-control form-control-sm @error('date_to') is-invalid @enderror" value="{{ request('date_to') }}">
+                </div>
+                <div class="payout-history-actions">
+                    <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-funnel"></i> Filter</button>
+                    @if(request()->hasAny(['date_from', 'date_to']))
+                        <a href="{{ route('marketplace.wallet.index') }}" class="btn btn-outline-secondary btn-sm">Clear</a>
+                    @endif
+                </div>
+            </form>
+
+            @error('date_to')
+                <div class="alert alert-danger rounded-0 border-0 mb-0">
+                    <i class="bi bi-exclamation-triangle"></i> {{ $message }}
+                </div>
+            @enderror
+
             <div class="table-responsive">
                 <table class="table pay-table">
                     <thead>
@@ -116,7 +153,7 @@
                                 </td>
                             </tr>
                         @empty
-                            <tr><td colspan="6" class="pay-empty">No payouts yet.</td></tr>
+                            <tr><td colspan="6" class="pay-empty">{{ request()->hasAny(['date_from', 'date_to']) ? 'No payout history found for the selected period.' : 'No payouts yet.' }}</td></tr>
                         @endforelse
                     </tbody>
                 </table>

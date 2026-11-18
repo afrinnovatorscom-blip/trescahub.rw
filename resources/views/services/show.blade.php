@@ -1,6 +1,7 @@
 @extends('front.layouts.guest')
 @section('content')
 @php
+    $bookingCustomer = auth('customers')->user();
     $serviceImageUrl = function ($path) {
         if (! is_string($path) || trim($path) === '') {
             return null;
@@ -23,6 +24,15 @@
 @endphp
 
 <div class="container py-5">
+    @if(session('booking_reference'))
+        <div class="alert alert-success alert-dismissible fade show" role="status">
+            <i class="bi bi-check-circle me-2" aria-hidden="true"></i>
+            Booking submitted successfully. Your reference is <strong>{{ session('booking_reference') }}</strong>.
+            The date and time requested are preferences; the Admin team will contact you to confirm the appointment.
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    @endif
+
     {{-- Back Button --}}
     <a href="{{ route('services.category', $service->category->slug) }}" class="d-inline-flex align-items-center gap-2 text-decoration-none text-muted mb-4" style="font-size: 0.95rem;">
         <i class="bi bi-arrow-left"></i>
@@ -125,10 +135,20 @@
                     </p>
                 @endif
 
-                {{-- Order Button --}}
-                <a href="https://wa.me/250780290040" target="_blank" class="service-order-button">
-                    <i class="bi bi-whatsapp" aria-hidden="true"></i> Order via WhatsApp
-                </a>
+                <div class="service-order-actions">
+                    <a href="https://wa.me/250780290040" target="_blank" rel="noopener noreferrer" class="service-order-button">
+                        <i class="bi bi-whatsapp" aria-hidden="true"></i> Order via WhatsApp
+                    </a>
+                    @if($bookingCustomer)
+                        <button type="button" class="service-booking-button" data-bs-toggle="modal" data-bs-target="#serviceBookingModal">
+                            <i class="bi bi-calendar2-check" aria-hidden="true"></i> Order Now
+                        </button>
+                    @else
+                        <a href="{{ route('service.show', ['service' => $service->slug, 'auth_required' => 1, 'booking_after_login' => 1]) }}" class="service-booking-button">
+                            <i class="bi bi-calendar2-check" aria-hidden="true"></i> Order Now
+                        </a>
+                    @endif
+                </div>
             </div>
 
             {{-- What's Included --}}
@@ -243,6 +263,64 @@
             </div>
         </div>
     @endif
+</div>
+
+<div class="modal fade booking-modal" id="serviceBookingModal" tabindex="-1" aria-labelledby="serviceBookingModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content">
+            <form method="POST" action="{{ route('service-bookings.store', $service->slug) }}" data-service-booking-form>
+                @csrf
+                <input type="hidden" name="submission_key" value="{{ old('submission_key', (string) \Illuminate\Support\Str::uuid()) }}">
+                <div class="modal-header">
+                    <div>
+                        <h2 class="modal-title" id="serviceBookingModalLabel">Book This Service</h2>
+                        <p class="booking-modal-description mb-0">Choose a preferred date. We’ll contact you to confirm the appointment.</p>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close booking form"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="booking-form-grid">
+                        <div class="booking-field booking-field-full">
+                            <label for="booking-service">Service</label>
+                            <input id="booking-service" class="form-control" type="text" value="{{ $service->title }}" readonly>
+                        </div>
+                        <div class="booking-field">
+                            <label for="booking-preferred-date">Preferred Date <span aria-hidden="true">*</span></label>
+                            <input id="booking-preferred-date" class="form-control @error('preferred_date') is-invalid @enderror" type="date" name="preferred_date" min="{{ now()->toDateString() }}" value="{{ old('preferred_date') }}" required>
+                            @error('preferred_date')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                        </div>
+                        <div class="booking-field">
+                            <label for="booking-customer-name">Full Name <span aria-hidden="true">*</span></label>
+                            <input id="booking-customer-name" class="form-control @error('customer_name') is-invalid @enderror" type="text" name="customer_name" maxlength="255" value="{{ old('customer_name', $bookingCustomer?->name) }}" autocomplete="name" required>
+                            @error('customer_name')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                        </div>
+                        <div class="booking-field">
+                            <label for="booking-customer-phone">Phone Number <span aria-hidden="true">*</span></label>
+                            <input id="booking-customer-phone" class="form-control @error('customer_phone') is-invalid @enderror" type="tel" name="customer_phone" maxlength="50" value="{{ old('customer_phone', $bookingCustomer?->phone) }}" autocomplete="tel" required>
+                            @error('customer_phone')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                        </div>
+                        <div class="booking-field booking-field-full">
+                            <label for="booking-customer-email">Email</label>
+                            <input id="booking-customer-email" class="form-control @error('customer_email') is-invalid @enderror" type="email" name="customer_email" maxlength="255" value="{{ old('customer_email', $bookingCustomer?->email) }}" autocomplete="email">
+                            @error('customer_email')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                        </div>
+                        <div class="booking-field booking-field-full">
+                            <label for="booking-requirements">Requirements <span class="text-muted fw-normal">(optional)</span></label>
+                            <textarea id="booking-requirements" class="form-control @error('requirements') is-invalid @enderror" name="requirements" rows="3" maxlength="5000" placeholder="Tell us briefly what you need">{{ old('requirements') }}</textarea>
+                            @error('requirements')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="booking-submit-button">
+                        <i class="bi bi-calendar2-check" aria-hidden="true"></i>
+                        <span>Submit Booking</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
 </div>
 
 <style>
@@ -405,6 +483,7 @@
     }
 
     .service-order-button,
+    .service-booking-button,
     .service-question-button {
         display: inline-flex;
         align-items: center;
@@ -423,10 +502,30 @@
     }
 
     .service-order-button {
-        grid-column: 1 / -1;
-        justify-self: start;
+        flex: 1 1 0;
         background: #15803d;
         color: #fff;
+    }
+
+    .service-order-actions {
+        display: flex;
+        grid-column: 1 / -1;
+        gap: 0.75rem;
+        min-width: 0;
+    }
+
+    .service-booking-button {
+        flex: 1 1 0;
+        background: #fff;
+        color: #15803d;
+        cursor: pointer;
+    }
+
+    .service-booking-button:hover {
+        border-color: #166534;
+        background: #f0fdf4;
+        color: #166534;
+        box-shadow: 0 2px 8px rgba(21, 128, 61, 0.12);
     }
 
     .service-order-button:hover {
@@ -436,6 +535,7 @@
     }
 
     .service-order-button:focus-visible,
+    .service-booking-button:focus-visible,
     .service-question-button:focus-visible {
         outline: 3px solid rgba(22, 163, 74, 0.28);
         outline-offset: 2px;
@@ -548,6 +648,104 @@
         color: #166534;
     }
 
+    .booking-modal .modal-content {
+        overflow: hidden;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        box-shadow: 0 20px 50px rgba(15, 23, 42, 0.18);
+    }
+
+    .booking-modal .modal-header,
+    .booking-modal .modal-footer {
+        padding: 1.25rem 1.5rem;
+        border-color: #e2e8f0;
+    }
+
+    .booking-modal .modal-title {
+        color: #0f172a;
+        font-size: 1.25rem;
+        font-weight: 700;
+    }
+
+    .booking-modal-description {
+        margin-top: 0.25rem;
+        color: #64748b;
+        font-size: 0.875rem;
+        line-height: 1.5;
+    }
+
+    .booking-modal .modal-body {
+        padding: 1.5rem;
+    }
+
+    .booking-form-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 1rem;
+    }
+
+    .booking-field {
+        min-width: 0;
+    }
+
+    .booking-field-full {
+        grid-column: 1 / -1;
+    }
+
+    .booking-field label {
+        display: block;
+        margin-bottom: 0.4rem;
+        color: #334155;
+        font-size: 0.875rem;
+        font-weight: 600;
+    }
+
+    .booking-field .form-control,
+    .booking-field .form-select {
+        min-height: 42px;
+        border-color: #cbd5e1;
+        border-radius: 8px;
+        color: #0f172a;
+        font-size: 0.9rem;
+    }
+
+    .booking-field textarea.form-control {
+        min-height: 96px;
+        resize: vertical;
+    }
+
+    .booking-field .form-control:focus,
+    .booking-field .form-select:focus {
+        border-color: #16a34a;
+        box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.15);
+    }
+
+    .booking-submit-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        min-height: 42px;
+        padding: 0.6rem 1rem;
+        border: 1px solid #15803d;
+        border-radius: 8px;
+        background: #15803d;
+        color: #fff;
+        font-size: 0.875rem;
+        font-weight: 600;
+        transition: background-color 0.2s ease, border-color 0.2s ease;
+    }
+
+    .booking-submit-button:hover {
+        border-color: #166534;
+        background: #166534;
+    }
+
+    .booking-submit-button:focus-visible {
+        outline: 3px solid rgba(22, 163, 74, 0.28);
+        outline-offset: 2px;
+    }
+
     @media (max-width: 767.98px) {
         .service-detail-top {
             row-gap: 1.5rem;
@@ -572,8 +770,40 @@
         }
 
         .service-order-button,
+        .service-booking-button,
         .service-question-button {
             width: 100%;
+        }
+
+        .service-order-actions {
+            flex-direction: column;
+        }
+
+        .booking-modal .modal-dialog {
+            margin: 0.75rem;
+        }
+
+        .booking-modal .modal-header,
+        .booking-modal .modal-body,
+        .booking-modal .modal-footer {
+            padding: 1rem;
+        }
+
+        .booking-form-grid {
+            grid-template-columns: minmax(0, 1fr);
+            gap: 0.875rem;
+        }
+
+        .booking-field-full {
+            grid-column: auto;
+        }
+
+        .booking-modal .modal-footer {
+            flex-wrap: wrap;
+        }
+
+        .booking-modal .modal-footer > button {
+            flex: 1 1 auto;
         }
 
         .service-process-content {
@@ -598,5 +828,44 @@
         box-shadow: 0 2px 8px rgba(22, 163, 74, 0.15);
     }
 </style>
+
+@push('scripts')
+<script>
+document.querySelectorAll('[data-service-booking-form]').forEach((form) => {
+    form.addEventListener('submit', (event) => {
+        if (form.dataset.submitting === 'true') {
+            event.preventDefault();
+            return;
+        }
+
+        form.dataset.submitting = 'true';
+        const submitButton = form.querySelector('button[type="submit"]');
+        if (submitButton) {
+            submitButton.disabled = true;
+            submitButton.querySelector('span').textContent = 'Submitting...';
+        }
+    });
+});
+
+@if($bookingCustomer && request()->boolean('auto_book'))
+document.addEventListener('DOMContentLoaded', () => {
+    const modal = document.getElementById('serviceBookingModal');
+    if (modal && window.bootstrap) {
+        bootstrap.Modal.getOrCreateInstance(modal).show();
+        window.history.replaceState({}, '', @js(route('service.show', $service->slug)));
+    }
+});
+@endif
+
+@if($errors->any())
+document.addEventListener('DOMContentLoaded', () => {
+    const modal = document.getElementById('serviceBookingModal');
+    if (modal && window.bootstrap) {
+        bootstrap.Modal.getOrCreateInstance(modal).show();
+    }
+});
+@endif
+</script>
+@endpush
 
 @endsection

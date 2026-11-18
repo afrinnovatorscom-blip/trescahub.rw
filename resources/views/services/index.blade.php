@@ -279,7 +279,7 @@
                     <tbody>
                         @forelse($services as $service)
                         <tr>
-                            <td class="service-row-number small">{{ $service->id }}</td>
+                            <td class="service-row-number small">{{ $services->firstItem() + $loop->index }}</td>
 
                             <td>
                                 @if($service->thumbnail)

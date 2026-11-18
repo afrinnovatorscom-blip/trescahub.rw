@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Marketplace;
 
 use App\Http\Controllers\Controller;
 use App\Models\AuditLog;
+use App\Models\Customer;
 use App\Models\DeliveryTask;
 use App\Models\Order;
 use App\Models\OrderItem;
@@ -18,6 +19,7 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 
 class AdminAccessController extends Controller
 {
@@ -459,14 +461,66 @@ class AdminAccessController extends Controller
     public function users(Request $request)
     {
         abort_unless($request->user()->hasPermission('users.manage'), 403);
-        $users = User::query()->with('roles', 'vendor')->when($request->q, function ($query) use ($request) {
-            $query->where('name', 'like', '%'.$request->q.'%')->orWhere('email', 'like', '%'.$request->q.'%');
-        })->orderBy('name')->paginate(20);
+
+        $roles = $this->assignableRoles($request->user())
+            ->reject(fn (Role $role) => in_array($role->slug, ['vendor', 'customer'], true))
+            ->values();
+        $filters = $request->validate([
+            'tab' => ['nullable', Rule::in(['all', 'customers'])],
+            'staff_search' => ['nullable', 'string', 'max:120'],
+            'staff_role' => ['nullable', 'integer', Rule::in($roles->pluck('id')->all())],
+            'customer_search' => ['nullable', 'string', 'max:120'],
+        ]);
+        $activeTab = $filters['tab'] ?? 'all';
+
+        $users = User::query()
+            ->with('roles')
+            ->whereHas('roles', fn ($query) => $query
+                ->whereNotIn('slug', ['vendor', 'customer']))
+            ->whereDoesntHave('roles', fn ($query) => $query->where('slug', 'vendor'))
+            ->when($filters['staff_search'] ?? null, function ($query, $search) {
+                $query->where(function ($inner) use ($search) {
+                    $inner->where('name', 'like', "%{$search}%")
+                        ->orWhere('email', 'like', "%{$search}%")
+                        ->orWhere('phone', 'like', "%{$search}%");
+                });
+            })
+            ->when($filters['staff_role'] ?? null, fn ($query, $roleId) => $query->whereHas('roles', fn ($rolesQuery) => $rolesQuery->where('roles.id', $roleId)))
+            ->orderBy('name')
+            ->orderBy('id')
+            ->paginate(20, ['*'], 'staff_page')
+            ->withQueryString()
+            ->appends(['tab' => $activeTab]);
+
+        $customers = Customer::query()
+            ->when($filters['customer_search'] ?? null, function ($query, $search) {
+                $query->where(function ($inner) use ($search) {
+                    $inner->where('name', 'like', "%{$search}%")
+                        ->orWhere('email', 'like', "%{$search}%")
+                        ->orWhere('phone', 'like', "%{$search}%");
+                });
+            })
+            ->orderBy('name')
+            ->orderBy('id')
+            ->paginate(20, ['*'], 'customer_page')
+            ->withQueryString()
+            ->appends(['tab' => $activeTab]);
+
+        $staffCount = User::query()
+            ->whereHas('roles', fn ($query) => $query->whereNotIn('slug', ['vendor', 'customer']))
+            ->whereDoesntHave('roles', fn ($query) => $query->where('slug', 'vendor'))
+            ->count();
+        $customerCount = Customer::query()->count();
 
         return view('marketplace.users.index', [
             'users' => $users,
-            'roles' => $this->assignableRoles($request->user()),
-            'vendors' => Vendor::query()->orderBy('business_name')->get(),
+            'roles' => $roles,
+            'customers' => $customers,
+            'filters' => $filters,
+            'activeTab' => $activeTab,
+            'totalUsers' => $staffCount + $customerCount,
+            'staffCount' => $staffCount,
+            'customerCount' => $customerCount,
         ]);
     }
 
@@ -534,6 +588,39 @@ class AdminAccessController extends Controller
         AuditLogger::log($request->user(), 'user.roles_updated', $staff, ['roles' => $roles->pluck('slug')]);
 
         return back()->with('success', 'User access updated.');
+    }
+
+    public function updateStaffAccess(Request $request, User $staff)
+    {
+        abort_unless($request->user()->hasPermission('users.manage'), 403);
+        abort_if($staff->hasRole('vendor'), 403);
+
+        $roles = $this->assignableRoles($request->user())
+            ->reject(fn (Role $role) => in_array($role->slug, ['vendor', 'customer'], true));
+        $manageableRoleIds = $roles->pluck('id');
+        $data = $request->validate([
+            'roles' => ['array'],
+            'roles.*' => ['integer', Rule::in($manageableRoleIds->all())],
+        ]);
+
+        $selectedRoles = $this->guardRoles(
+            $request->user(),
+            $roles->whereIn('id', $data['roles'] ?? [])->loadMissing('permissions')
+        );
+        $protectedRoles = $staff->roles()
+            ->whereNotIn('roles.id', $manageableRoleIds)
+            ->whereNotIn('roles.slug', ['vendor', 'customer'])
+            ->with('permissions')
+            ->get();
+        $selectedRoles = $selectedRoles->merge($protectedRoles)->unique('id')->values();
+        $this->guardLastSuperAdmin($staff, $selectedRoles);
+
+        $staff->roles()->sync($selectedRoles->pluck('id'));
+        $staff->forgetPermissionCache();
+        AuditLogger::log($request->user(), 'user.roles_updated', $staff, ['roles' => $selectedRoles->pluck('slug')]);
+
+        return redirect()->route('marketplace.users.index', ['tab' => 'all'])
+            ->with('success', 'User access updated.');
     }
 
     public function notifications(Request $request)

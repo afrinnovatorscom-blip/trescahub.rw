@@ -908,6 +908,38 @@ class MarketplaceTest extends TestCase
         $this->get(route('ctas.index'))->assertOk()->assertSee('New CTA');
     }
 
+    public function test_service_bookings_page_is_available_to_admin_and_super_admin_only(): void
+    {
+        foreach (['administrator', 'super-administrator'] as $role) {
+            $response = $this->actingAs($this->user($role))
+                ->get(route('service-bookings.index'));
+
+            $response->assertOk()
+                ->assertSee('Service Bookings')
+                ->assertSee('Pending')
+                ->assertSee('Confirmed')
+                ->assertSee('Completed')
+                ->assertSee('Booking Ref')
+                ->assertSee('Preferred Date')
+                ->assertDontSee('Preferred Time')
+                ->assertSee('Payment Status')
+                ->assertSee('No pending bookings found.')
+                ->assertSee(route('service-bookings.index'), false);
+        }
+
+        $this->actingAs($this->user('administrator'))
+            ->get(route('service-bookings.index', ['tab' => 'confirmed']))
+            ->assertOk()
+            ->assertSee('No confirmed bookings found.')
+            ->assertDontSee('Preferred Time')
+            ->assertSee('class="booking-tab active"', false)
+            ->assertSee('aria-current="page"', false);
+
+        $this->actingAs($this->user('operations-manager'))
+            ->get(route('service-bookings.index'))
+            ->assertForbidden();
+    }
+
     public function test_allocation_tracking_inventory_and_existing_storefront(): void
     {
         $vendor = $this->vendor('Allocated Supplier');
@@ -1201,7 +1233,7 @@ class MarketplaceTest extends TestCase
         $this->assertSame($notificationCount, $customer->notifications()->count());
     }
 
-    public function test_vendor_allocation_transfers_entire_order_out_of_admin_review(): void
+    public function test_vendor_allocation_keeps_order_pending_until_admin_approval(): void
     {
         $admin = $this->user('administrator');
         $customer = $this->user('customer');
@@ -1224,7 +1256,7 @@ class MarketplaceTest extends TestCase
         $this->actingAs($admin)->get(route('marketplace.orders.show', ['order' => $order, 'allocate' => 1]))
             ->assertOk()
             ->assertDontSee('Payment information')
-            ->assertSee('Who will handle this order?')
+            ->assertSee('Vendor Allocation')
             ->assertSee('Vendor-handled Product')
             ->assertSee('Second Vendor Product')
             ->assertDontSee('name="allocations[', false);
@@ -1235,31 +1267,40 @@ class MarketplaceTest extends TestCase
             'has_paid' => 'no',
             'submission_key' => (string) \Illuminate\Support\Str::uuid(),
         ])->assertRedirect(route('marketplace.orders.index', ['tab' => 'pending']))
-            ->assertSessionHas('success', 'Order successfully allocated to '.$vendor->business_name.'.');
+            ->assertSessionHas('allocation_success', 'Order #'.$order->reference.' has been successfully allocated to '.$vendor->business_name.'.');
 
         $this->assertSame(1, \App\Models\Order::query()->whereKey($order->id)->count());
-        $this->assertSame('confirmed', $order->fresh()->fulfillment_status);
+        $this->assertSame('pending_confirmation', $order->fresh()->fulfillment_status);
         $this->assertSame([$vendor->id], $items->map(fn ($item) => $item->fresh()->vendor_id)->unique()->values()->all());
         $this->assertSame(['assigned'], $items->map(fn ($item) => $item->fresh()->assignment_status)->unique()->values()->all());
 
         $this->actingAs($admin)->get(route('marketplace.orders.index', ['tab' => 'pending']))
             ->assertOk()
-            ->assertDontSee($order->reference);
+            ->assertSee($order->reference);
         $this->actingAs($admin)->get(route('marketplace.orders.show', $order))
             ->assertOk()
-            ->assertDontSee('Accept Order')
-            ->assertDontSee('Reject Order')
-            ->assertDontSee('Payment information');
+            ->assertSee('Approve Order')
+            ->assertSee('Reject Order');
 
         $this->actingAs($admin)->post(route('marketplace.orders.save-changes', $order), [
             'has_paid' => 'yes',
             'payment_type' => 'full',
             'payment_method' => 'bank_transfer',
             'submission_key' => (string) \Illuminate\Support\Str::uuid(),
-        ])->assertSessionHasErrors('has_paid');
+        ])->assertSessionHasErrors('order');
 
         $this->assertSame('pending', $order->fresh()->payment_status);
         $this->assertSame(0, $order->payments()->count());
+
+        $this->actingAs($admin)->post(route('marketplace.orders.approve', $order))
+            ->assertRedirect(route('marketplace.orders.index', ['tab' => 'approved']));
+        $this->assertSame('confirmed', $order->fresh()->fulfillment_status);
+        $this->actingAs($admin)->get(route('marketplace.orders.index', ['tab' => 'pending']))
+            ->assertOk()
+            ->assertDontSee($order->reference);
+        $this->actingAs($admin)->get(route('marketplace.orders.index', ['tab' => 'approved']))
+            ->assertOk()
+            ->assertSee($order->reference);
 
         $this->actingAs($vendorUser)->get(route('vendor.orders.index', ['tab' => 'pending']))
             ->assertOk()

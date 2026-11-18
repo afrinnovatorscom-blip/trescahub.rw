@@ -154,7 +154,7 @@ class ShopProductController extends Controller
         }
 
         $products = ShopProduct::query()
-            ->with(['category', 'subcategory', 'vendor'])
+            ->with(['category', 'subcategory', 'vendor', 'creator.roles', 'creator.vendor'])
             ->when($filters['q'] ?? null, fn ($query, $term) => $query->where('product_name', 'like', '%'.$term.'%'))
             ->when($filters['approval_status'] ?? null, fn ($query, $status) => $query->where('approval_status', $status))
             ->when($filters['vendor_id'] ?? null, fn ($query, $vendorId) => $query->where('vendor_id', $vendorId))

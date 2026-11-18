@@ -31,8 +31,23 @@
     .vendor-product-edit:hover { color:#1d4ed8; }
     .vendor-products-empty { height:120px !important; color:#64748b; text-align:center; }
     .vendor-products-pagination { padding:12px 16px; border-top:1px solid #e2e8f0; }
+    .availability-tabs { display:flex; gap:4px; margin:0 0 16px; border-bottom:1px solid #e2e8f0; }
+    .availability-tab { border:0; border-bottom:2px solid transparent; background:transparent; color:#64748b; padding:10px 14px; font-size:14px; font-weight:600; }
+    .availability-tab.active { border-bottom-color:#2563eb; color:#1d4ed8; }
+    .availability-request-card { margin-bottom:14px; overflow:hidden; background:#fff; border:1px solid #e2e8f0; border-radius:10px; }
+    .availability-request-heading { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:11px 14px; background:#f8fafc; border-bottom:1px solid #e2e8f0; color:#334155; font-size:13px; }
+    .availability-request-table { width:100%; margin:0; font-size:13px; }
+    .availability-request-table th { padding:8px 10px; background:#fff; color:#64748b; font-size:11px; text-transform:uppercase; }
+    .availability-request-table td { padding:9px 10px; border-color:#edf2f7; vertical-align:middle; }
+    .availability-item { display:flex; align-items:center; gap:8px; min-width:150px; }
+    .availability-thumb { width:36px; height:36px; flex:none; border:1px solid #e2e8f0; border-radius:6px; object-fit:cover; background:#f8fafc; }
+    .availability-response-fields { display:flex; align-items:flex-end; flex-wrap:wrap; gap:8px; padding:12px 14px; border-top:1px solid #edf2f7; }
+    .availability-response-fields label { display:block; margin-bottom:3px; color:#64748b; font-size:11px; }
+    .availability-quantity { width:82px; height:34px; }
+    .availability-reason { width:min(340px,100%); height:34px; }
+    .availability-response-actions { display:flex; gap:7px; margin-left:auto; }
     @media(max-width:991.98px){.vendor-products-toolbar{flex-wrap:wrap}.vendor-products-search{flex-basis:100%}.vendor-products-select{flex:1 1 calc(50% - 4px);width:auto}}
-    @media(max-width:575.98px){.vendor-products-header{align-items:flex-start}.vendor-products-submit{height:40px}.vendor-products-toolbar{flex-direction:column;align-items:stretch}.vendor-products-search,.vendor-products-select{width:100%;flex-basis:auto}.vendor-products-table-card{overflow:hidden}.vendor-products-table{table-layout:auto}.vendor-product-col{width:auto}.vendor-product-name{white-space:normal}.vendor-products-table thead th,.vendor-products-table tbody td{padding-left:7px;padding-right:7px}.vendor-products-table{font-size:12px}}
+    @media(max-width:575.98px){.vendor-products-header{align-items:flex-start}.vendor-products-submit{height:40px}.vendor-products-toolbar{flex-direction:column;align-items:stretch}.vendor-products-search,.vendor-products-select{width:100%;flex-basis:auto}.vendor-products-table-card{overflow:hidden}.vendor-products-table{table-layout:auto}.vendor-product-col{width:auto}.vendor-product-name{white-space:normal}.vendor-products-table thead th,.vendor-products-table tbody td{padding-left:7px;padding-right:7px}.vendor-products-table{font-size:12px}.availability-tabs{overflow-x:auto}.availability-tab{white-space:nowrap;padding-inline:10px}.availability-response-fields{align-items:stretch;flex-direction:column}.availability-response-actions{margin-left:0}.availability-response-actions button{flex:1}.availability-request-heading{align-items:flex-start;flex-direction:column}}
 </style>
 @endpush
 
@@ -45,6 +60,12 @@
         <a class="btn btn-primary vendor-products-submit" href="{{ route('vendor.products.create') }}">Submit Product</a>
     </div>
 
+    <div class="availability-tabs" role="tablist" aria-label="My Products sections">
+        <button type="button" class="availability-tab @if(request('tab') !== 'availability') active @endif" role="tab" aria-selected="{{ request('tab') !== 'availability' ? 'true' : 'false' }}" aria-controls="vendor-products-panel" data-products-tab="products">My Products</button>
+        <button type="button" class="availability-tab @if(request('tab') === 'availability') active @endif" role="tab" aria-selected="{{ request('tab') === 'availability' ? 'true' : 'false' }}" aria-controls="availability-panel" data-products-tab="availability">Availability Confirmation</button>
+    </div>
+
+    <section id="vendor-products-panel" @if(request('tab') === 'availability') hidden @endif>
     <form method="GET" action="{{ route('vendor.products.index') }}" class="vendor-products-toolbar">
         <label class="visually-hidden" for="product-search">Search Products</label>
         <input id="product-search" name="q" value="{{ request('q') }}" class="form-control vendor-products-search" placeholder="Search Products" autocomplete="off">
@@ -95,5 +116,92 @@
         </table>
         @if($products->hasPages())<div class="vendor-products-pagination">{{ $products->links() }}</div>@endif
     </div>
+    </section>
+
+    <section id="availability-panel" @if(request('tab') !== 'availability') hidden @endif>
+        @forelse($availabilityRequests as $availabilityRequest)
+            @php
+                $requestStatus = match($availabilityRequest->status) {
+                    'pending_confirmation' => 'Pending Confirmation',
+                    'available' => 'Available',
+                    'unavailable' => 'Unavailable',
+                    'partially_available' => 'Response recorded',
+                    default => \Illuminate\Support\Str::headline($availabilityRequest->status),
+                };
+            @endphp
+            <div class="availability-request-card">
+                <div class="availability-request-heading">
+                    <span><strong>Order {{ $availabilityRequest->order?->reference ?? 'Order unavailable' }}</strong><span class="text-muted ms-2">Requested {{ $availabilityRequest->created_at->format('M j, Y g:i A') }}</span></span>
+                    <span class="vendor-status-badge {{ $availabilityRequest->status === 'pending_confirmation' ? 'vendor-status-pending_approval' : ($availabilityRequest->status === 'available' ? 'vendor-status-approved' : ($availabilityRequest->status === 'unavailable' ? 'vendor-status-rejected' : 'vendor-status-neutral')) }}">{{ $requestStatus }}</span>
+                </div>
+                <div class="table-responsive">
+                    <table class="table availability-request-table">
+                        <thead><tr><th>Product</th><th>Variation</th><th>Ordered Quantity</th><th>Availability Status</th><th>Action</th></tr></thead>
+                        <tbody>
+                        @foreach($availabilityRequest->items as $availabilityItem)
+                            @php
+                                $orderItem = $availabilityItem->orderItem;
+                                $thumbnail = $orderItem?->product?->thumbnail ?: ($orderItem?->product?->images[0] ?? null);
+                                $thumbnail = $thumbnail ? preg_replace('#^(public/)?assets/#', '', ltrim($thumbnail, '/')) : null;
+                                $itemStatus = match($availabilityItem->status) {
+                                    'pending_confirmation' => 'Pending Confirmation',
+                                    'available' => 'Available',
+                                    'unavailable' => 'Unavailable',
+                                    'partially_available' => 'Response recorded',
+                                    default => 'Pending Confirmation',
+                                };
+                            @endphp
+                            <tr>
+                                <td><div class="availability-item">@if($thumbnail)<img class="availability-thumb" src="{{ asset('assets/'.$thumbnail) }}" alt="{{ $orderItem?->product_name }}">@else<span class="availability-thumb d-inline-flex align-items-center justify-content-center"><i class="fa-solid fa-box text-muted"></i></span>@endif<span><strong>{{ $orderItem?->product_name ?? 'Product unavailable' }}</strong>@if($orderItem?->sku)<small class="d-block text-muted">SKU: {{ $orderItem->sku }}</small>@endif</span></div></td>
+                                <td>{{ $orderItem?->variation_label && $orderItem?->variation_value ? $orderItem->variation_label.': '.$orderItem->variation_value : '—' }}</td>
+                                <td>{{ number_format((int) $availabilityItem->ordered_quantity) }}@if($availabilityItem->available_quantity !== null)<small class="d-block text-muted">Available: {{ number_format((int) $availabilityItem->available_quantity) }}</small>@endif</td>
+                                <td>{{ $itemStatus }}@if($availabilityItem->reason)<small class="d-block text-muted">{{ $availabilityItem->reason }}</small>@endif</td>
+                                <td>@if($availabilityRequest->status === 'pending_confirmation')<span class="small text-muted">Respond below</span>@else<span class="small text-muted">Response recorded</span>@endif</td>
+                            </tr>
+                        @endforeach
+                        </tbody>
+                    </table>
+                </div>
+                @if($availabilityRequest->status === 'pending_confirmation')
+                    <form method="POST" action="{{ route('vendor.availability.respond', $availabilityRequest) }}" class="availability-response-fields">
+                        @csrf
+                        <div>
+                            <label for="reason-{{ $availabilityRequest->id }}">Reason (required if not available)</label>
+                            <input id="reason-{{ $availabilityRequest->id }}" class="form-control availability-reason" type="text" name="reason" maxlength="2000">
+                        </div>
+                        <div class="availability-response-actions">
+                            <button type="submit" name="availability_status" value="available" class="btn btn-sm btn-outline-success">Available</button>
+                            <button type="submit" name="availability_status" value="unavailable" class="btn btn-sm btn-outline-danger">Not Available</button>
+                        </div>
+                    </form>
+                @endif
+            </div>
+        @empty
+            <div class="availability-request-card p-4 text-center text-muted">There are no availability confirmation requests for your products.</div>
+        @endforelse
+        @if($availabilityRequests->hasPages())<div class="vendor-products-pagination">{{ $availabilityRequests->links() }}</div>@endif
+    </section>
 </div>
+@push('scripts')
+<script>
+document.querySelectorAll('[data-products-tab]').forEach((tab) => {
+    tab.addEventListener('click', () => {
+        const selected = tab.dataset.productsTab;
+        document.querySelectorAll('[data-products-tab]').forEach((item) => {
+            const active = item === tab;
+            item.classList.toggle('active', active);
+            item.setAttribute('aria-selected', active ? 'true' : 'false');
+        });
+        document.getElementById('vendor-products-panel').hidden = selected !== 'products';
+        document.getElementById('availability-panel').hidden = selected !== 'availability';
+        const url = new URL(window.location.href);
+        if (selected === 'availability') url.searchParams.set('tab', 'availability');
+        else url.searchParams.delete('tab');
+        url.searchParams.delete('page');
+        url.searchParams.delete('availability_page');
+        window.history.replaceState({}, '', url);
+    });
+});
+</script>
+@endpush
 @endsection

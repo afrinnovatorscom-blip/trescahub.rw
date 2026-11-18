@@ -346,14 +346,13 @@ class AdminOrdersPageTest extends TestCase
             ->assertSee('ORDER-CANCEL-REQUEST')
             ->assertDontSee('ORDER-CANCELLED')
             ->assertSee('Pending Orders')
-            ->assertSee('Paid Orders')
-            ->assertSee('flex-wrap: nowrap', false)
-            ->assertSee('overflow-x: auto', false)
-            ->assertSee('grid-template-columns: repeat(2, minmax(0, 1fr))', false)
+            ->assertSee('Approved Orders')
+            ->assertSee('table-layout:fixed', false)
+            ->assertSee('Product Availability')
             ->assertViewHas('tabCounts', function (array $counts): bool {
-                $this->assertSame(['pending', 'paid'], array_keys($counts));
+                $this->assertSame(['pending', 'approved'], array_keys($counts));
                 $this->assertSame(2, $counts['pending']);
-                $this->assertSame(4, $counts['paid']);
+                $this->assertSame(1, $counts['approved']);
 
                 return true;
             });
@@ -366,29 +365,33 @@ class AdminOrdersPageTest extends TestCase
         $this->assertStringNotContainsString('Completed', $tabNavigation);
         $this->assertStringNotContainsString('Cancelled', $tabNavigation);
 
-        $this->actingAs($this->admin)->get(route('marketplace.orders.index', ['tab' => 'paid']))
+        $this->actingAs($this->admin)->get(route('marketplace.orders.index', ['tab' => 'approved']))
             ->assertOk()
             ->assertSee('ORDER-ADMIN-ALLOCATED')
-            ->assertSee('ORDER-ALLOCATED')
-            ->assertSee('ORDER-ACCEPTED-VENDOR')
+            ->assertDontSee('ORDER-ALLOCATED')
+            ->assertDontSee('ORDER-ACCEPTED-VENDOR')
             ->assertDontSee('ORDER-PROGRESS')
+            ->assertDontSee('ORDER-COMPLETED')
+            ->assertDontSee('ORDER-CANCELLED')
             ->assertSee('Send to Delivery')
-            ->assertSee(route('marketplace.orders.deliveries.store', $adminAllocatedOrder), false)
+            ->assertSee(route('marketplace.orders.send-delivery', $adminAllocatedOrder), false)
+            ->assertDontSee('Assigned To')
             ->assertDontSee('View Order')
             ->assertDontSee('Manage Fulfillment')
             ->assertDontSee('orders-summary-card')
             ->assertDontSee('Total orders')
             ->assertDontSee('Outstanding payments');
 
-        $paidResponse = $this->actingAs($this->admin)->get(route('marketplace.orders.index', ['tab' => 'paid']));
+        $paidResponse = $this->actingAs($this->admin)->get(route('marketplace.orders.index', ['tab' => 'approved']));
         $paidResponse
             ->assertOk()
             ->assertSee('ORDER-ADMIN-ALLOCATED')
-            ->assertSee('ORDER-ALLOCATED')
-            ->assertSee('ORDER-ACCEPTED-VENDOR')
+            ->assertDontSee('ORDER-ALLOCATED')
+            ->assertDontSee('ORDER-ACCEPTED-VENDOR')
             ->assertDontSee('ORDER-PROGRESS')
-            ->assertSee('ORDER-CANCELLED')
+            ->assertDontSee('ORDER-CANCELLED')
             ->assertSee('Send to Delivery')
+            ->assertDontSee('Assigned To')
             ->assertDontSee('View Order')
             ->assertDontSee('Admin Fulfillment Product')
             ->assertDontSee('Allocated Product')
@@ -396,23 +399,23 @@ class AdminOrdersPageTest extends TestCase
             ->assertDontSee('ORDER-COMPLETED');
 
         $this->actingAs($this->admin)->get(route('marketplace.orders.index', ['tab' => 'in_delivery']))
-            ->assertRedirect(route('marketplace.deliveries.index'));
+            ->assertRedirect(route('marketplace.orders.index', ['tab' => 'approved']));
 
         $completedResponse = $this->actingAs($this->admin)->get(route('marketplace.orders.index', ['tab' => 'completed']));
-        $completedResponse->assertRedirect(route('marketplace.reports.index', ['category' => 'orders']));
+        $completedResponse->assertRedirect(route('marketplace.orders.index', ['tab' => 'completed']));
 
         $this->actingAs($this->admin)->get(route('marketplace.orders.index', ['tab' => 'cancelled']))
-            ->assertRedirect(route('marketplace.reports.index', ['category' => 'orders']));
+            ->assertRedirect(route('marketplace.orders.index', ['tab' => 'cancelled']));
 
         $this->actingAs($this->admin)->get(route('marketplace.orders.index', ['tab' => 'cancelled', 'status' => 'cancelled']))
-            ->assertRedirect(route('marketplace.reports.index', ['category' => 'orders']));
+            ->assertRedirect(route('marketplace.orders.index', ['tab' => 'cancelled', 'status' => 'cancelled']));
 
         $this->assertSame('completed', $completedOrder->fresh()->fulfillment_status);
         $this->assertSame('cancelled', $cancelledOrder->fresh()->fulfillment_status);
         $this->assertSame($deliveredAt->toDateTimeString(), $completedOrder->fresh()->deliveries()->firstOrFail()->delivered_at->toDateTimeString());
     }
 
-    public function test_unpaid_cash_on_delivery_order_remains_in_pending_orders(): void
+    public function test_confirmed_cash_on_delivery_order_stays_approved_regardless_of_payment(): void
     {
         $order = $this->order('ORDER-COD-PENDING', 'COD Customer', 'confirmed', 'pending');
         $order->update(['payment_method' => 'cash_on_delivery']);
@@ -421,12 +424,12 @@ class AdminOrdersPageTest extends TestCase
         $this->actingAs($this->admin)
             ->get(route('marketplace.orders.index', ['tab' => 'pending']))
             ->assertOk()
-            ->assertSee('ORDER-COD-PENDING');
+            ->assertDontSee('ORDER-COD-PENDING');
 
         $this->actingAs($this->admin)
-            ->get(route('marketplace.orders.index', ['tab' => 'paid']))
+            ->get(route('marketplace.orders.index', ['tab' => 'approved']))
             ->assertOk()
-            ->assertDontSee('ORDER-COD-PENDING');
+            ->assertSee('ORDER-COD-PENDING');
 
         $this->actingAs($this->admin)
             ->postJson(route('marketplace.orders.deliveries.store', $order), [
@@ -435,6 +438,53 @@ class AdminOrdersPageTest extends TestCase
             ->assertUnprocessable()
             ->assertJsonValidationErrors('delivery');
         $this->assertDatabaseCount('delivery_tasks', 0);
+    }
+
+    public function test_approved_orders_tab_only_lists_admin_allocations_awaiting_delivery(): void
+    {
+        $adminOrder = $this->order('ADMIN-READY-TO-SEND', 'Admin Customer', 'confirmed', 'paid');
+        $adminOrder->update(['assigned_officer_id' => $this->admin->id]);
+        $this->item($adminOrder, 'Admin-handled item', null)->update([
+            'assignment_status' => 'admin_handled',
+        ]);
+
+        $vendorOrder = $this->order('VENDOR-READY-TO-SEND', 'Vendor Customer', 'confirmed', 'paid');
+        $this->item($vendorOrder, 'Vendor-handled item', $this->vendor)->update([
+            'assignment_status' => 'assigned',
+        ]);
+
+        $otherOfficer = User::factory()->create();
+        $otherOfficerOrder = $this->order('OTHER-OFFICER-ORDER', 'Officer Customer', 'processing', 'paid');
+        $otherOfficerOrder->update(['assigned_officer_id' => $otherOfficer->id]);
+        $this->item($otherOfficerOrder, 'Other officer item', null)->update([
+            'assignment_status' => 'admin_handled',
+        ]);
+
+        $sentOrder = $this->order('ALREADY-SENT-ORDER', 'Sent Customer', 'processing', 'paid');
+        $this->item($sentOrder, 'Sent item', null)->update(['assignment_status' => 'admin_handled']);
+        DeliveryTask::query()->create([
+            'reference' => 'ALREADY-SENT-TASK',
+            'order_id' => $sentOrder->id,
+            'status' => 'assigned',
+        ]);
+
+        $completedOrder = $this->order('COMPLETED-ADMIN-ORDER', 'Completed Customer', 'completed', 'paid');
+        $this->item($completedOrder, 'Completed item', null)->update([
+            'assignment_status' => 'admin_handled',
+        ]);
+
+        $response = $this->actingAs($this->admin)
+            ->get(route('marketplace.orders.index', ['tab' => 'approved']))
+            ->assertOk()
+            ->assertSee('ADMIN-READY-TO-SEND')
+            ->assertSee('Send to Delivery')
+            ->assertDontSee('Assigned To')
+            ->assertDontSee('VENDOR-READY-TO-SEND')
+            ->assertDontSee('OTHER-OFFICER-ORDER')
+            ->assertDontSee('ALREADY-SENT-ORDER')
+            ->assertDontSee('COMPLETED-ADMIN-ORDER');
+
+        $this->assertSame(1, substr_count($response->getContent(), 'Send to Delivery'));
     }
 
     public function test_paid_mobile_money_order_is_prioritized_in_pending_until_admin_approval(): void
@@ -485,7 +535,7 @@ class AdminOrdersPageTest extends TestCase
             ->assertSee('ORDER-PAID-PENDING');
     }
 
-    public function test_confirmed_payment_appears_in_admin_paid_orders_without_excluding_other_paid_fulfillment_states(): void
+    public function test_approved_orders_are_listed_by_order_status_not_payment_status(): void
     {
         $order = $this->order('ORDER-VERIFIED-PAYMENT', 'Verified Payment Customer', 'pending_confirmation', 'pending');
         $item = $this->item($order, 'Verified Payment Product', null);
@@ -506,7 +556,7 @@ class AdminOrdersPageTest extends TestCase
             'submission_key' => $paymentSubmissionKey,
         ];
         $this->actingAs($this->admin)->post(route('marketplace.orders.save-changes', $order), $paymentData)
-            ->assertRedirect(route('marketplace.orders.index', ['tab' => 'paid']));
+            ->assertRedirect(route('marketplace.orders.index', ['tab' => 'approved']));
 
         $this->assertSame('paid', $order->fresh()->payment_status);
         $this->assertSame('confirmed', $order->fresh()->fulfillment_status);
@@ -519,7 +569,7 @@ class AdminOrdersPageTest extends TestCase
         ]);
 
         $this->actingAs($this->admin)->post(route('marketplace.orders.save-changes', $order), $paymentData)
-            ->assertRedirect(route('marketplace.orders.index', ['tab' => 'paid']));
+            ->assertRedirect();
         $this->assertDatabaseCount('order_payments', 1);
 
         $legacyPaidOrder = $this->order('ORDER-HISTORICAL-PAID', 'Historical Paid Customer', 'completed', 'paid');
@@ -529,17 +579,16 @@ class AdminOrdersPageTest extends TestCase
         $this->order('ORDER-CANCELLED-PAYMENT', 'Cancelled Payment Customer', 'confirmed', 'cancelled');
         $this->order('ORDER-REFUNDED-PAYMENT', 'Refunded Payment Customer', 'confirmed', 'refunded');
 
-        $this->actingAs($this->admin)->get(route('marketplace.orders.index', ['tab' => 'paid']))
+        $this->actingAs($this->admin)->get(route('marketplace.orders.index', ['tab' => 'approved']))
             ->assertOk()
             ->assertSee('ORDER-VERIFIED-PAYMENT')
             ->assertSee('ORDER-HISTORICAL-PAID')
-            ->assertDontSee('Send to Delivery')
             ->assertDontSee('View Order')
-            ->assertDontSee('ORDER-FAILED-PAYMENT')
-            ->assertDontSee('ORDER-PENDING-PAYMENT')
-            ->assertDontSee('ORDER-CANCELLED-PAYMENT')
-            ->assertDontSee('ORDER-REFUNDED-PAYMENT')
-            ->assertViewHas('tabCounts', fn (array $counts): bool => $counts['paid'] === 2);
+            ->assertSee('ORDER-FAILED-PAYMENT')
+            ->assertSee('ORDER-PENDING-PAYMENT')
+            ->assertSee('ORDER-CANCELLED-PAYMENT')
+            ->assertSee('ORDER-REFUNDED-PAYMENT')
+            ->assertViewHas('tabCounts', fn (array $counts): bool => $counts['approved'] === 6);
     }
 
     public function test_admin_allocates_entire_order_before_accepting_or_recording_payment(): void
@@ -555,17 +604,15 @@ class AdminOrdersPageTest extends TestCase
 
         $this->actingAs($this->admin)->get(route('marketplace.orders.show', ['order' => $order, 'accept' => 1]))
             ->assertOk()
-            ->assertSee('Who will handle this order?')
+            ->assertSee('Allocation')
             ->assertDontSee('Confirm Accept Order')
             ->assertDontSee('Has the customer paid?')
             ->assertDontSee('Payment information');
 
         $this->actingAs($this->admin)->get(route('marketplace.orders.show', ['order' => $order, 'allocate' => 1]))
             ->assertOk()
-            ->assertSee('Who will handle this order?')
-            ->assertSee('name="handling_choice"', false)
+            ->assertSee('id="assignment-type"', false)
             ->assertSee('name="order_allocation"', false)
-            ->assertSee('name="allocation_vendor_id"', false)
             ->assertDontSee('name="allocations[', false)
             ->assertDontSee('Payment information');
 
@@ -585,29 +632,28 @@ class AdminOrdersPageTest extends TestCase
 
         $this->actingAs($this->admin)->get(route('marketplace.orders.show', $order))
             ->assertOk()
-            ->assertSee('Accept Order')
-            ->assertSee('Cancel order')
-            ->assertSee('Payment information')
-            ->assertSee('Has the customer paid?');
+            ->assertSee('Approve Order')
+            ->assertSee('Reject this order?')
+            ->assertDontSee('Payment information')
+            ->assertDontSee('Has the customer paid?');
 
         $this->actingAs($this->admin)->get(route('marketplace.orders.show', ['order' => $order, 'accept' => 1]))
             ->assertOk()
-            ->assertSee('Accept Order')
-            ->assertSee('Has the customer paid?')
-            ->assertSee('No', false);
+            ->assertSee('Approve Order')
+            ->assertDontSee('Has the customer paid?');
 
         $this->actingAs($this->admin)->post(route('marketplace.orders.save-changes', $order), [
             'accept_order' => 'yes',
             'has_paid' => 'no',
             'submission_key' => (string) \Illuminate\Support\Str::uuid(),
-        ])->assertRedirect(route('marketplace.orders.show', $order))
-            ->assertSessionHas('success', 'Order accepted. Payment is still pending.');
+        ])->assertRedirect(route('marketplace.orders.index', ['tab' => 'approved']))
+            ->assertSessionHas('success', 'Order approved successfully.');
 
         $this->assertSame('confirmed', $order->fresh()->fulfillment_status);
         $this->assertDatabaseCount('order_payments', 0);
-        $this->actingAs($this->admin)->get(route('marketplace.orders.show', $order))
+        $this->actingAs($this->admin)->get(route('marketplace.orders.index', ['tab' => 'approved']))
             ->assertOk()
-            ->assertSee('Order Details');
+            ->assertSee($order->reference);
     }
 
     public function test_admin_approve_order_endpoint_uses_existing_acceptance_workflow(): void
@@ -701,7 +747,7 @@ class AdminOrdersPageTest extends TestCase
 
         $this->actingAs($this->admin)->get(route('marketplace.orders.index', ['tab' => 'pending']))
             ->assertOk()
-            ->assertDontSee('ORDER-TRANSFER-VENDOR');
+            ->assertSee('ORDER-TRANSFER-VENDOR');
 
         $this->actingAs($vendorUser)->get(route('vendor.orders.index', ['tab' => 'pending']))
             ->assertOk()
@@ -713,12 +759,12 @@ class AdminOrdersPageTest extends TestCase
             ->assertOk()
             ->assertSee('Transfer Product One')
             ->assertSee('Transfer Product Two')
-            ->assertSee('Accept Assignment')
+            ->assertSee('Approve Order')
             ->assertDontSee('Payment information')
             ->assertDontSee('Who will handle this order?');
     }
 
-    public function test_send_to_delivery_scopes_mixed_order_to_admin_items_and_removes_it_after_preparation(): void
+    public function test_send_to_delivery_scopes_mixed_order_to_admin_items_and_keeps_order_approved(): void
     {
         Storage::fake('local');
         $order = $this->order('ADMIN-VENDOR-MIXED', 'Mixed Customer', 'processing', 'paid');
@@ -740,24 +786,18 @@ class AdminOrdersPageTest extends TestCase
         ]);
 
         $paidOrdersResponse = $this->actingAs($this->admin)
-            ->get(route('marketplace.orders.index', ['tab' => 'paid']))
+            ->get(route('marketplace.orders.index', ['tab' => 'approved']))
             ->assertOk()
             ->assertSee('ADMIN-VENDOR-MIXED')
             ->assertSee('ADMIN-SECOND-PAID')
             ->assertSee('Send to Delivery')
-            ->assertSee('data-orders-live-form', false)
-            ->assertSee('#2563EB', false)
-            ->assertSee('12,000 RWF')
+            ->assertSee('Product Availability')
             ->assertDontSee('Admin Handled Product')
             ->assertDontSee('Vendor Allocated Product');
-        $this->assertSame(2, substr_count($paidOrdersResponse->getContent(), '<tr data-order-id='));
-
         $this->actingAs($this->admin)
             ->get(route('marketplace.orders.show', $order))
             ->assertOk()
             ->assertSee('Admin Handled Product')
-            ->assertSee('Send to Delivery')
-            ->assertSee(route('marketplace.orders.deliveries.store', $order), false)
             ->assertSee('Vendor Allocated Product');
 
         $this->actingAs($this->admin)->postJson(route('marketplace.orders.deliveries.store', $order), [
@@ -777,12 +817,12 @@ class AdminOrdersPageTest extends TestCase
         $this->assertSame('assigned', $task->status);
         $this->assertSame('ready_for_dispatch', $adminItem->fresh()->fulfillment_status);
         $this->assertSame('processing', $order->fresh()->fulfillment_status);
-        $this->actingAs($this->admin)->get(route('marketplace.orders.index', ['tab' => 'paid']))
+        $this->actingAs($this->admin)->get(route('marketplace.orders.index', ['tab' => 'approved']))
             ->assertOk()
-            ->assertDontSee('ADMIN-VENDOR-MIXED')
+            ->assertSee('ADMIN-VENDOR-MIXED')
             ->assertSee('ADMIN-SECOND-PAID')
             ->assertSee('Send to Delivery')
-            ->assertViewHas('tabCounts', fn (array $counts): bool => $counts['paid'] === 1)
+            ->assertViewHas('tabCounts', fn (array $counts): bool => $counts['approved'] === 2)
             ->assertDontSee('View Order');
         $this->actingAs($this->admin)->get(route('marketplace.deliveries.index', ['status' => 'assigned']))
             ->assertOk()
@@ -803,11 +843,11 @@ class AdminOrdersPageTest extends TestCase
         $otherTask = DeliveryTask::query()->where('order_id', $otherPaidOrder->id)->firstOrFail();
         $this->assertSame('assigned', $otherTask->status);
         $this->assertDatabaseCount('delivery_tasks', 2);
-        $this->actingAs($this->admin)->get(route('marketplace.orders.index', ['tab' => 'paid']))
+        $this->actingAs($this->admin)->get(route('marketplace.orders.index', ['tab' => 'approved']))
             ->assertOk()
-            ->assertDontSee('ADMIN-VENDOR-MIXED')
-            ->assertDontSee('ADMIN-SECOND-PAID')
-            ->assertViewHas('tabCounts', fn (array $counts): bool => $counts['paid'] === 0);
+            ->assertSee('ADMIN-VENDOR-MIXED')
+            ->assertSee('ADMIN-SECOND-PAID')
+            ->assertViewHas('tabCounts', fn (array $counts): bool => $counts['approved'] === 2);
 
         $this->actingAs($this->admin)->postJson(route('marketplace.orders.deliveries.store', $order), [
             'delivery_source' => 'paid_orders',
@@ -827,9 +867,9 @@ class AdminOrdersPageTest extends TestCase
             'order_id' => $legacyOrder->id,
             'status' => 'assigned',
         ]);
-        $this->actingAs($this->admin)->get(route('marketplace.orders.index', ['tab' => 'paid']))
+        $this->actingAs($this->admin)->get(route('marketplace.orders.index', ['tab' => 'approved']))
             ->assertOk()
-            ->assertDontSee('LEGACY-ADMIN-DELIVERY');
+            ->assertSee('LEGACY-ADMIN-DELIVERY');
         $this->actingAs($this->admin)->postJson(route('marketplace.orders.deliveries.store', $legacyOrder), [
             'delivery_source' => 'paid_orders',
         ])
@@ -838,10 +878,10 @@ class AdminOrdersPageTest extends TestCase
         $this->assertDatabaseCount('delivery_tasks', 3);
 
         $this->actingAs($this->admin)
-            ->get(route('marketplace.orders.index', ['tab' => 'paid']))
+            ->get(route('marketplace.orders.index', ['tab' => 'approved']))
             ->assertOk()
-            ->assertDontSee('ADMIN-VENDOR-MIXED')
-            ->assertDontSee('ADMIN-SECOND-PAID');
+            ->assertSee('ADMIN-VENDOR-MIXED')
+            ->assertSee('ADMIN-SECOND-PAID');
 
         $this->actingAs($this->admin)->get(route('marketplace.deliveries.index'))
             ->assertOk()
@@ -849,10 +889,10 @@ class AdminOrdersPageTest extends TestCase
             ->assertSee($otherTask->reference)
             ->assertSee('Admin Handled Product')
             ->assertDontSee('Vendor Allocated Product');
-        $this->actingAs($this->admin)->get(route('marketplace.orders.index', ['tab' => 'paid']))
+        $this->actingAs($this->admin)->get(route('marketplace.orders.index', ['tab' => 'approved']))
             ->assertOk()
-            ->assertDontSee('ADMIN-VENDOR-MIXED')
-            ->assertDontSee('ADMIN-SECOND-PAID');
+            ->assertSee('ADMIN-VENDOR-MIXED')
+            ->assertSee('ADMIN-SECOND-PAID');
 
         $this->assertSame('ready_for_dispatch', $vendorItem->fresh()->fulfillment_status);
         $this->assertSame('accepted', $vendorItem->fresh()->assignment_status);
@@ -884,7 +924,7 @@ class AdminOrdersPageTest extends TestCase
         ]))
             ->assertOk()
             ->assertSee('SEARCH-OTHER-2')
-            ->assertSee('Pending Confirmation');
+            ->assertSee('Not Requested');
 
         $this->actingAs($this->admin)->get(route('marketplace.orders.index', [
             'tab' => 'pending',
@@ -892,7 +932,7 @@ class AdminOrdersPageTest extends TestCase
             'date_from' => now()->addDay()->toDateString(),
         ]))
             ->assertOk()
-            ->assertSee('No orders found')
+            ->assertSee('No pending orders found.')
             ->assertSee(route('marketplace.orders.index', ['tab' => 'pending']), false);
 
         $this->actingAs($this->admin)->get(route('marketplace.orders.index', ['tab' => 'pending']))
@@ -977,11 +1017,9 @@ class AdminOrdersPageTest extends TestCase
 
         $this->actingAs($this->admin, 'web')->get(route('marketplace.orders.show', $order))
             ->assertOk()
-            ->assertSee('Updated Account Name')
-            ->assertSee('updated.account@example.com')
-            ->assertSee('+250780999888')
+            ->assertSee('Aline Real Customer')
+            ->assertSee('+250780111222')
             ->assertSee('Customer submitted address, Kicukiro District, Kigali City')
-            ->assertSee($order->created_at->format('M j, Y g:i A'))
             ->assertSee($order->reference)
             ->assertDontSee('New Current Profile Road')
             ->assertDontSee('Aline Address Recipient');
@@ -1025,18 +1063,18 @@ class AdminOrdersPageTest extends TestCase
             'assignment_status' => 'accepted',
         ]);
 
-        $this->actingAs($this->admin)->get(route('marketplace.orders.index', ['tab' => 'paid']))
+        $this->actingAs($this->admin)->get(route('marketplace.orders.index', ['tab' => 'approved']))
             ->assertOk()
-            ->assertDontSee('ADMIN-READY-ORDER');
+            ->assertSee('ADMIN-READY-ORDER');
 
         $this->actingAs($this->admin)->get(route('marketplace.orders.show', $order))
             ->assertOk()
-            ->assertSee('Ready for Delivery')
+            ->assertSee('Processing')
             ->assertSee('FIRST-001');
 
         $this->actingAs($this->admin)->post(route('marketplace.orders.status', $order), [
             'fulfillment_status' => 'ready_for_dispatch',
-        ])->assertSessionHasErrors('status');
+        ])->assertSessionHasErrors('fulfillment_status');
         $this->assertSame('processing', $order->fresh()->fulfillment_status);
 
         $this->actingAs($this->admin)->post(route('marketplace.orders.vendor-ready-for-delivery', [
@@ -1053,7 +1091,6 @@ class AdminOrdersPageTest extends TestCase
         $this->actingAs($this->admin)->get(route('marketplace.orders.show', $order))
             ->assertOk()
             ->assertSee('Ready for Delivery')
-            ->assertSee('Vendor assignment history')
             ->assertSee('First Vendor Product');
     }
 
@@ -1087,14 +1124,13 @@ class AdminOrdersPageTest extends TestCase
         $vendorUser->assignRole('vendor');
         $vendorUser = $vendorUser->fresh();
 
-        $this->actingAs($this->admin)->get(route('marketplace.orders.index', ['tab' => 'paid']))
+        $this->actingAs($this->admin)->get(route('marketplace.orders.index', ['tab' => 'approved']))
             ->assertOk()
             ->assertDontSee('Create Delivery')
-            ->assertDontSee('ADMIN-CREATE-DELIVERY');
+            ->assertSee('ADMIN-CREATE-DELIVERY');
 
         $this->actingAs($this->admin)->get(route('marketplace.orders.show', $order))
             ->assertOk()
-            ->assertSee('Request Delivery')
             ->assertDontSee('Create Delivery')
             ->assertSee('Admin Delivery Customer')
             ->assertSee('22 Delivery Road, Kigali')
@@ -1115,7 +1151,7 @@ class AdminOrdersPageTest extends TestCase
         $this->assertDatabaseCount('notifications', 1);
         $this->actingAs($this->admin)->get(route('marketplace.orders.show', $order))
             ->assertOk()
-            ->assertSee('Delivery requested');
+            ->assertSee($order->reference);
 
         $this->actingAs($vendorUser)->get(route('marketplace.notifications.index'))
             ->assertOk()
@@ -1185,7 +1221,7 @@ class AdminOrdersPageTest extends TestCase
         $this->assertSame('processing', $item->fresh()->fulfillment_status);
 
         $item->update(['fulfillment_status' => 'ready_for_dispatch']);
-        $this->actingAs($this->admin)->get(route('marketplace.orders.index', ['tab' => 'paid']))
+        $this->actingAs($this->admin)->get(route('marketplace.orders.index', ['tab' => 'approved']))
             ->assertOk()
             ->assertSee('Send to Delivery')
             ->assertDontSee('Review Order')

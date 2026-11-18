@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Customer;
 use App\Models\Order;
+use App\Models\OrderItem;
 use App\Models\PaymentLog;
 use App\Models\PaymentTransaction;
 use App\Models\Payout;
@@ -78,7 +79,9 @@ class PaymentAdminTest extends TestCase
             ->assertSee('TH-TEST-0001')
             ->assertSee('Payer One')
             ->assertSee('RWF 30,000')
-            ->assertSee('TH_TEST_REF_1');
+            ->assertSee('TH_TEST_REF_1')
+            ->assertSee('Download PDF')
+            ->assertDontSee('<nav class="payment-records-pagination', false);
 
         $this->get(route('marketplace.payments.logs'))
             ->assertOk()
@@ -95,6 +98,132 @@ class PaymentAdminTest extends TestCase
         $this->getJson(route('marketplace.wallet.balance'))
             ->assertOk()
             ->assertJson(['success' => true, 'balance' => 125000, 'formatted' => 'RWF 125,000']);
+    }
+
+    public function test_wallet_filters_payout_history_and_exports_pdf(): void
+    {
+        $admin = $this->user('administrator');
+        $older = new Payout([
+            'user_id' => $admin->id,
+            'mobile_phone' => '0781111111',
+            'amount' => 1000,
+            'reason' => 'Older payout',
+            'status' => 'successful',
+            'request_transaction_id' => 'TX-OLD',
+            'reference_id' => 'REF-OLD',
+        ]);
+        $older->created_at = now()->subDays(20);
+        $older->updated_at = now()->subDays(20);
+        $older->save();
+
+        $recent = new Payout([
+            'user_id' => $admin->id,
+            'mobile_phone' => '0782222222',
+            'amount' => 2500,
+            'reason' => 'Recent payout',
+            'status' => 'pending',
+            'request_transaction_id' => 'TX-NEW',
+            'reference_id' => 'REF-NEW',
+        ]);
+        $recent->created_at = now()->subDays(2);
+        $recent->updated_at = now()->subDays(2);
+        $recent->save();
+
+        $this->actingAs($admin, 'web')->get(route('marketplace.wallet.index', [
+            'date_from' => now()->subDays(5)->toDateString(),
+            'date_to' => now()->toDateString(),
+        ]))
+            ->assertOk()
+            ->assertSee('Recent payout')
+            ->assertDontSee('Older payout');
+
+        $this->actingAs($admin, 'web')->get(route('marketplace.wallet.index', [
+            'date_from' => now()->subDays(1)->toDateString(),
+            'date_to' => now()->subDays(2)->toDateString(),
+        ]))
+            ->assertSessionHasErrors('date_to');
+
+        $this->actingAs($admin, 'web')->get(route('marketplace.wallet.index', [
+            'date_from' => now()->subDays(30)->toDateString(),
+            'date_to' => now()->subDays(25)->toDateString(),
+        ]))
+            ->assertOk()
+            ->assertSee('No payout history found for the selected period.');
+
+        $this->actingAs($admin, 'web')->get(route('marketplace.wallet.pdf'))
+            ->assertOk()
+            ->assertHeader('Content-Type', 'application/pdf');
+    }
+
+    public function test_payment_records_paginate_at_twenty_and_pdf_export_ignores_page(): void
+    {
+        $admin = $this->user('administrator');
+        $first = $this->transaction();
+        OrderItem::query()->create([
+            'order_id' => $first->order_id,
+            'product_name' => 'Wireless Headphones',
+            'unit_price' => 15000,
+            'quantity' => 2,
+            'line_total' => 30000,
+        ]);
+
+        for ($index = 2; $index <= 21; $index++) {
+            PaymentTransaction::query()->create([
+                'order_id' => $first->order_id,
+                'method' => $index % 2 === 0 ? 'mtn_mobile_money' : 'airtel_money',
+                'phone' => '0781234567',
+                'amount' => 1000 + $index,
+                'currency' => 'RWF',
+                'status' => $index % 3 === 0 ? 'failed' : 'completed',
+                'request_transaction_id' => 'PAYMENT-'.str_pad((string) $index, 2, '0', STR_PAD_LEFT),
+                'transaction_id' => 'INTOUCH-'.$index,
+            ]);
+        }
+
+        $firstPage = $this->actingAs($admin, 'web')->get(route('marketplace.payments.index'));
+        $firstPage
+            ->assertOk()
+            ->assertSee('Page 1 of 2')
+            ->assertSee('PAYMENT-21')
+            ->assertDontSee('TH_TEST_REF_1')
+            ->assertSee('aria-disabled="true"', false)
+            ->assertSee('rel="next"', false);
+        $this->assertSame(20, substr_count($firstPage->getContent(), 'pay-badge is-'));
+
+        $lastPage = $this->get(route('marketplace.payments.index', ['page' => 2]));
+        $lastPage
+            ->assertOk()
+            ->assertSee('Page 2 of 2')
+            ->assertSee('TH_TEST_REF_1')
+            ->assertSee('rel="prev"', false)
+            ->assertSee('aria-disabled="true"', false);
+        $this->assertSame(1, substr_count($lastPage->getContent(), 'pay-badge is-'));
+
+        $this->get(route('marketplace.payments.export', ['page' => 2]))
+            ->assertOk()
+            ->assertHeader('Content-Type', 'application/pdf')
+            ->assertHeader('Content-Disposition', 'attachment; filename=payment-records.pdf');
+
+        $transactions = PaymentTransaction::query()
+            ->with([
+                'order:id,reference,customer_name,total,payment_status',
+                'order.items:id,order_id,product_name,quantity,unit_price,line_total,variation_label,variation_value',
+                'order.productRequest:id,order_id,product_name,quantity,instructions,variation_label,variation_value',
+            ])
+            ->latest('id')
+            ->get();
+        $html = view('marketplace.payments.payment-records-pdf', [
+            'transactions' => $transactions,
+            'generatedAt' => now(),
+        ])->render();
+        $this->assertStringContainsString('Payment Date', $html);
+        $this->assertStringContainsString('Customer / Payer', $html);
+        $this->assertStringContainsString('Order Information', $html);
+        $this->assertStringContainsString('Wireless Headphones', $html);
+        $this->assertStringContainsString('× 2', $html);
+        $this->assertStringNotContainsString('TH_TEST_REF_1', $html);
+        $this->assertStringNotContainsString('INTOUCH-9', $html);
+        $this->assertStringContainsString('display: table-header-group', $html);
     }
 
     public function test_admin_can_send_a_payout(): void
@@ -206,6 +335,7 @@ class PaymentAdminTest extends TestCase
         $manager = $this->user('operations-manager');
 
         $this->actingAs($manager, 'web')->get(route('marketplace.payments.index'))->assertForbidden();
+        $this->get(route('marketplace.payments.export'))->assertForbidden();
         $this->get(route('marketplace.payments.logs'))->assertForbidden();
         $this->get(route('marketplace.wallet.index'))->assertForbidden();
         $this->post(route('marketplace.wallet.payout'), ['phone' => '0781234567', 'phone_confirmation' => '0781234567', 'amount' => 500, 'reason' => 'x', 'confirm' => 1])->assertForbidden();

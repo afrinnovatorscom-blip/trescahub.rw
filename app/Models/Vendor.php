@@ -56,6 +56,11 @@ class Vendor extends Model
         return $this->hasMany(OrderItem::class);
     }
 
+    public function availabilityRequests(): HasMany
+    {
+        return $this->hasMany(VendorAvailabilityRequest::class);
+    }
+
     public function isActive(): bool
     {
         return $this->status === 'active';

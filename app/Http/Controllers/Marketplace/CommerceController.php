@@ -12,12 +12,14 @@ use App\Models\OrderItem;
 use App\Models\ProductRequest;
 use App\Models\User;
 use App\Models\Vendor;
+use App\Models\VendorAvailabilityRequest;
 use App\Services\AuditLogger;
 use App\Services\MarketplaceNotifier;
 use App\Services\MobileMoneyPaymentService;
 use App\Services\OrderService;
 use App\Services\RequestWorkflowService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
@@ -137,28 +139,35 @@ class CommerceController extends Controller
                     ->orWhereNotIn('payment_method', MobileMoneyPaymentService::METHODS)
                     ->orWhere('payment_status', 'paid');
             })
-            ->with(['customer:id,name,phone', 'items.vendor', 'officer:id,name', 'deliveries:id,order_id,vendor_id,status']);
+            ->with([
+                'customer:id,name,phone',
+                'items.vendor',
+                'items.product.vendor',
+                'items.product.creator.roles.permissions',
+                'items.product.submitter.roles.permissions',
+                'vendorAvailabilityRequests.items',
+                'officer:id,name',
+                'deliveries:id,order_id,vendor_id,status',
+            ]);
 
-        // An order is pending admin review only while none of its product lines
-        // has been allocated or handled outside the pending queue.
         $pending = (clone $base)
-            ->whereIn('fulfillment_status', ['pending_confirmation', 'cancellation_requested'])
-            ->whereNull('cancellation_reason')
-            ->whereDoesntHave('items', fn ($items) => $items->where(function ($query) {
-                $query->whereNotNull('vendor_id')
-                    ->orWhereIn('assignment_status', ['assigned', 'accepted', 'clarification', 'admin_handled']);
-            }));
+            ->whereIn('fulfillment_status', ['pending_confirmation', 'cancellation_requested']);
         $approved = (clone $base)
-            ->whereIn('fulfillment_status', ['confirmed', 'processing', 'awaiting_stock', 'ready_for_dispatch', 'dispatched', 'out_for_delivery', 'delivered', 'completed'])
-            ->whereHas('items', fn ($items) => $items->where(function ($query) {
-                $query->whereNotNull('vendor_id')
-                    ->orWhere('assignment_status', 'admin_handled');
-            }))
-            ->whereDoesntHave('deliveries');
+            ->whereIn('fulfillment_status', ['confirmed', 'processing', 'awaiting_stock', 'ready_for_dispatch'])
+            ->where(fn ($query) => $query->whereNull('assigned_officer_id')->orWhere('assigned_officer_id', $user->id))
+            ->whereDoesntHave('deliveries')
+            ->whereHas('items')
+            ->whereDoesntHave('items', fn ($items) => $items->where('assignment_status', '!=', 'admin_handled')
+                ->orWhereNotNull('vendor_id'));
 
         if (! empty($filters['vendor'])) {
             $vendorFilter = $filters['vendor'];
-            $approved->whereHas('items', fn ($items) => $items->where('vendor_id', $vendorFilter));
+            $vendorFilteredOrders = fn ($query) => $query->whereHas('items', fn ($items) => $items->where(function ($ownership) use ($vendorFilter) {
+                $ownership->where('vendor_id', $vendorFilter)
+                    ->orWhereHas('product', fn ($product) => $product->where('vendor_id', $vendorFilter));
+            }));
+            $vendorFilteredOrders($pending);
+            $vendorFilteredOrders($approved);
         }
 
         $orders = ($tab === 'approved' ? $approved : $pending)
@@ -167,6 +176,9 @@ class CommerceController extends Controller
             ->orderByDesc('id')
             ->paginate(20)
             ->withQueryString();
+        $orders->getCollection()->each(function (Order $order): void {
+            $order->setAttribute('product_availability_status', $this->orderAvailabilityListStatus($order));
+        });
         $tabCounts = ['pending' => (clone $pending)->count(), 'approved' => (clone $approved)->count()];
         $vendors = $user->hasPermission('vendors.view') ? Vendor::query()->where('status', 'active')->orderBy('business_name')->get() : collect();
         return view('marketplace.orders.index', compact('orders', 'vendors', 'filters', 'tab', 'tabCounts'));
@@ -179,6 +191,10 @@ class CommerceController extends Controller
             'items.vendor',
             'items.location',
             'items.product.vendor',
+            'items.product.creator.roles.permissions',
+            'items.product.submitter.roles.permissions',
+            'vendorAvailabilityRequests.vendor',
+            'vendorAvailabilityRequests.items.orderItem.product',
             'histories.actor',
             'payments.recorder',
             'deliveries.attempts',
@@ -241,6 +257,37 @@ class CommerceController extends Controller
                 ];
             })
             ->values();
+        $availabilityRequests = $order->vendorAvailabilityRequests->sortByDesc('id')->groupBy('vendor_id')->map->first();
+        $availabilityOwnershipIssues = collect();
+        $vendorOwnedItems = $order->items->filter(function (OrderItem $item) use (&$availabilityOwnershipIssues) {
+            $ownership = $this->availabilityProductOwnership($item);
+            if ($ownership['state'] === 'unknown') {
+                $availabilityOwnershipIssues->push([
+                    'product_name' => $item->product_name,
+                    'reason' => $ownership['reason'],
+                ]);
+            }
+
+            return $ownership['state'] === 'vendor';
+        });
+        $availabilityGroups = $vendorOwnedItems
+            ->groupBy(fn (OrderItem $item) => (int) $item->product->vendor_id)
+            ->map(function ($items, $vendorId) use ($availabilityRequests) {
+                $latestRequest = $availabilityRequests->get($vendorId);
+
+                return [
+                    'vendor' => $items->first()->product->vendor,
+                    'items' => $items,
+                    'request' => $latestRequest,
+                    'responses' => $latestRequest?->items->keyBy('order_item_id') ?? collect(),
+                ];
+            })
+            ->values();
+        $availabilityOverallStatus = $this->availabilityOverallStatus($availabilityGroups);
+        $canRequestAvailability = $canManageOrders && $availabilityGroups->contains(
+            fn (array $group) => ! $group['request']
+                || ($group['request']->status !== VendorAvailabilityRequest::PENDING && ! $this->availabilityGroupIsComplete($group))
+        );
 
         return view('marketplace.orders.show', compact(
             'order',
@@ -258,7 +305,285 @@ class CommerceController extends Controller
             'editing',
             'canAllocate',
             'deliveryRequestAssignments',
+            'availabilityGroups',
+            'availabilityOwnershipIssues',
+            'availabilityOverallStatus',
+            'canRequestAvailability',
         ));
+    }
+
+    public function requestOrderAvailability(Request $request, Order $order)
+    {
+        abort_unless($request->user()->hasPermission('orders.manage'), 403);
+        $this->authorizeOrder($request->user(), $order);
+
+        $createdRequestIds = DB::transaction(function () use ($request, $order) {
+            $lockedOrder = Order::query()->whereKey($order->id)->lockForUpdate()->firstOrFail();
+            $items = $lockedOrder->items()
+                ->with(['product.vendor.users', 'product.creator.roles.permissions', 'product.submitter.roles.permissions'])
+                ->lockForUpdate()
+                ->get();
+            $vendorGroups = $items
+                ->filter(fn (OrderItem $item) => $this->availabilityProductOwnership($item)['state'] === 'vendor')
+                ->groupBy(fn (OrderItem $item) => (int) $item->product->vendor_id);
+
+            if ($vendorGroups->isEmpty()) {
+                throw ValidationException::withMessages([
+                    'availability' => 'No products with verified vendor ownership are available for confirmation. Review any product ownership warnings on the order.',
+                ]);
+            }
+
+            $created = [];
+            foreach ($vendorGroups as $vendorId => $vendorItems) {
+                $pending = VendorAvailabilityRequest::query()
+                    ->where('order_id', $lockedOrder->id)
+                    ->where('vendor_id', $vendorId)
+                    ->where('status', VendorAvailabilityRequest::PENDING)
+                    ->lockForUpdate()
+                    ->exists();
+                if ($pending) {
+                    continue;
+                }
+
+                $latestRequest = VendorAvailabilityRequest::query()
+                    ->where('order_id', $lockedOrder->id)
+                    ->where('vendor_id', $vendorId)
+                    ->with('items')
+                    ->latest('id')
+                    ->lockForUpdate()
+                    ->first();
+                if (! $this->availabilityRequestNeeded($latestRequest, $vendorItems)) {
+                    continue;
+                }
+
+                $availabilityRequest = VendorAvailabilityRequest::query()->create([
+                    'order_id' => $lockedOrder->id,
+                    'vendor_id' => $vendorId,
+                    'requested_by' => $request->user()->id,
+                    'status' => VendorAvailabilityRequest::PENDING,
+                ]);
+
+                foreach ($vendorItems as $item) {
+                    $availabilityRequest->items()->create([
+                        'order_item_id' => $item->id,
+                        'ordered_quantity' => $item->quantity,
+                        'status' => VendorAvailabilityRequest::PENDING,
+                    ]);
+                }
+
+                $created[] = $availabilityRequest->id;
+            }
+
+            return $created;
+        });
+
+        foreach (VendorAvailabilityRequest::query()->with('vendor.users', 'order')->whereIn('id', $createdRequestIds)->get() as $availabilityRequest) {
+            foreach ($availabilityRequest->vendor->users as $vendorUser) {
+                if (! (bool) ($availabilityRequest->vendor->notification_preferences['order_notifications'] ?? true)) {
+                    continue;
+                }
+
+                $this->notifier->send(
+                    $vendorUser,
+                    'Product availability confirmation requested',
+                    'Please confirm availability for products in order '.$availabilityRequest->order->reference.'.',
+                    route('vendor.products.index', ['tab' => 'availability']),
+                    'availability-request-'.$availabilityRequest->id.'-'.$availabilityRequest->vendor_id,
+                );
+            }
+        }
+
+        return back()->with(
+            $createdRequestIds ? 'success' : 'info',
+            $createdRequestIds
+                ? 'Availability confirmation requests were sent to the assigned vendors.'
+                : 'No new availability request was needed; requests are pending or availability is already confirmed.'
+        );
+    }
+
+    private function availabilityOverallStatus(Collection $groups): string
+    {
+        if ($groups->isEmpty() || $groups->every(fn (array $group) => ! $group['request'])) {
+            return 'Not Requested';
+        }
+
+        if ($groups->contains(fn (array $group) => ! $group['request']
+            || $group['request']->status === VendorAvailabilityRequest::PENDING
+            || ($group['request']->status === VendorAvailabilityRequest::AVAILABLE && ! $this->availabilityGroupIsComplete($group)))) {
+            return 'Pending Availability Confirmation';
+        }
+
+        if ($groups->every(fn (array $group) => $this->availabilityGroupIsComplete($group))) {
+            return 'Availability Confirmed';
+        }
+
+        return 'Action Required';
+    }
+
+    private function availabilityGroupIsComplete(array $group): bool
+    {
+        if (! $group['request'] || $group['request']->status !== VendorAvailabilityRequest::AVAILABLE) {
+            return false;
+        }
+
+        return $group['items']->every(function (OrderItem $item) use ($group) {
+            $response = $group['responses']->get($item->id);
+
+            return $response
+                && $response->status === VendorAvailabilityRequest::AVAILABLE
+                && (int) $response->ordered_quantity === (int) $item->quantity
+                && (int) $response->available_quantity >= (int) $item->quantity;
+        });
+    }
+
+    private function orderAvailabilityListStatus(Order $order): string
+    {
+        $latestRequests = $order->vendorAvailabilityRequests
+            ->sortByDesc('id')
+            ->groupBy('vendor_id')
+            ->map->first();
+
+        if ($latestRequests->isEmpty()) {
+            return 'Not Requested';
+        }
+
+        $hasActionRequired = $latestRequests->contains(function (VendorAvailabilityRequest $availabilityRequest): bool {
+            return in_array($availabilityRequest->status, [
+                VendorAvailabilityRequest::PARTIALLY_AVAILABLE,
+                VendorAvailabilityRequest::UNAVAILABLE,
+            ], true) || $availabilityRequest->items->contains(
+                fn ($item) => in_array($item->status, [
+                    VendorAvailabilityRequest::PARTIALLY_AVAILABLE,
+                    VendorAvailabilityRequest::UNAVAILABLE,
+                ], true)
+            );
+        });
+        if ($hasActionRequired) {
+            return 'Action Required';
+        }
+
+        $vendorItems = $order->items
+            ->filter(fn (OrderItem $item) => $this->availabilityProductOwnership($item)['state'] === 'vendor')
+            ->groupBy(fn (OrderItem $item) => (int) $item->product->vendor_id);
+
+        foreach ($vendorItems as $vendorId => $items) {
+            $availabilityRequest = $latestRequests->get($vendorId);
+            if (! $availabilityRequest || $availabilityRequest->status === VendorAvailabilityRequest::PENDING) {
+                return 'Pending Confirmation';
+            }
+
+            if (! $this->availabilityRequestMatchesItems($availabilityRequest, $items)) {
+                return 'Pending Confirmation';
+            }
+        }
+
+        foreach ($latestRequests as $availabilityRequest) {
+            if ($availabilityRequest->status === VendorAvailabilityRequest::PENDING
+                || ! $this->availabilityRequestHasFullAvailableResponse($availabilityRequest)) {
+                return 'Pending Confirmation';
+            }
+        }
+
+        return 'Availability Confirmed';
+    }
+
+    private function availabilityRequestMatchesItems(VendorAvailabilityRequest $availabilityRequest, Collection $items): bool
+    {
+        if ($availabilityRequest->status !== VendorAvailabilityRequest::AVAILABLE) {
+            return false;
+        }
+
+        $responses = $availabilityRequest->items->keyBy('order_item_id');
+
+        return $items->every(function (OrderItem $item) use ($responses): bool {
+            $response = $responses->get($item->id);
+
+            return $response
+                && $response->status === VendorAvailabilityRequest::AVAILABLE
+                && (int) $response->ordered_quantity === (int) $item->quantity
+                && (int) $response->available_quantity >= (int) $item->quantity;
+        });
+    }
+
+    private function availabilityRequestHasFullAvailableResponse(VendorAvailabilityRequest $availabilityRequest): bool
+    {
+        return $availabilityRequest->status === VendorAvailabilityRequest::AVAILABLE
+            && $availabilityRequest->items->isNotEmpty()
+            && $availabilityRequest->items->every(fn ($item) => $item->status === VendorAvailabilityRequest::AVAILABLE
+                && $item->available_quantity !== null
+                && (int) $item->available_quantity >= (int) $item->ordered_quantity);
+    }
+
+    private function availabilityRequestNeeded(?VendorAvailabilityRequest $latestRequest, Collection $currentItems): bool
+    {
+        if (! $latestRequest) {
+            return true;
+        }
+
+        if ($latestRequest->status !== VendorAvailabilityRequest::AVAILABLE) {
+            return true;
+        }
+
+        $previousResponses = $latestRequest->items->keyBy('order_item_id');
+        if ($previousResponses->count() !== $currentItems->count()) {
+            return true;
+        }
+
+        return $currentItems->contains(function (OrderItem $item) use ($previousResponses) {
+            $response = $previousResponses->get($item->id);
+
+            return ! $response
+                || (int) $response->ordered_quantity !== (int) $item->quantity
+                || $response->status !== VendorAvailabilityRequest::AVAILABLE
+                || (int) $response->available_quantity < (int) $item->quantity;
+        });
+    }
+
+    private function availabilityProductOwnership(OrderItem $item): array
+    {
+        $product = $item->product;
+        if (! $product) {
+            return [
+                'state' => 'unknown',
+                'reason' => 'The linked catalog product is missing, so its owner cannot be verified.',
+            ];
+        }
+
+        if ($product->vendor_id !== null) {
+            if ($product->vendor) {
+                return ['state' => 'vendor', 'vendor' => $product->vendor];
+            }
+
+            return [
+                'state' => 'unknown',
+                'reason' => 'The product references a vendor that could not be loaded.',
+            ];
+        }
+
+        foreach ([$product->creator, $product->submitter] as $attributedUser) {
+            if ($attributedUser?->vendor_id) {
+                return [
+                    'state' => 'unknown',
+                    'reason' => 'The product has a vendor-associated creator but no product vendor owner is recorded.',
+                ];
+            }
+        }
+
+        foreach ([$product->creator, $product->submitter] as $attributedUser) {
+            if ($attributedUser && $attributedUser->hasAnyPermission([
+                'admin.access',
+                'products.create',
+                'products.edit',
+                'products.approve',
+            ])) {
+                return ['state' => 'admin', 'vendor' => null];
+            }
+        }
+
+        return [
+            'state' => 'unknown',
+            'reason' => 'No authoritative product vendor or administrative owner is recorded.',
+        ];
     }
 
     public function approveOrder(Request $request, Order $order)
@@ -459,10 +784,8 @@ class CommerceController extends Controller
         );
 
         if (($data['accept_order'] ?? null) === 'yes') {
-            $message = 'Order processed successfully and moved to Paid Orders.';
-            $redirectUrl = route('marketplace.orders.index', [
-                'tab' => $order->fresh()->payment_status === 'paid' ? 'paid' : 'pending',
-            ]);
+            $message = 'Order approved successfully.';
+            $redirectUrl = route('marketplace.orders.index', ['tab' => 'approved']);
         } elseif (($data['allocate_order'] ?? null) === 'yes') {
             if ($data['order_allocation'] !== 'admin') {
                 $vendor = Vendor::query()->whereKey((int) $data['order_allocation'])->where('status', 'active')->firstOrFail();

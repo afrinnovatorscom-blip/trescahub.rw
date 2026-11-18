@@ -206,7 +206,7 @@
                 <tbody>
                     @forelse($categories as $category)
                     <tr>
-                        <td class="category-number text-muted small">{{ $category->id }}</td>
+                        <td class="category-number text-muted small">{{ $categories->firstItem() + $loop->index }}</td>
                         <td class="category-title fw-semibold">{{ $category->title }}</td>
                         <td><code class="badge bg-secondary">{{ $category->slug }}</code></td>
 

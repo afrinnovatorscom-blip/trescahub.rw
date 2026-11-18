@@ -21,7 +21,7 @@ class WorkController extends Controller
 
     public function index()
     {
-        $works = Work::latest()->paginate(12);
+        $works = Work::query()->orderBy('id')->paginate(12);
 
         return view('works.index', compact('works'));
     }

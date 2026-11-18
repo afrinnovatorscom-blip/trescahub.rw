@@ -425,10 +425,6 @@ class OrderService
                     }
                 }
 
-                if ($vendorId !== null) {
-                    $this->transition($lockedOrder, 'confirmed', $actor, null, null, null, true, true);
-                }
-
                 return;
             }
 
@@ -467,11 +463,12 @@ class OrderService
                         'allocations' => 'Save a single order allocation before accepting the order.',
                     ]);
                 }
-                if ($items->isEmpty() || $items->contains(
-                    fn (OrderItem $item) => $item->assignment_status !== 'admin_handled' || $item->vendor_id !== null
-                )) {
+                if ($items->isEmpty() || $items->contains(fn (OrderItem $item) => ! (
+                    ($item->assignment_status === 'admin_handled' && $item->vendor_id === null)
+                    || ($item->assignment_status === 'assigned' && $item->vendor_id !== null)
+                ))) {
                     throw ValidationException::withMessages([
-                        'accept_order' => 'Only an order allocated entirely to Admin can be accepted through the Admin review workflow.',
+                        'accept_order' => 'Allocate every product to Admin or a vendor before accepting the order.',
                     ]);
                 }
             }

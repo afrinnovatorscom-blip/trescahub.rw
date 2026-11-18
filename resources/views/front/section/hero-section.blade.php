@@ -629,33 +629,57 @@
 /* Small phones */
 @media (max-width: 540px) {
     .th-hero-stage {
-        grid-template-columns: minmax(0, 1.2fr) minmax(0, .8fr);
-        width: min(100% - 36px, 460px);
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: clamp(170px, 54vw, 240px) auto;
+        gap: 0;
+        width: min(100% - 32px, 460px);
         min-height: 0;
-        padding-top: 20px;
+        padding: 0 0 32px;
+    }
+
+    .th-hero-product {
+        grid-column: 1;
+        grid-row: 1;
+        width: min(100%, 460px);
+        justify-self: center;
+        align-self: center;
+        transform: none;
+    }
+
+    .th-hero-copy {
+        grid-column: 1;
+        grid-row: 2;
+        width: 100%;
+        padding: 18px 0 0;
+        text-align: center;
     }
 
     .th-hero-eyebrow {
         gap: 6px;
         margin-bottom: 8px;
-        padding: 6px 8px;
-        font-size: .7rem;
+        padding: 6px 9px;
+        font-size: clamp(.8rem, 3.8vw, .9rem);
+        line-height: 1.3;
     }
 
     .th-hero-title {
-        margin-bottom: 8px;
-        font-size: clamp(1.28rem, 6.1vw, 1.78rem);
+        margin-bottom: 10px;
+        font-size: clamp(1.75rem, 8vw, 2.25rem);
+        line-height: 1.12;
     }
 
     .th-hero-description {
+        max-width: 34rem;
+        margin-right: auto;
+        margin-left: auto;
         margin-bottom: 11px;
-        font-size: clamp(.74rem, 3vw, .87rem);
-        line-height: 1.38;
+        font-size: clamp(.95rem, 4vw, 1.1rem);
+        line-height: 1.5;
     }
 
     .th-hero-actions {
         flex-direction: column;
-        align-items: flex-start;
+        align-items: center;
         gap: 7px;
     }
 
@@ -670,15 +694,14 @@
     }
 
     .th-hero-support {
+        justify-content: center;
         gap: 6px;
         margin-top: 11px;
-        font-size: .7rem;
+        font-size: clamp(.72rem, 3.2vw, .8rem);
+        line-height: 1.3;
+        transform: translateY(42px);
     }
 
-    /*
-     * Intentionally no product width or transform override here.
-     * The shared 820px rule keeps image scaling continuous.
-     */
     .th-hero-controls {
         right: 10px;
         bottom: calc(10px + env(safe-area-inset-bottom));
@@ -686,9 +709,20 @@
     }
 
     .th-home-hero::before {
-        right: -52%;
-        bottom: 0;
-        width: 84%;
+        z-index: -1;
+        top: 0;
+        right: -42%;
+        bottom: auto;
+        width: 100%;
+        height: clamp(170px, 54vw, 240px);
+        border-radius: 0 0 0 58% / 0 0 0 100%;
+    }
+
+    .th-home-hero::after {
+        top: 8%;
+        right: 30%;
+        bottom: auto;
+        width: 30%;
     }
 
     .th-home-hero .th-hero-indicator {

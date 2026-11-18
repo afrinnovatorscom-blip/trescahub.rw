@@ -13,6 +13,8 @@ use App\Models\OrderItem;
 use App\Models\ProductRequest;
 use App\Models\ShopCategory;
 use App\Models\ShopProduct;
+use App\Models\VendorAvailabilityRequest;
+use App\Services\MarketplaceNotifier;
 use App\Services\AuditLogger;
 use App\Services\InventoryAdjustmentRequestService;
 use App\Services\OrderService;
@@ -36,6 +38,7 @@ class VendorWorkspaceController extends Controller
         private InventoryAdjustmentRequestService $inventoryRequests,
         private RequestWorkflowService $requests,
         private OrderService $orders,
+        private MarketplaceNotifier $notifier,
     ) {}
 
     public function dashboard()
@@ -84,12 +87,95 @@ class VendorWorkspaceController extends Controller
         ]);
     }
 
-    public function productsIndex()
+    public function productsIndex(Request $request)
     {
         abort_unless(auth()->user()->hasPermission('products.view'), 403);
         $products = ShopProduct::query()->ownedByVendor(auth()->user()->vendor_id)->latest()->paginate(15);
+        $availabilityRequests = VendorAvailabilityRequest::query()
+            ->where('vendor_id', auth()->user()->vendor_id)
+            ->whereHas('items.orderItem.product', fn ($query) => $query->where('vendor_id', auth()->user()->vendor_id))
+            ->with([
+                'order',
+                'items' => fn ($query) => $query->whereHas('orderItem.product', fn ($products) => $products
+                    ->where('vendor_id', auth()->user()->vendor_id))
+                    ->with(['orderItem.product']),
+            ])
+            ->latest('id')
+            ->paginate(20, ['*'], 'availability_page')
+            ->withQueryString();
 
-        return view('vendor.products.index', compact('products'));
+        return view('vendor.products.index', compact('products', 'availabilityRequests'));
+    }
+
+    public function respondAvailability(Request $request, VendorAvailabilityRequest $availabilityRequest)
+    {
+        $vendorId = (int) $request->user()->vendor_id;
+        abort_unless($vendorId > 0 && (int) $availabilityRequest->vendor_id === $vendorId, 404);
+        abort_unless($availabilityRequest->status === VendorAvailabilityRequest::PENDING, 409);
+
+        $validated = $request->validate([
+            'availability_status' => ['required', 'in:available,unavailable'],
+            'reason' => ['required_if:availability_status,unavailable', 'nullable', 'string', 'max:2000'],
+        ]);
+
+        DB::transaction(function () use ($availabilityRequest, $vendorId, $validated) {
+            $lockedRequest = VendorAvailabilityRequest::query()
+                ->whereKey($availabilityRequest->id)
+                ->where('vendor_id', $vendorId)
+                ->lockForUpdate()
+                ->firstOrFail();
+            if ($lockedRequest->status !== VendorAvailabilityRequest::PENDING) {
+                abort(409);
+            }
+
+            $items = $lockedRequest->items()
+                ->whereHas('orderItem.product', fn ($query) => $query->where('vendor_id', $vendorId))
+                ->with('orderItem')
+                ->lockForUpdate()
+                ->get();
+            abort_unless($items->count() === $lockedRequest->items()->count(), 404);
+
+            $status = $validated['availability_status'];
+
+            foreach ($items as $item) {
+                if ($status === 'available') {
+                    $item->update([
+                        'status' => VendorAvailabilityRequest::AVAILABLE,
+                        'available_quantity' => $item->ordered_quantity,
+                        'reason' => null,
+                    ]);
+                } elseif ($status === 'unavailable') {
+                    $item->update([
+                        'status' => VendorAvailabilityRequest::UNAVAILABLE,
+                        'available_quantity' => 0,
+                        'reason' => $validated['reason'],
+                    ]);
+                }
+            }
+
+            $lockedRequest->update([
+                'status' => $status,
+                'responded_at' => now(),
+            ]);
+        });
+
+        $availabilityRequest->refresh()->load('order', 'vendor');
+        $title = match ($availabilityRequest->status) {
+            VendorAvailabilityRequest::AVAILABLE => 'Vendor confirmed product availability',
+            default => 'Vendor reported unavailable products',
+        };
+        foreach ($this->notifier->staff('orders.manage') as $staffUser) {
+            $this->notifier->send(
+                $staffUser,
+                $title,
+                'Vendor '.$availabilityRequest->vendor->business_name.' responded to order '.$availabilityRequest->order->reference.'.',
+                route('marketplace.orders.show', $availabilityRequest->order),
+                'availability-response-'.$availabilityRequest->id.'-'.$availabilityRequest->status,
+            );
+        }
+
+        return redirect()->route('vendor.products.index', ['tab' => 'availability'])
+            ->with('success', 'Your availability response has been saved.');
     }
 
     public function createProduct()

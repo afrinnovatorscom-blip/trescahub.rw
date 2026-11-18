@@ -340,7 +340,7 @@ class VendorDetailsPageTest extends TestCase
         $this->actingAs($admin)
             ->get(route('marketplace.users.create'))
             ->assertOk()
-            ->assertSee('Vendor account');
+            ->assertDontSee('name="vendor_id"', false);
 
         $vendorRole = Role::query()->where('slug', 'vendor')->firstOrFail();
         $this->actingAs($admin)->post(route('marketplace.users.store'), [
