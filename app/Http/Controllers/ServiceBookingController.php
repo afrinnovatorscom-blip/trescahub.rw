@@ -25,6 +25,15 @@ class ServiceBookingController extends Controller
             ->latest()
             ->paginate(15)
             ->withQueryString();
+        foreach ($bookings as $booking) {
+            $serviceTotal = $this->serviceTotal($booking);
+            $booking->setAttribute(
+                'display_payment_status',
+                $serviceTotal !== null
+                    ? $this->paymentStatusForAmount($booking->payment_amount_received, $serviceTotal)
+                    : $booking->payment_status,
+            );
+        }
 
         return view('service-bookings.index', compact('activeTab', 'bookings'));
     }
@@ -33,8 +42,11 @@ class ServiceBookingController extends Controller
     {
         $serviceBooking->load(['service', 'customer']);
         $serviceTotal = $this->serviceTotal($serviceBooking);
+        $paymentStatus = $serviceTotal !== null
+            ? $this->paymentStatusForAmount($serviceBooking->payment_amount_received, $serviceTotal)
+            : $serviceBooking->payment_status;
 
-        return view('service-bookings.show', compact('serviceBooking', 'serviceTotal'));
+        return view('service-bookings.show', compact('serviceBooking', 'serviceTotal', 'paymentStatus'));
     }
 
     public function showConfirmed(ServiceBooking $serviceBooking): View
@@ -49,12 +61,16 @@ class ServiceBookingController extends Controller
         $remainingBalance = $serviceTotal !== null
             ? number_format(max(0, (float) $serviceTotal - (float) $amountReceived), 2, '.', '')
             : null;
+        $paymentStatus = $serviceTotal !== null
+            ? $this->paymentStatusForAmount($amountReceived, $serviceTotal)
+            : $serviceBooking->payment_status;
 
         return view('service-bookings.confirmed', compact(
             'serviceBooking',
             'serviceTotal',
             'amountReceived',
             'remainingBalance',
+            'paymentStatus',
         ));
     }
 
@@ -68,12 +84,16 @@ class ServiceBookingController extends Controller
         $remainingBalance = $serviceTotal !== null
             ? number_format(max(0, (float) $serviceTotal - (float) ($amountReceived ?? 0)), 2, '.', '')
             : null;
+        $paymentStatus = $serviceTotal !== null
+            ? $this->paymentStatusForAmount($amountReceived, $serviceTotal)
+            : $serviceBooking->payment_status;
 
         return view('service-bookings.completed', compact(
             'serviceBooking',
             'serviceTotal',
             'amountReceived',
             'remainingBalance',
+            'paymentStatus',
         ));
     }
 
@@ -86,8 +106,6 @@ class ServiceBookingController extends Controller
         ]);
 
         $serviceTotal = $this->serviceTotal($serviceBooking);
-        $amountReceived = null;
-        $paymentStatus = ServiceBooking::NOT_PAID;
 
         if ($validated['has_paid'] === 'yes') {
             if ($validated['payment_type'] === 'full') {
@@ -96,13 +114,13 @@ class ServiceBookingController extends Controller
                 } else {
                     $amountReceived = $this->validatedReceivedAmount($validated, $serviceTotal);
                 }
-
-                $paymentStatus = ServiceBooking::PAID;
             } else {
                 $amountReceived = $this->validatedReceivedAmount($validated, $serviceTotal);
-                $paymentStatus = ServiceBooking::PARTIALLY_PAID;
             }
+        } else {
+            $amountReceived = null;
         }
+        $paymentStatus = $this->paymentStatusForAmount($amountReceived, $serviceTotal);
 
         $serviceBooking->forceFill([
             'payment_amount_received' => $amountReceived,
@@ -175,26 +193,36 @@ class ServiceBookingController extends Controller
 
     public function recordAdditionalPayment(Request $request, ServiceBooking $serviceBooking): RedirectResponse
     {
+        $replacePayment = $request->input('payment_mode') === 'replace';
         $validated = $request->validate([
-            'amount_received' => ['required', 'numeric', 'decimal:0,2', 'gt:0'],
+            'amount_received' => ['required', 'numeric', 'decimal:0,2', $replacePayment ? 'gte:0' : 'gt:0'],
+            'payment_mode' => ['nullable', 'in:replace'],
         ]);
 
-        DB::transaction(function () use ($serviceBooking, $validated): void {
+        DB::transaction(function () use ($serviceBooking, $validated, $replacePayment): void {
             $booking = ServiceBooking::query()
                 ->with('service')
                 ->whereKey($serviceBooking->id)
                 ->lockForUpdate()
                 ->firstOrFail();
 
-            if ($booking->status !== ServiceBooking::CONFIRMED) {
+            if (! in_array($booking->status, [ServiceBooking::CONFIRMED, ServiceBooking::COMPLETED], true)) {
                 throw ValidationException::withMessages([
-                    'status' => 'Additional payments can only be recorded for confirmed bookings.',
+                    'status' => 'Additional payments can only be recorded for confirmed or completed bookings.',
+                ]);
+            }
+
+            if ($replacePayment && $booking->status !== ServiceBooking::COMPLETED) {
+                throw ValidationException::withMessages([
+                    'status' => 'Payment corrections can only be made for completed bookings.',
                 ]);
             }
 
             $currentAmountCents = (int) round((float) ($booking->payment_amount_received ?? 0) * 100);
-            $additionalAmountCents = (int) round((float) $validated['amount_received'] * 100);
-            $newAmountCents = $currentAmountCents + $additionalAmountCents;
+            $enteredAmountCents = (int) round((float) $validated['amount_received'] * 100);
+            $newAmountCents = $replacePayment
+                ? $enteredAmountCents
+                : $currentAmountCents + $enteredAmountCents;
             $serviceTotal = $this->serviceTotal($booking);
             $totalCents = $serviceTotal === null
                 ? null
@@ -206,13 +234,12 @@ class ServiceBookingController extends Controller
                 ]);
             }
 
+            $amountReceived = $newAmountCents > 0
+                ? number_format($newAmountCents / 100, 2, '.', '')
+                : null;
             $booking->forceFill([
-                'payment_amount_received' => number_format($newAmountCents / 100, 2, '.', ''),
-                'payment_status' => $totalCents !== null && $newAmountCents >= $totalCents
-                    ? ServiceBooking::PAID
-                    : ($totalCents === null && $booking->payment_status === ServiceBooking::PAID
-                        ? ServiceBooking::PAID
-                        : ServiceBooking::PARTIALLY_PAID),
+                'payment_amount_received' => $amountReceived,
+                'payment_status' => $this->paymentStatusForAmount($amountReceived, $serviceTotal),
                 'payment_recorded' => true,
             ])->save();
         });
@@ -297,6 +324,22 @@ class ServiceBookingController extends Controller
         return $price !== null && (float) $price > 0
             ? number_format((float) $price, 2, '.', '')
             : null;
+    }
+
+    private function paymentStatusForAmount(?string $amountReceived, ?string $serviceTotal): string
+    {
+        if ($amountReceived === null || (float) $amountReceived <= 0) {
+            return ServiceBooking::NOT_PAID;
+        }
+
+        if (
+            $serviceTotal !== null
+            && (int) round((float) $amountReceived * 100) >= (int) round((float) $serviceTotal * 100)
+        ) {
+            return ServiceBooking::PAID;
+        }
+
+        return ServiceBooking::PARTIALLY_PAID;
     }
 
     private function validatedReceivedAmount(array $validated, ?string $serviceTotal): string

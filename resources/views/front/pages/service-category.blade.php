@@ -22,7 +22,7 @@
         <div class="row g-4 mt-5">
             @forelse($category->services as $service)
                 <div class="col-12 col-md-6 col-lg-4">
-                    <a href="{{ route('services.show', $service->slug) }}" class="text-decoration-none">
+                    <a href="{{ route('service.show', $service->slug) }}" class="text-decoration-none">
                         <div class="card h-100 service-card"
                              style="border: none; cursor: pointer; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);">
                             
@@ -77,10 +77,10 @@
                                             RWF {{ number_format($service->price, 0, '.', ',') }}
                                         </div>
                                     </div>
-                                    <a href="{{ route('service.show', $service->slug) }}" class="btn btn-sm d-flex align-items-center gap-2 px-3" style="background-color: var(--bs-primary-color); color: white; border-radius: 6px; text-decoration: none; white-space: nowrap; border: none;">
+                                    <span class="btn btn-sm d-flex align-items-center gap-2 px-3" style="background-color: var(--bs-primary-color); color: white; border-radius: 6px; text-decoration: none; white-space: nowrap; border: none;">
                                         <i class="fas fa-arrow-right" style="font-size: 0.75rem;"></i>
                                         Order
-                                    </a>
+                                    </span>
                                 </div>
                             </div>
                         </div>

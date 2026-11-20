@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Models\Vendor;
 use Database\Seeders\MarketplaceUserSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class VendorDetailsPageTest extends TestCase
@@ -139,6 +140,104 @@ class VendorDetailsPageTest extends TestCase
             ->get(route('marketplace.vendors.show', $vendor))
             ->assertOk()
             ->assertSee('>A</span>', false);
+    }
+
+    public function test_vendor_details_show_registration_fields_in_separate_sections_without_activity(): void
+    {
+        Storage::fake('local');
+        Storage::disk('local')->put('vendor-certificates/structured-vendor.pdf', 'certificate');
+
+        $vendor = $this->vendor('Structured Vendor');
+        $vendor->update([
+            'reference_number' => 'LEGACY-REFERENCE-123',
+            'contact_person' => 'Account Owner Name',
+            'email' => 'vendor-account@example.com',
+            'tin' => 'TIN-STRUCTURED-123',
+            'phone' => '0788111222',
+            'business_email' => 'business@example.com',
+            'business_address' => 'KN 5 Road, Kigali',
+            'registration_certificate_path' => 'vendor-certificates/structured-vendor.pdf',
+            'bank_name' => 'Example Bank',
+            'bank_account_holder' => 'Bank Account Holder',
+            'bank_account_number' => '1234567890',
+            'mobile_money_provider' => 'airtel_money',
+            'mobile_money_phone' => '0788333444',
+            'mobile_money_account_holder' => 'Mobile Account Holder',
+            'show_as_partner' => true,
+            'partner_description' => 'A short public description.',
+            'display_order' => 3,
+            'public_branding_approved' => true,
+            'partner_display_status' => 'published',
+        ]);
+        $account = User::factory()->create([
+            'vendor_id' => $vendor->id,
+            'name' => 'Account Owner Name',
+            'email' => 'vendor-account@example.com',
+            'phone' => '0788999000',
+        ]);
+        $account->assignRole('vendor');
+
+        $response = $this->actingAs($this->administrator())
+            ->get(route('marketplace.vendors.show', $vendor));
+
+        $response->assertOk()
+            ->assertSee('TIN: TIN-STRUCTURED-123')
+            ->assertDontSee('Reference:')
+            ->assertDontSee('LEGACY-REFERENCE-123')
+            ->assertSee('Overview')
+            ->assertSee('Account Owner Information')
+            ->assertSee('Contact Person Full Name')
+            ->assertSee('Account Email')
+            ->assertSee('vendor-account@example.com')
+            ->assertSee('Account Phone')
+            ->assertSee('0788999000')
+            ->assertSee('Business / Company Name')
+            ->assertSee('Business Email')
+            ->assertSee('business@example.com')
+            ->assertSee('Business Phone')
+            ->assertSee('0788111222')
+            ->assertSee('Business Address')
+            ->assertSee('KN 5 Road, Kigali')
+            ->assertSee('Business Documents')
+            ->assertSee('RDB Business Registration Certificate')
+            ->assertSee('structured-vendor.pdf')
+            ->assertSee(route('marketplace.vendor-applications.certificate', ['vendor' => $vendor, 'view' => 1]), false)
+            ->assertSee('Bank Account')
+            ->assertSee('Example Bank')
+            ->assertSee('1234567890')
+            ->assertSee('Mobile Money')
+            ->assertSee('Airtel Money')
+            ->assertSee('Marketplace Settings')
+            ->assertSee('Short Partner Description')
+            ->assertSee('A short public description.')
+            ->assertSee('Website Publication Status')
+            ->assertDontSee('Legal Name')
+            ->assertDontSee('Operating Location')
+            ->assertDontSee('Address Notes')
+            ->assertDontSee('href="#activity"', false)
+            ->assertDontSee('id="activity"', false);
+
+        $this->assertDatabaseHas('audit_logs', [
+            'auditable_type' => Vendor::class,
+            'auditable_id' => $vendor->id,
+            'action' => 'vendor.viewed',
+        ]);
+    }
+
+    public function test_vendor_details_show_empty_document_and_payment_states_without_blank_fields(): void
+    {
+        $vendor = $this->vendor('No Documents Or Payments');
+
+        $this->actingAs($this->administrator())
+            ->get(route('marketplace.vendors.show', $vendor))
+            ->assertOk()
+            ->assertSee('No RDB Business Registration Certificate is on file.')
+            ->assertSee('No payment information is on file.')
+            ->assertDontSee('Account Phone')
+            ->assertDontSee('Bank Name')
+            ->assertDontSee('Account Number')
+            ->assertDontSee('Mobile Money Provider')
+            ->assertDontSee('>Activity<', false);
     }
 
     public function test_vendor_header_badges_reflect_the_selected_vendors_saved_status_fields(): void

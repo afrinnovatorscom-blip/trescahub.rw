@@ -13,7 +13,13 @@ class EnsureVendorIsActive
         $user = $request->user();
         $vendor = $user?->vendor;
 
-        if (! $user || ! $user->hasRole('vendor') || ! $vendor || $vendor->status !== 'active') {
+        if (
+            ! $user
+            || ! $user->hasRole('vendor')
+            || ! $vendor
+            || $vendor->status !== 'active'
+            || (filled($vendor->application_status) && $vendor->application_status !== 'approved')
+        ) {
             abort(403, 'This account cannot access the vendor workspace.');
         }
 

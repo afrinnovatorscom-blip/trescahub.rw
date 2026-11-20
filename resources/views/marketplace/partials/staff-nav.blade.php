@@ -5,7 +5,7 @@
     <a href="{{ route('marketplace.reviews.index') }}" class="nav-item-link {{ request()->routeIs('marketplace.reviews.*') ? 'active' : '' }}"><i class="bi bi-star"></i> Reviews</a>
 @endif
 @if($user->hasPermission('vendors.view'))
-    <a href="{{ route('marketplace.vendors.index') }}" class="nav-item-link {{ request()->routeIs('marketplace.vendors.*') ? 'active' : '' }}"><i class="bi bi-shop"></i> Vendors</a>
+    <a href="{{ route('marketplace.vendors.index') }}" class="nav-item-link {{ request()->routeIs('marketplace.vendors.*') || request()->routeIs('marketplace.vendor-applications.*') ? 'active' : '' }}"><i class="bi bi-shop"></i> Vendors</a>
 @endif
 @if($user->hasAnyPermission(['orders.view_all', 'orders.view_assigned']))
     <a href="{{ route('marketplace.orders.index') }}" class="nav-item-link {{ request()->routeIs('marketplace.orders.*') ? 'active' : '' }}"><i class="bi bi-receipt"></i> Orders</a>

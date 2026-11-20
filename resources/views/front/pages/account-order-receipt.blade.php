@@ -285,6 +285,50 @@
             </tbody>
         </table>
 
+        <div class="section-heading">Payment confirmation</div>
+        <table class="receipt-information">
+            <tbody>
+                <tr>
+                    <td>
+                        <span class="label">Payment status</span>
+                        <span class="value">Paid</span>
+                    </td>
+                    <td>
+                        <span class="label">Amount received</span>
+                        <span class="value">RWF {{ number_format((float) $order->payments->sum('amount'), 2, '.', ',') }}</span>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+        <div class="section-heading items-heading">Confirmed payment records</div>
+        <table class="items payment-items">
+            <thead>
+                <tr>
+                    <th class="product">Payment method</th>
+                    <th class="unit-price">Amount</th>
+                    <th class="subtotal">Recorded</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach($order->payments as $payment)
+                    @php
+                        $paymentMethodLabel = match ($payment->method) {
+                            'mtn_mobile_money' => 'MTN Mobile Money',
+                            'airtel_money' => 'Airtel Money',
+                            'bank_transfer' => 'Bank Transfer',
+                            'cash_on_delivery' => 'Cash on Delivery',
+                            default => ucfirst(str_replace('_', ' ', $payment->method)),
+                        };
+                    @endphp
+                    <tr>
+                        <td class="product">{{ $paymentMethodLabel }}</td>
+                        <td class="unit-price">RWF {{ number_format((float) $payment->amount, 2, '.', ',') }}</td>
+                        <td class="subtotal">{{ $payment->created_at?->format('M j, Y g:i A') ?? 'Not recorded' }}</td>
+                    </tr>
+                @endforeach
+            </tbody>
+        </table>
+
         <div class="section-heading items-heading">Order details</div>
         <table class="items">
             <thead>

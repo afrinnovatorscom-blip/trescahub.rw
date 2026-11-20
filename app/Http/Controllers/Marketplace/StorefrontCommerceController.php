@@ -267,6 +267,8 @@ class StorefrontCommerceController extends Controller
             throw ValidationException::withMessages(['cart' => $exception->getMessage()]);
         }
 
+        session()->forget(['marketplace.cart', 'marketplace.checkout']);
+
         // Push the mobile money prompt to the customer's phone. A failed request still lands on the
         // status page, which explains the problem and lets the customer try again for this order.
         if ($this->mobileMoney->canPay($order)) {
@@ -435,6 +437,7 @@ class StorefrontCommerceController extends Controller
             ->with([
                 'items:id,order_id,product_name,variation_label,variation_value,quantity,line_total',
                 'deliveries:id,order_id,reference,status',
+                'payments:id,order_id,amount',
             ])
             ->latest()
             ->paginate(15);
@@ -451,12 +454,19 @@ class StorefrontCommerceController extends Controller
             'tracking' => CustomerTracking::present($order),
             'canCancel' => in_array($order->fulfillment_status, ['pending_confirmation', 'confirmed', 'processing', 'awaiting_stock'], true),
             'canPay' => $this->mobileMoney->canPay($order),
+            'canDownloadReceipt' => $order->hasConfirmedPaidPayment(),
         ]);
     }
 
     public function downloadOrderReceipt(Request $request, string $reference)
     {
         $order = $this->customerOrder($request, $reference);
+        $order->load([
+            'items',
+            'payments' => fn ($payments) => $payments->orderBy('created_at')->orderBy('id'),
+        ]);
+        abort_unless($order->hasConfirmedPaidPayment(), 404);
+
         $websiteHost = parse_url((string) config('app.url'), PHP_URL_HOST);
         $websiteUrl = $websiteHost && ! in_array($websiteHost, ['localhost', '127.0.0.1', '::1'], true)
             ? $websiteHost

@@ -15,6 +15,7 @@ use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\ShopCategoryController;
 use App\Http\Controllers\ShopProductController;
 use App\Http\Controllers\TestimonialController;
+use App\Http\Controllers\VendorApplicationController;
 use App\Http\Controllers\WorkController;
 use App\Models\Cta;
 use App\Models\Partner;
@@ -26,6 +27,9 @@ use Illuminate\Support\Facades\Route;
 
 Route::get('/register', [CustomerAuthenticationController::class, 'register'])->name('register');
 Route::post('/register', [CustomerAuthenticationController::class, 'store'])->middleware('throttle:5,1')->name('register.store');
+Route::get('/vendor/register', [VendorApplicationController::class, 'create'])->name('vendor.application.create');
+Route::post('/vendor/register', [VendorApplicationController::class, 'store'])->middleware('throttle:5,1')->name('vendor.application.store');
+Route::get('/vendor/application/submitted', [VendorApplicationController::class, 'submitted'])->name('vendor.application.submitted');
 Route::get('/customer/forgot-password', [CustomerAuthenticationController::class, 'forgotPassword'])->name('customer.password.request');
 Route::post('/customer/forgot-password', [CustomerAuthenticationController::class, 'emailResetLink'])->middleware('throttle:5,1')->name('customer.password.email');
 Route::get('/customer/reset-password/{token}', [CustomerAuthenticationController::class, 'resetPasswordForm'])->name('customer.password.reset');
@@ -107,6 +111,11 @@ Route::middleware([
     config('jetstream.auth_session'),
     'verified',
 ])->group(function () {
+
+    Route::get('/vendor/application/correction', [VendorApplicationController::class, 'editCorrection'])
+        ->name('vendor.application.correction');
+    Route::put('/vendor/application/correction', [VendorApplicationController::class, 'updateCorrection'])
+        ->name('vendor.application.correction.update');
 
     Route::get('/dashboard', [AdminAccessController::class, 'dashboard'])->name('dashboard');
 

@@ -23,14 +23,15 @@
             </div>
             <div class="tracking-header-badges">
                 <span class="tracking-badge is-order">{{ $tracking['status_label'] }}</span>
-                @if($canPay ?? false)
+                @if($canDownloadReceipt ?? false)
+                    <a class="tracking-receipt-button" href="{{ route('account.orders.receipt', $tracking['reference']) }}">
+                        <i class="bi bi-download" aria-hidden="true"></i> Download Receipt
+                    </a>
+                @elseif($canPay ?? false)
                     <a class="tracking-receipt-button" href="{{ route('account.orders.pay', $tracking['reference']) }}">
-                        <i class="bi bi-phone" aria-hidden="true"></i> Pay now
+                        <i class="bi bi-phone" aria-hidden="true"></i> Pay Now
                     </a>
                 @endif
-                <a class="tracking-receipt-button" href="{{ route('account.orders.receipt', $tracking['reference']) }}">
-                    <i class="bi bi-download" aria-hidden="true"></i> Download Receipt
-                </a>
             </div>
         </header>
 
@@ -150,6 +151,10 @@
                 <div class="tracking-order-date">
                     <span>Order date</span>
                     <strong>{{ $tracking['placed_at']?->format('M j, Y g:i A') ?? '—' }}</strong>
+                </div>
+                <div class="tracking-order-date">
+                    <span>Payment status</span>
+                    <strong data-payment-status>{{ $tracking['payment_status_label'] }}</strong>
                 </div>
 
                 <div class="tracking-payment-records" data-tracking-payments @if(count($tracking['payments']) === 0) hidden @endif>

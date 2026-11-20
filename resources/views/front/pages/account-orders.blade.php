@@ -90,11 +90,13 @@
                                         <i class="bi bi-receipt" aria-hidden="true"></i> View details
                                     </a>
                                 </li>
-                                <li>
-                                    <a class="dropdown-item" href="{{ route('account.orders.receipt', $order->reference) }}">
-                                        <i class="bi bi-download" aria-hidden="true"></i> Download Receipt
-                                    </a>
-                                </li>
+                                @if($order->hasConfirmedPaidPayment())
+                                    <li>
+                                        <a class="dropdown-item" href="{{ route('account.orders.receipt', $order->reference) }}">
+                                            <i class="bi bi-download" aria-hidden="true"></i> Download Receipt
+                                        </a>
+                                    </li>
+                                @endif
                                 @foreach($inTransitDeliveries as $delivery)
                                     <li>
                                         <form

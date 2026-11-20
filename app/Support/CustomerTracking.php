@@ -218,8 +218,34 @@ class CustomerTracking
                     <=> ($stageOrder[$right['stage'] ?? ''] ?? -1);
             })
             ->values();
+        $hasConfirmedPaidPayment = $order->hasConfirmedPaidPayment();
+        $hideOrderReceived = ! $hasConfirmedPaidPayment
+            && in_array($order->payment_status, ['pending', 'unpaid', 'failed'], true);
+        if ($hideOrderReceived) {
+            $events = $events
+                ->reject(fn (array $event) => ($event['stage'] ?? null) === 'order_received')
+                ->values();
+        }
+
         $timeline = self::timeline($trackingStatus, $events->all());
+        if ($hideOrderReceived) {
+            $timeline['steps'] = array_values(array_filter(
+                $timeline['steps'],
+                fn (array $step) => $step['key'] !== 'order_received'
+            ));
+            $timeline['headline'] = 'Awaiting payment';
+        }
         $latestEvent = $events->last();
+        $paymentStatusLabel = $hasConfirmedPaidPayment
+            ? 'Paid'
+            : match ($order->payment_status) {
+                'pending', 'unpaid', 'failed' => 'Unpaid',
+                'partially_paid' => 'Partially paid',
+                'paid' => 'Payment pending confirmation',
+                'refunded' => 'Refunded',
+                'cancelled' => 'Cancelled',
+                default => ucfirst(str_replace('_', ' ', (string) $order->payment_status)),
+            };
         $refreshToken = sha1(json_encode([
             $order->updated_at?->format('U.u'),
             $order->histories->map(fn ($history) => [$history->id, $history->to_status, $history->created_at?->format('U.u')])->all(),
@@ -241,11 +267,16 @@ class CustomerTracking
             'delivery_address' => $order->delivery_address,
             'placed_at' => $order->created_at,
             'payment_status' => $order->payment_status,
+            'payment_status_label' => $paymentStatusLabel,
             'fulfillment_status' => $trackingStatus,
-            'status_label' => self::label($trackingStatus),
-            'message' => $trackingStatus === 'delivered'
-                ? self::label('delivered')
-                : ($order->customer_status_message ?: self::label($order->fulfillment_status)),
+            'status_label' => $hideOrderReceived && $trackingStatus === 'pending_confirmation'
+                ? 'Awaiting payment'
+                : self::label($trackingStatus),
+            'message' => $hideOrderReceived && $trackingStatus === 'pending_confirmation'
+                ? 'Payment has not been confirmed.'
+                : ($trackingStatus === 'delivered'
+                    ? self::label('delivered')
+                    : ($order->customer_status_message ?: self::label($order->fulfillment_status))),
             'estimate' => $order->delivery_estimate_at,
             'total' => $order->total,
             'currency' => 'RWF',
@@ -267,7 +298,9 @@ class CustomerTracking
                     : null,
                 'vendor_name' => self::publicVendorName($item->vendor),
                 'fulfillment_status' => $item->fulfillment_status,
-                'fulfillment_label' => self::label($item->fulfillment_status),
+                'fulfillment_label' => $hideOrderReceived && $item->fulfillment_status === 'pending_confirmation'
+                    ? 'Awaiting payment'
+                    : self::label($item->fulfillment_status),
                 'assignment_status' => $item->assignment_status,
                 'assignment_label' => self::assignmentLabel($item->assignment_status),
             ])->all(),

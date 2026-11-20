@@ -43,6 +43,14 @@
 
         {{-- CTA --}}
         <div class="mt-5 text-center">
+            <a href="{{ route('vendor.application.create') }}"
+               class="btn btn-lg fw-semibold me-sm-2 mb-2 mb-sm-0"
+               style="background-color: #16a34a; color: #fff;
+                      border: none; border-radius: 10px;
+                      padding: 14px 36px; font-size: 1rem;
+                      transition: all 0.2s ease;">
+                Join Our Marketplace
+            </a>
             <a href="{{ route('request-service') }}"
                class="btn btn-lg fw-semibold"
                style="background-color: #16a34a; color: #fff;

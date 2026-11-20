@@ -16,6 +16,7 @@ class MarketplaceNotification extends Notification
         public ?string $url = null,
         public string $dedupeKey = '',
         public bool $internal = false,
+        public bool $sendEmail = true,
     ) {}
 
     public function via(object $notifiable): array
@@ -23,7 +24,9 @@ class MarketplaceNotification extends Notification
         $channels = ['database'];
         $mailer = config('mail.default');
 
-        if (! empty($notifiable->email) && in_array($mailer, ['smtp', 'ses', 'postmark', 'resend', 'mailgun'], true)) {
+        if ($this->sendEmail
+            && ! empty($notifiable->email)
+            && in_array($mailer, ['smtp', 'ses', 'postmark', 'resend', 'mailgun'], true)) {
             $channels[] = 'mail';
         }
 

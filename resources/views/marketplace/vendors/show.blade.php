@@ -9,7 +9,7 @@
     .vendor-logo img { width:100%; height:100%; border-radius:50%; object-fit:cover; }
     .vendor-title { min-width:0; }
     .vendor-title h1 { margin:0 0 5px; font-size:clamp(1.25rem,2.5vw,1.8rem); font-weight:700; overflow-wrap:anywhere; }
-    .vendor-reference { color:#cbd5e1; font-size:.9rem; }
+    .vendor-tin { color:#cbd5e1; font-size:.9rem; }
     .vendor-badges { display:flex; flex-wrap:wrap; gap:7px; margin-top:10px; }
     .vendor-status { padding:4px 9px; border:1px solid rgba(255,255,255,.2); border-radius:999px; background:rgba(255,255,255,.08); font-size:.75rem; }
     .vendor-status-active { color:#bbf7d0; border-color:rgba(34,197,94,.35); }
@@ -32,6 +32,12 @@
     .vendor-info-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px 24px; }
     .vendor-info-label { display:block; margin-bottom:3px; color:#64748b; font-size:.78rem; }
     .vendor-info-value { overflow-wrap:anywhere; font-size:.93rem; }
+    .vendor-business-logo { display:block; width:112px; height:112px; border:1px solid #e2e8f0; border-radius:10px; background:#f8fafc; object-fit:contain; }
+    .vendor-document-row { display:flex; flex-wrap:wrap; align-items:center; gap:12px; padding:14px; border:1px solid #e2e8f0; border-radius:10px; background:#fff; }
+    .vendor-document-icon { display:flex; width:42px; height:42px; flex:0 0 42px; align-items:center; justify-content:center; border-radius:9px; background:#eff6ff; color:#2563eb; font-size:1.2rem; }
+    .vendor-document-copy { min-width:0; flex:1 1 200px; }
+    .vendor-payment-method + .vendor-payment-method { margin-top:20px; padding-top:18px; border-top:1px solid #e2e8f0; }
+    .vendor-payment-method h3 { margin:0 0 14px; font-size:.96rem; font-weight:650; }
     .vendor-data-table th { color:#64748b; font-size:.78rem; font-weight:600; white-space:nowrap; }
     .vendor-data-table td { vertical-align:middle; }
     .vendor-empty { padding:22px 12px; color:#64748b; text-align:center; }
@@ -64,7 +70,7 @@
             </div>
             <div class="vendor-title">
                 <h1>{{ $vendor->business_name }}</h1>
-                <div class="vendor-reference">Reference: {{ $vendor->reference_number ?: '—' }}</div>
+                <div class="vendor-tin">TIN: {{ $vendor->tin ?: '—' }}</div>
                 <div class="vendor-badges">
                     <span class="vendor-status {{ $vendor->statusBadgeClass() }}">
                         Vendor: {{ $vendor->statusLabel() }}
@@ -126,48 +132,156 @@
     </section>
 
     <nav class="vendor-nav" aria-label="Vendor details sections">
-        <a class="vendor-tab active" href="#overview">Overview</a>
+        <a class="vendor-tab active" href="#overview" aria-current="location">Overview</a>
+        <a class="vendor-tab" href="#account-owner-information">Account Owner</a>
         <a class="vendor-tab" href="#business-information">Business Information</a>
+        <a class="vendor-tab" href="#business-documents">Business Documents</a>
+        <a class="vendor-tab" href="#payment-information">Payment Information</a>
+        <a class="vendor-tab" href="#marketplace-settings">Marketplace Settings</a>
         <a class="vendor-tab" href="#products">Products</a>
         <a class="vendor-tab" href="#orders">Orders</a>
-        @if($activity->isNotEmpty())<a class="vendor-tab" href="#activity">Activity</a>@endif
     </nav>
 
     <section class="vendor-panel" id="overview" aria-labelledby="overview-heading">
         <h2 id="overview-heading">Overview</h2>
         <div class="vendor-info-grid">
-            <div><span class="vendor-info-label">Operational Status</span><span class="vendor-info-value">{{ $vendor->statusLabel() }}</span></div>
-            <div><span class="vendor-info-label">Registered</span><span class="vendor-info-value">{{ $vendor->created_at?->format('M j, Y') ?? '—' }}</span></div>
-            <div><span class="vendor-info-label">Partner Display</span><span class="vendor-info-value">{{ $vendor->partnerStatusLabel() }}</span></div>
+            <div><span class="vendor-info-label">Vendor Status</span><span class="vendor-info-value">{{ $vendor->statusLabel() }}</span></div>
+            <div><span class="vendor-info-label">Registration Date</span><span class="vendor-info-value">{{ $vendor->created_at?->format('M j, Y') ?? '—' }}</span></div>
+            <div><span class="vendor-info-label">Partner Display Status</span><span class="vendor-info-value">{{ $vendor->partnerStatusLabel() }}</span></div>
             <div><span class="vendor-info-label">Public Branding Approval</span><span class="vendor-info-value">{{ $vendor->brandingStatusLabel() }}</span></div>
+            <div><span class="vendor-info-label">Website Publication Status</span><span class="vendor-info-value">{{ $vendor->websitePublicationLabel() }}</span></div>
         </div>
+    </section>
+
+    <section class="vendor-panel" id="account-owner-information" aria-labelledby="account-owner-information-heading">
+        <h2 id="account-owner-information-heading">Account Owner Information</h2>
+        @if($canViewContacts)
+            <div class="vendor-info-grid">
+                <div><span class="vendor-info-label">Contact Person Full Name</span><span class="vendor-info-value">{{ $vendor->contact_person ?: ($account?->name ?: '—') }}</span></div>
+                <div><span class="vendor-info-label">Account Email</span><span class="vendor-info-value">{{ $account?->email ?: ($vendor->email ?: '—') }}</span></div>
+                @if(filled($account?->phone))
+                    <div><span class="vendor-info-label">Account Phone</span><span class="vendor-info-value">{{ $account->phone }}</span></div>
+                @endif
+            </div>
+        @else
+            <p class="mb-0 text-muted">Account contact details are hidden for your role.</p>
+        @endif
     </section>
 
     <section class="vendor-panel" id="business-information" aria-labelledby="business-information-heading">
         <h2 id="business-information-heading">Business Information</h2>
         <div class="vendor-info-grid">
-            <div><span class="vendor-info-label">Legal Name</span><span class="vendor-info-value">{{ $vendor->legal_name ?: '—' }}</span></div>
-            <div><span class="vendor-info-label">Reference</span><span class="vendor-info-value">{{ $vendor->reference_number ?: '—' }}</span></div>
+            <div><span class="vendor-info-label">Business / Company Name</span><span class="vendor-info-value">{{ $vendor->business_name ?: '—' }}</span></div>
+            <div><span class="vendor-info-label">TIN Number</span><span class="vendor-info-value">{{ $vendor->tin ?: '—' }}</span></div>
             @if($canViewContacts)
-                <div><span class="vendor-info-label">Email</span><span class="vendor-info-value">{{ $vendor->email ?: '—' }}</span></div>
-                <div><span class="vendor-info-label">Phone</span><span class="vendor-info-value">{{ $vendor->phone ?: '—' }}</span></div>
+                <div><span class="vendor-info-label">Business Email</span><span class="vendor-info-value">{{ $vendor->business_email ?: '—' }}</span></div>
+                <div><span class="vendor-info-label">Business Phone</span><span class="vendor-info-value">{{ $vendor->phone ?: '—' }}</span></div>
             @else
-                <div class="text-muted">Contact details are hidden for your role.</div>
+                <div class="text-muted">Business contact details are hidden for your role.</div>
             @endif
             @if($canViewLocations)
-                <div><span class="vendor-info-label">District</span><span class="vendor-info-value">{{ $vendor->district ?: '—' }}</span></div>
-                <div><span class="vendor-info-label">Operating Location</span><span class="vendor-info-value">{{ $vendor->operating_location ?: '—' }}</span></div>
-                <div><span class="vendor-info-label">Address Notes</span><span class="vendor-info-value">{{ $vendor->address_notes ?: '—' }}</span></div>
+                <div><span class="vendor-info-label">Business Address</span><span class="vendor-info-value">{{ $vendor->business_address ?: '—' }}</span></div>
+            @else
+                <div class="text-muted">Business address is hidden for your role.</div>
             @endif
             <div>
-                <span class="vendor-info-label">Website</span>
-                <span class="vendor-info-value">
-                    @if($vendor->website_url)<a href="{{ $vendor->website_url }}" target="_blank" rel="noopener noreferrer">{{ $vendor->website_url }}</a>@else—@endif
-                </span>
+                <span class="vendor-info-label">Business Logo</span>
+                @if($logoExists)
+                    <img class="vendor-business-logo" src="{{ asset('assets/'.$logoPath) }}" alt="{{ $vendor->business_name }} logo" onerror="this.hidden = true; this.nextElementSibling.hidden = false;">
+                    <span class="vendor-info-value" hidden>No business logo on file.</span>
+                @else
+                    <span class="vendor-info-value">No business logo on file.</span>
+                @endif
             </div>
-            @if($vendor->partner_description)
-                <div><span class="vendor-info-label">Partner Description</span><span class="vendor-info-value">{{ $vendor->partner_description }}</span></div>
+        </div>
+    </section>
+
+    <section class="vendor-panel" id="business-documents" aria-labelledby="business-documents-heading">
+        <h2 id="business-documents-heading">Business Documents</h2>
+        @if($certificateExists)
+            <div class="vendor-document-row">
+                <span class="vendor-document-icon" aria-hidden="true"><i class="bi bi-file-earmark-text"></i></span>
+                <div class="vendor-document-copy">
+                    <strong class="d-block">RDB Business Registration Certificate</strong>
+                    <span class="small text-muted">{{ basename($vendor->registration_certificate_path) }}</span>
+                </div>
+                @if(auth()->user()->hasPermission('vendors.manage'))
+                    <div class="d-flex flex-wrap gap-2">
+                        <a class="btn btn-sm btn-outline-primary" href="{{ route('marketplace.vendor-applications.certificate', ['vendor' => $vendor, 'view' => 1]) }}" target="_blank" rel="noopener noreferrer">
+                            <i class="bi bi-eye me-1" aria-hidden="true"></i>Preview
+                        </a>
+                        <a class="btn btn-sm btn-outline-secondary" href="{{ route('marketplace.vendor-applications.certificate', $vendor) }}">
+                            <i class="bi bi-download me-1" aria-hidden="true"></i>Download
+                        </a>
+                    </div>
+                @else
+                    <span class="small text-muted">Preview and download require vendor management permission.</span>
+                @endif
+            </div>
+        @else
+            <p class="mb-0 text-muted">No RDB Business Registration Certificate is on file.</p>
+        @endif
+    </section>
+
+    @php
+        $bankPayment = array_filter([
+            'Bank Name' => $vendor->bank_name,
+            'Account Holder Name' => $vendor->bank_account_holder,
+            'Account Number' => $vendor->bank_account_number,
+        ], fn ($value) => filled($value));
+        $mobileMoneyProvider = match ($vendor->mobile_money_provider) {
+            'mtn_momo' => 'MTN MoMo',
+            'airtel_money' => 'Airtel Money',
+            null, '' => null,
+            default => $vendor->mobile_money_provider,
+        };
+        $mobilePayment = array_filter([
+            'Mobile Money Provider' => $mobileMoneyProvider,
+            'Registered Phone Number' => $vendor->mobile_money_phone,
+            'Account Holder Name' => $vendor->mobile_money_account_holder,
+        ], fn ($value) => filled($value));
+    @endphp
+    <section class="vendor-panel" id="payment-information" aria-labelledby="payment-information-heading">
+        <h2 id="payment-information-heading">Payment Information</h2>
+        @if($canViewFinancials)
+            @if($bankPayment || $mobilePayment)
+                @if($bankPayment)
+                    <div class="vendor-payment-method">
+                        <h3><i class="bi bi-bank me-2" aria-hidden="true"></i>Bank Account</h3>
+                        <div class="vendor-info-grid">
+                            @foreach($bankPayment as $label => $value)
+                                <div><span class="vendor-info-label">{{ $label }}</span><span class="vendor-info-value">{{ $value }}</span></div>
+                            @endforeach
+                        </div>
+                    </div>
+                @endif
+                @if($mobilePayment)
+                    <div class="vendor-payment-method">
+                        <h3><i class="bi bi-phone me-2" aria-hidden="true"></i>Mobile Money</h3>
+                        <div class="vendor-info-grid">
+                            @foreach($mobilePayment as $label => $value)
+                                <div><span class="vendor-info-label">{{ $label }}</span><span class="vendor-info-value">{{ $value }}</span></div>
+                            @endforeach
+                        </div>
+                    </div>
+                @endif
+            @else
+                <p class="mb-0 text-muted">No payment information is on file.</p>
             @endif
+        @else
+            <p class="mb-0 text-muted">Payment information is restricted for your role.</p>
+        @endif
+    </section>
+
+    <section class="vendor-panel" id="marketplace-settings" aria-labelledby="marketplace-settings-heading">
+        <h2 id="marketplace-settings-heading">Marketplace Settings</h2>
+        <div class="vendor-info-grid">
+            <div><span class="vendor-info-label">Vendor Status</span><span class="vendor-info-value">{{ $vendor->statusLabel() }}</span></div>
+            <div><span class="vendor-info-label">Show as Partner on Home Page</span><span class="vendor-info-value">{{ $vendor->show_as_partner === null ? 'Unknown' : ($vendor->show_as_partner ? 'Yes' : 'No') }}</span></div>
+            <div><span class="vendor-info-label">Short Partner Description</span><span class="vendor-info-value">{{ $vendor->partner_description ?: '—' }}</span></div>
+            <div><span class="vendor-info-label">Display Order</span><span class="vendor-info-value">{{ $vendor->display_order !== null ? number_format($vendor->display_order) : '—' }}</span></div>
+            <div><span class="vendor-info-label">Public Branding Approval Status</span><span class="vendor-info-value">{{ $vendor->brandingStatusLabel() }}</span></div>
+            <div><span class="vendor-info-label">Website Publication Status</span><span class="vendor-info-value">{{ $vendor->websitePublicationLabel() }}</span></div>
         </div>
     </section>
 
@@ -222,21 +336,6 @@
         <div class="mt-3">{{ $orders->fragment('orders')->links() }}</div>
     </section>
 
-    @if($activity->isNotEmpty())
-        <section class="vendor-panel" id="activity" aria-labelledby="activity-heading">
-            <h2 id="activity-heading">Activity</h2>
-            <div class="table-responsive">
-                <table class="table vendor-data-table mb-0">
-                    <thead><tr><th>Action</th><th>Administrator</th><th>Date</th></tr></thead>
-                    <tbody>
-                        @foreach($activity as $entry)
-                            <tr><td>{{ str($entry->action)->headline() }}</td><td>{{ $entry->actor?->name ?? 'System' }}</td><td>{{ $entry->created_at?->format('M j, Y H:i') }}</td></tr>
-                        @endforeach
-                    </tbody>
-                </table>
-            </div>
-        </section>
-    @endif
 </div>
 
 <script>

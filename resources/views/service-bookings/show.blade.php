@@ -5,7 +5,7 @@
 
 @section('content')
 @php
-    $paymentLabel = match ($serviceBooking->payment_status) {
+    $paymentLabel = match ($paymentStatus) {
         'paid' => 'Paid',
         'partially_paid' => 'Partially Paid',
         default => 'Not Paid',
@@ -127,7 +127,7 @@
                 <h2 id="booking-payment-title">Payment recording</h2>
                 <p>Record the amount received from the customer</p>
             </div>
-            <span class="booking-payment-badge {{ $serviceBooking->payment_status }}" id="payment-status-badge">{{ $paymentLabel }}</span>
+            <span class="booking-payment-badge {{ $paymentStatus }}" id="payment-status-badge">{{ $paymentLabel }}</span>
         </div>
 
         <form
@@ -136,7 +136,7 @@
             method="POST"
             data-total="{{ $serviceTotal ?? '' }}"
             data-saved="{{ $hasSavedPayment ? 'true' : 'false' }}"
-            data-initial-status="{{ $serviceBooking->payment_status }}"
+            data-initial-status="{{ $paymentStatus }}"
             data-initial-amount="{{ $serviceBooking->payment_amount_received ?? '' }}"
         >
             @csrf
@@ -144,29 +144,29 @@
             <fieldset class="booking-choice-group">
                 <legend>Has the customer paid?</legend>
                 <label class="booking-choice">
-                    <input type="radio" name="has_paid" value="yes" @checked(in_array($serviceBooking->payment_status, ['paid', 'partially_paid'], true)) @disabled($hasSavedPayment)>
+                    <input type="radio" name="has_paid" value="yes" @checked(in_array($paymentStatus, ['paid', 'partially_paid'], true)) @disabled($hasSavedPayment)>
                     <span>Yes</span>
                 </label>
                 <label class="booking-choice">
-                    <input type="radio" name="has_paid" value="no" @checked($serviceBooking->payment_status === 'not_paid') @disabled($hasSavedPayment)>
+                    <input type="radio" name="has_paid" value="no" @checked($paymentStatus === 'not_paid') @disabled($hasSavedPayment)>
                     <span>No</span>
                 </label>
             </fieldset>
 
-            <div class="booking-payment-details" id="payment-details" @if($serviceBooking->payment_status === 'not_paid') hidden @endif>
+            <div class="booking-payment-details" id="payment-details" @if($paymentStatus === 'not_paid') hidden @endif>
                 <fieldset class="booking-choice-group booking-payment-type">
                     <legend>Payment amount</legend>
                     <label class="booking-choice">
-                        <input type="radio" name="payment_type" value="full" @checked($serviceBooking->payment_status === 'paid') @disabled($hasSavedPayment)>
+                        <input type="radio" name="payment_type" value="full" @checked($paymentStatus === 'paid') @disabled($hasSavedPayment)>
                         <span>Fully Paid</span>
                     </label>
                     <label class="booking-choice">
-                        <input type="radio" name="payment_type" value="partial" @checked($serviceBooking->payment_status === 'partially_paid') @disabled($hasSavedPayment)>
+                        <input type="radio" name="payment_type" value="partial" @checked($paymentStatus === 'partially_paid') @disabled($hasSavedPayment)>
                         <span>Partially Paid</span>
                     </label>
                 </fieldset>
 
-                <div class="booking-money-input" id="amount-input-wrap" @if($serviceBooking->payment_status !== 'partially_paid' && $serviceTotal !== null) hidden @endif>
+                <div class="booking-money-input" id="amount-input-wrap" @if($paymentStatus !== 'partially_paid' && $serviceTotal !== null) hidden @endif>
                     <label for="amount-received" class="booking-field-label">Amount received</label>
                     <div class="input-group">
                         <span class="input-group-text booking-currency">RWF</span>
@@ -190,8 +190,8 @@
 
             <div class="booking-amount-summary" aria-live="polite">
                 <div><span>Total booking amount</span><strong id="booking-total">{{ $serviceTotal !== null ? 'RWF '.number_format((float) $serviceTotal, 0) : 'Unavailable' }}</strong></div>
-                <div><span>Amount received</span><strong id="booking-received">{{ $serviceBooking->payment_amount_received !== null ? 'RWF '.number_format((float) $serviceBooking->payment_amount_received, 0) : ($serviceBooking->payment_status === 'partially_paid' ? 'Not recorded' : 'RWF 0') }}</strong></div>
-                <div><span>Remaining balance</span><strong id="booking-balance">{{ $serviceTotal === null ? 'Unavailable' : ($serviceBooking->payment_status === 'partially_paid' && $serviceBooking->payment_amount_received === null ? 'Not recorded' : 'RWF '.number_format(max(0, (float) $serviceTotal - (float) ($serviceBooking->payment_amount_received ?? 0)), 0)) }}</strong></div>
+                <div><span>Amount received</span><strong id="booking-received">{{ $serviceBooking->payment_amount_received !== null ? 'RWF '.number_format((float) $serviceBooking->payment_amount_received, 0) : ($paymentStatus === 'partially_paid' ? 'Not recorded' : 'RWF 0') }}</strong></div>
+                <div><span>Remaining balance</span><strong id="booking-balance">{{ $serviceTotal === null ? 'Unavailable' : ($paymentStatus === 'partially_paid' && $serviceBooking->payment_amount_received === null ? 'Not recorded' : 'RWF '.number_format(max(0, (float) $serviceTotal - (float) ($serviceBooking->payment_amount_received ?? 0)), 0)) }}</strong></div>
             </div>
             <p class="booking-total-unavailable" id="total-unavailable-note" @if($serviceTotal !== null) hidden @endif>
                 The service price is unavailable. The total and remaining balance cannot be calculated.
@@ -803,10 +803,6 @@
     let saving = false;
 
     const selected = (name) => form.querySelector(`input[name="${name}"]:checked`)?.value ?? '';
-    const statusName = () => {
-        if (selected('has_paid') !== 'yes') return 'not_paid';
-        return selected('payment_type') === 'full' ? 'paid' : 'partially_paid';
-    };
     const statusText = (status) => ({
         paid: 'Paid',
         partially_paid: 'Partially Paid',
@@ -817,6 +813,12 @@
         if (selected('payment_type') === 'full' && total !== null) return total;
         const amount = Number(amountInput.value);
         return Number.isFinite(amount) && amount > 0 ? amount : 0;
+    };
+    const statusName = () => {
+        if (selected('has_paid') !== 'yes') return 'not_paid';
+        const received = receivedValue();
+        if (received <= 0) return 'not_paid';
+        return total !== null && received >= total ? 'paid' : 'partially_paid';
     };
 
     const render = () => {

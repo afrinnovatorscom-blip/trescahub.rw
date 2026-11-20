@@ -241,6 +241,27 @@ class ServiceBookingTest extends TestCase
         $this->assertNotSame($booking->preferred_date->toDateString(), $booking->appointment_date->toDateString());
     }
 
+    public function test_partial_payment_equal_to_total_is_saved_as_paid(): void
+    {
+        $booking = $this->createBooking();
+
+        $this->actingAs($this->createAdmin(), 'web')
+            ->patchJson(route('service-bookings.payment', $booking), [
+                'has_paid' => 'yes',
+                'payment_type' => 'partial',
+                'amount_received' => '100000',
+            ])->assertOk()
+            ->assertJsonPath('payment_status', ServiceBooking::PAID)
+            ->assertJsonPath('amount_received', '100000.00')
+            ->assertJsonPath('balance', '0.00');
+
+        $this->assertDatabaseHas('service_bookings', [
+            'id' => $booking->id,
+            'payment_status' => ServiceBooking::PAID,
+            'payment_amount_received' => '100000.00',
+        ]);
+    }
+
     public function test_payment_validation_and_confirmation_requirements_are_enforced(): void
     {
         $booking = $this->createBooking();
@@ -350,7 +371,7 @@ class ServiceBookingTest extends TestCase
 
         $this->get(route('service-bookings.completed.show', $booking))
             ->assertOk()
-            ->assertSee('Read-only booking history')
+            ->assertSee('Booking and completion details are read-only')
             ->assertSee('Booking information')
             ->assertSee('Appointment information')
             ->assertSee('Payment summary')
@@ -360,14 +381,163 @@ class ServiceBookingTest extends TestCase
             ->assertSee('Individual payment transactions and their dates are not stored')
             ->assertSee('No completion notes are recorded')
             ->assertSee('Back to Service Bookings')
-            ->assertDontSee('Edit Payment')
+            ->assertSee('Edit Payment')
+            ->assertSee(route('service-bookings.additional-payment', $booking), false)
             ->assertDontSee('Update Payment')
-            ->assertDontSee('Save Payment')
             ->assertDontSee('Mark as Completed')
             ->assertDontSee(route('service-bookings.payment', $booking), false)
-            ->assertDontSee(route('service-bookings.additional-payment', $booking), false)
             ->assertDontSee(route('service-bookings.confirm', $booking), false)
-            ->assertDontSee(route('service-bookings.complete', $booking), false);
+            ->assertDontSee('action="'.route('service-bookings.complete', $booking).'"', false);
+    }
+
+    public function test_completed_booking_can_receive_an_additional_payment_without_changing_its_status(): void
+    {
+        $booking = $this->createBooking();
+        $completedAt = now()->subDay()->startOfMinute();
+        $appointmentDate = now()->addDays(8)->toDateString();
+        $booking->update([
+            'status' => ServiceBooking::COMPLETED,
+            'appointment_date' => $appointmentDate,
+            'completed_at' => $completedAt,
+            'payment_status' => ServiceBooking::PARTIALLY_PAID,
+            'payment_amount_received' => 65000,
+            'payment_recorded' => true,
+        ]);
+        $admin = $this->createAdmin();
+
+        $this->actingAs($admin, 'web')
+            ->get(route('service-bookings.completed.show', $booking))
+            ->assertOk()
+            ->assertSee('Edit Payment')
+            ->assertSee('RWF 100,000')
+            ->assertSee('RWF 65,000')
+            ->assertSee('RWF 35,000')
+            ->assertSee('Additional amount received')
+            ->assertSee(route('service-bookings.additional-payment', $booking), false)
+            ->assertDontSee(route('service-bookings.complete', $booking), false)
+            ->assertDontSee(route('service-bookings.confirm', $booking), false);
+
+        $this->from(route('service-bookings.completed.show', $booking))
+            ->post(route('service-bookings.additional-payment', $booking), [
+                'amount_received' => '35000',
+            ])
+            ->assertRedirect(route('service-bookings.completed.show', $booking))
+            ->assertSessionHas('success', 'Payment information updated.');
+
+        $this->assertDatabaseHas('service_bookings', [
+            'id' => $booking->id,
+            'status' => ServiceBooking::COMPLETED,
+            'payment_status' => ServiceBooking::PAID,
+            'payment_amount_received' => '100000.00',
+            'payment_recorded' => true,
+        ]);
+        $this->assertSame($completedAt->toDateTimeString(), $booking->fresh()->completed_at->toDateTimeString());
+        $this->assertSame($appointmentDate, $booking->fresh()->appointment_date->toDateString());
+        $this->assertDatabaseCount('service_bookings', 1);
+
+        $this->get(route('service-bookings.completed.show', $booking))
+            ->assertOk()
+            ->assertSee('RWF 100,000')
+            ->assertSee('RWF 0')
+            ->assertSee('Paid')
+            ->assertSee('data-completed-toast-message="Payment information updated."', false);
+    }
+
+    public function test_completed_booking_additional_payment_cannot_exceed_its_balance(): void
+    {
+        $booking = $this->createBooking();
+        $booking->update([
+            'status' => ServiceBooking::COMPLETED,
+            'payment_status' => ServiceBooking::PARTIALLY_PAID,
+            'payment_amount_received' => 90000,
+            'payment_recorded' => true,
+        ]);
+
+        $this->actingAs($this->createAdmin(), 'web')
+            ->from(route('service-bookings.completed.show', $booking))
+            ->post(route('service-bookings.additional-payment', $booking), [
+                'amount_received' => '10001',
+            ])
+            ->assertRedirect(route('service-bookings.completed.show', $booking))
+            ->assertSessionHasErrors('amount_received');
+
+        $this->assertDatabaseHas('service_bookings', [
+            'id' => $booking->id,
+            'status' => ServiceBooking::COMPLETED,
+            'payment_status' => ServiceBooking::PARTIALLY_PAID,
+            'payment_amount_received' => '90000.00',
+        ]);
+        $this->assertDatabaseCount('service_bookings', 1);
+    }
+
+    public function test_completed_paid_booking_payment_can_be_corrected_without_changing_booking_status(): void
+    {
+        $booking = $this->createBooking();
+        $booking->update([
+            'status' => ServiceBooking::COMPLETED,
+            'payment_status' => ServiceBooking::PAID,
+            'payment_amount_received' => 100000,
+            'payment_recorded' => true,
+        ]);
+
+        $this->actingAs($this->createAdmin(), 'web')
+            ->get(route('service-bookings.completed.show', $booking))
+            ->assertOk()
+            ->assertSee('id="edit-completed-payment"', false)
+            ->assertDontSee('id="edit-completed-payment" disabled', false)
+            ->assertSee('Total amount received')
+            ->assertSee(route('service-bookings.additional-payment', $booking), false)
+            ->assertSee('name="payment_mode" value="replace"', false)
+            ->assertSee('value="100000.00"', false);
+
+        $this->from(route('service-bookings.completed.show', $booking))
+            ->post(route('service-bookings.additional-payment', $booking), [
+                'amount_received' => '85000',
+                'payment_mode' => 'replace',
+            ])
+            ->assertRedirect(route('service-bookings.completed.show', $booking))
+            ->assertSessionHas('success', 'Payment information updated.');
+
+        $this->assertDatabaseHas('service_bookings', [
+            'id' => $booking->id,
+            'status' => ServiceBooking::COMPLETED,
+            'payment_status' => ServiceBooking::PARTIALLY_PAID,
+            'payment_amount_received' => '85000.00',
+        ]);
+        $this->assertDatabaseCount('service_bookings', 1);
+        $this->get(route('service-bookings.completed.show', $booking))
+            ->assertOk()
+            ->assertSee('RWF 15,000')
+            ->assertSee('Partially Paid');
+
+        $this->post(route('service-bookings.additional-payment', $booking), [
+            'amount_received' => '100000',
+            'payment_mode' => 'replace',
+        ])->assertRedirect(route('service-bookings.completed.show', $booking));
+
+        $this->assertDatabaseHas('service_bookings', [
+            'id' => $booking->id,
+            'status' => ServiceBooking::COMPLETED,
+            'payment_status' => ServiceBooking::PAID,
+            'payment_amount_received' => '100000.00',
+        ]);
+    }
+
+    public function test_completed_booking_displays_status_derived_from_amounts(): void
+    {
+        $booking = $this->createBooking();
+        $booking->update([
+            'status' => ServiceBooking::COMPLETED,
+            'payment_status' => ServiceBooking::PARTIALLY_PAID,
+            'payment_amount_received' => 100000,
+            'payment_recorded' => true,
+        ]);
+
+        $this->actingAs($this->createAdmin(), 'web')
+            ->get(route('service-bookings.completed.show', $booking))
+            ->assertOk()
+            ->assertSee('class="completed-payment-badge paid">Paid', false)
+            ->assertDontSee('class="completed-payment-badge partially_paid"', false);
     }
 
     public function test_confirmed_payment_update_cannot_exceed_the_remaining_balance(): void
@@ -471,6 +641,8 @@ class ServiceBookingTest extends TestCase
             'appointment_date' => $appointmentDate,
             'appointment_time' => 'afternoon',
             'payment_status' => ServiceBooking::PARTIALLY_PAID,
+            'payment_amount_received' => 25000,
+            'payment_recorded' => true,
         ]);
 
         PermissionCatalog::sync();

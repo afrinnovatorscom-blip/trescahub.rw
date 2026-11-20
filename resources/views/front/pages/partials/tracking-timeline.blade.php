@@ -1,7 +1,7 @@
 <div class="card mt-4">
     <div class="card-body">
         <p class="mb-1" data-tracking-message>{{ $tracking['message'] }}</p>
-        <p class="text-muted small mb-3">Payment: <span data-payment-status>{{ ucfirst(str_replace('_', ' ', $tracking['payment_status'])) }}</span>. This does not by itself mean the order has been delivered.</p>
+        <p class="text-muted small mb-3">Payment: <span data-payment-status>{{ $tracking['payment_status_label'] }}</span>. This does not by itself mean the order has been delivered.</p>
         <h2 class="h6">Payment records</h2>
         <ul class="mb-0" data-tracking-payments @if(!count($tracking['payments'])) hidden @endif>
             @foreach($tracking['payments'] as $payment)

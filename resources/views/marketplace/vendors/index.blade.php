@@ -13,6 +13,10 @@
     .vendor-summary-card { background:#fff; border:1px solid #e2e8f0; border-radius:10px; padding:14px 16px; }
     .vendor-summary-label { color:#64748b; font-size:12px; font-weight:600; margin-bottom:5px; }
     .vendor-summary-value { color:#0f172a; font-size:22px; line-height:1; font-weight:700; }
+    .vendor-tabs { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:16px; border-bottom:1px solid #e2e8f0; }
+    .vendor-tab { padding:10px 14px; border-bottom:2px solid transparent; color:#475569; font-size:14px; font-weight:600; text-decoration:none; }
+    .vendor-tab:hover,.vendor-tab.active { border-bottom-color:#2563eb; color:#2563eb; }
+    .vendor-tab:focus-visible { outline:3px solid #2563eb; outline-offset:3px; }
     .vendor-toolbar { background:#fff; border:1px solid #e2e8f0; border-radius:10px 10px 0 0; padding:12px 16px; }
     .vendor-filter-row { display:flex; align-items:center; gap:8px; }
     .vendor-search { flex:1 1 auto; min-width:180px; }
@@ -42,6 +46,34 @@
     .vendor-action-edit { color:#475569; }
     .vendor-empty { text-align:center; color:#64748b; height:120px !important; }
     .vendor-pagination { padding:12px 16px; border-top:1px solid #e2e8f0; }
+    .application-table-card { background:#fff; border:1px solid #e2e8f0; border-radius:10px; overflow:hidden; }
+    .application-table-wrap { overflow-x:auto; }
+    .application-table { width:100%; min-width:1200px; table-layout:fixed; margin:0; font-size:13px; }
+    .application-table thead th { height:44px; padding:9px 10px; background:#f8fafc; border-bottom:1px solid #e2e8f0; color:#475569; font-size:12px; font-weight:600; vertical-align:middle; }
+    .application-table tbody td { height:64px; padding:10px; border-bottom:1px solid #edf2f7; color:#334155; vertical-align:middle; }
+    .application-table tbody tr:last-child td { border-bottom:0; }
+    .application-table tbody tr:hover { background:#f8fafc; }
+    .application-col-logo { width:6%; text-align:center; }
+    .application-col-business { width:14%; }
+    .application-col-contact { width:10%; }
+    .application-col-tin { width:7%; text-align:center; }
+    .application-col-phone { width:10%; }
+    .application-col-email { width:15%; }
+    .application-col-date { width:11%; text-align:center; }
+    .application-col-status { width:12%; text-align:center; }
+    .application-col-action { width:15%; text-align:center; }
+    .application-avatar { position:relative; display:inline-flex; width:40px; height:40px; align-items:center; justify-content:center; overflow:hidden; border-radius:9px; background:#e2e8f0; color:#475569; font-size:14px; font-weight:700; }
+    .application-avatar img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+    .application-value { display:block; min-width:0; overflow-wrap:anywhere; }
+    .application-status-badge { display:inline-flex; align-items:center; justify-content:center; border:1px solid transparent; border-radius:999px; padding:4px 9px; font-size:12px; font-weight:600; line-height:1.2; white-space:nowrap; }
+    .application-status-pending { color:#b45309; background:#fef3c7; border-color:#fde68a; }
+    .application-status-correction { color:#1d4ed8; background:#eff6ff; border-color:#bfdbfe; }
+    .review-application-btn { display:inline-flex; min-height:36px; align-items:center; justify-content:center; gap:6px; border:1px solid #2563eb; border-radius:7px; padding:7px 10px; background:#2563eb; color:#fff; font-size:12px; font-weight:600; text-decoration:none; white-space:nowrap; }
+    .review-application-btn:hover { border-color:#1d4ed8; background:#1d4ed8; color:#fff; }
+    .review-application-btn:focus-visible { outline:3px solid #93c5fd; outline-offset:2px; }
+    .application-empty { padding:44px 20px !important; color:#64748b !important; text-align:center; }
+    .application-empty i { display:block; margin-bottom:8px; color:#94a3b8; font-size:24px; }
+    .application-pagination { padding:12px 16px; border-top:1px solid #e2e8f0; }
     @media(max-width:991.98px){.vendor-page-header{align-items:flex-start}.vendor-table-card{overflow-x:auto}.vendor-table{min-width:760px}}
     @media(max-width:575.98px){.vendor-page-header{flex-direction:column}.vendor-register-btn{width:100%;justify-content:center}.vendor-summary-grid{grid-template-columns:1fr}.vendor-filter-row{flex-direction:column;align-items:stretch}.vendor-status-filter{width:100%;flex-basis:auto}.vendor-filter-btn{width:100%}}
 </style>
@@ -64,7 +96,27 @@
         <div class="vendor-summary-card"><div class="vendor-summary-label">Terminated Vendors</div><div class="vendor-summary-value">{{ number_format($summary['terminated']) }}</div></div>
     </div>
 
+    @php
+        $tabQuery = request()->except('page');
+        $verifiedTabUrl = route('marketplace.vendors.index', array_merge($tabQuery, ['tab' => 'verified']));
+        $unverifiedTabUrl = route('marketplace.vendors.index', array_merge($tabQuery, ['tab' => 'unverified']));
+    @endphp
+    <nav class="vendor-tabs" aria-label="Vendor categories">
+        <a class="vendor-tab {{ $activeTab === 'verified' ? 'active' : '' }}"
+           href="{{ $verifiedTabUrl }}"
+           @if($activeTab === 'verified') aria-current="page" @endif>
+            Verified Vendors
+        </a>
+        <a class="vendor-tab {{ $activeTab === 'unverified' ? 'active' : '' }}"
+           href="{{ $unverifiedTabUrl }}"
+           @if($activeTab === 'unverified') aria-current="page" @endif>
+            Unverified Applications
+        </a>
+    </nav>
+
+    @if($activeTab === 'verified')
     <form method="GET" action="{{ route('marketplace.vendors.index') }}" class="vendor-toolbar">
+        <input type="hidden" name="tab" value="verified">
         <div class="vendor-filter-row">
             <label class="visually-hidden" for="vendor-search">Search vendors</label>
             <input id="vendor-search" name="q" value="{{ request('q') }}" class="form-control vendor-search" placeholder="Search vendors" autocomplete="off">
@@ -108,5 +160,76 @@
         </table>
         @if($vendors->hasPages())<div class="vendor-pagination">{{ $vendors->links() }}</div>@endif
     </div>
+    @else
+        <form method="GET" action="{{ route('marketplace.vendors.index') }}" class="vendor-toolbar mb-3">
+            <input type="hidden" name="tab" value="unverified">
+            <div class="vendor-filter-row">
+                <label class="visually-hidden" for="application-search">Search applications</label>
+                <input id="application-search" name="q" value="{{ request('q') }}" class="form-control vendor-search" placeholder="Search business, contact, TIN, phone, or email" autocomplete="off">
+                <button type="submit" class="btn btn-primary vendor-filter-btn"><i class="bi bi-search me-1" aria-hidden="true"></i>Search</button>
+            </div>
+        </form>
+
+        <div class="application-table-card">
+            <div class="application-table-wrap">
+                <table class="table application-table">
+                    <thead>
+                        <tr>
+                            <th scope="col" class="application-col-logo">Business Logo</th>
+                            <th scope="col" class="application-col-business">Business Name</th>
+                            <th scope="col" class="application-col-contact">Contact Person</th>
+                            <th scope="col" class="application-col-tin">TIN</th>
+                            <th scope="col" class="application-col-phone">Business Phone</th>
+                            <th scope="col" class="application-col-email">Business Email</th>
+                            <th scope="col" class="application-col-date">Submitted Date</th>
+                            <th scope="col" class="application-col-status">Application Status</th>
+                            <th scope="col" class="application-col-action">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @forelse($applications as $application)
+                            @php
+                                $logoPath = ltrim((string) $application->business_logo_path, '/');
+                                $logoExists = $logoPath !== '' && ! str_contains($logoPath, '..') && \Illuminate\Support\Facades\File::isFile(public_path('assets/'.$logoPath));
+                                $initial = mb_strtoupper(mb_substr(trim((string) $application->business_name), 0, 1));
+                                $applicationStatusClass = $application->application_status === 'correction_requested'
+                                    ? 'application-status-correction'
+                                    : 'application-status-pending';
+                            @endphp
+                            <tr>
+                                <td class="application-col-logo">
+                                    <span class="application-avatar" aria-hidden="true">
+                                        <span>{{ $initial !== '' ? $initial : 'V' }}</span>
+                                        @if($logoExists)<img src="{{ asset('assets/'.$logoPath) }}" alt="" loading="lazy" onerror="this.style.display='none'">@endif
+                                    </span>
+                                </td>
+                                <td class="application-col-business"><span class="application-value fw-semibold">{{ $application->business_name }}</span></td>
+                                <td class="application-col-contact"><span class="application-value">{{ $application->contact_person ?: '—' }}</span></td>
+                                <td class="application-col-tin"><span class="application-value">{{ $application->tin ?: '—' }}</span></td>
+                                <td class="application-col-phone"><span class="application-value">{{ $application->phone ?: '—' }}</span></td>
+                                <td class="application-col-email"><span class="application-value">{{ $application->business_email ?: $application->email ?: '—' }}</span></td>
+                                <td class="application-col-date">{{ $application->application_submitted_at?->format('M j, Y H:i') ?? '—' }}</td>
+                                <td class="application-col-status"><span class="application-status-badge {{ $applicationStatusClass }}">{{ $application->applicationStatusLabel() }}</span></td>
+                                <td class="application-col-action">
+                                    @if(auth()->user()->hasPermission('vendors.manage'))
+                                        <a class="review-application-btn" href="{{ route('marketplace.vendor-applications.show', $application) }}">
+                                            <i class="bi bi-eye" aria-hidden="true"></i>Review Application
+                                        </a>
+                                    @else
+                                        <span class="text-muted">—</span>
+                                    @endif
+                                </td>
+                            </tr>
+                        @empty
+                            <tr><td class="application-empty" colspan="9"><i class="bi bi-inbox" aria-hidden="true"></i>No vendor applications awaiting review.</td></tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
+            @if($applications->hasPages())
+                <div class="application-pagination">{{ $applications->links() }}</div>
+            @endif
+        </div>
+    @endif
 </div>
 @endsection

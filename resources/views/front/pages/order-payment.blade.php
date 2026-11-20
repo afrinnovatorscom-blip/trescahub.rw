@@ -183,7 +183,7 @@
                 @endif
             </dl>
 
-            @if($order && $state !== 'failed')
+            @if($order)
                 <a href="{{ route('account.orders.show', $order->reference) }}" class="btn btn-link mt-3">View my order</a>
             @endif
         </div>

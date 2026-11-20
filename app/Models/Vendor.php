@@ -12,6 +12,25 @@ class Vendor extends Model
         'business_name',
         'legal_name',
         'reference_number',
+        'application_status',
+        'contact_person',
+        'tin',
+        'business_email',
+        'business_address',
+        'registration_certificate_path',
+        'bank_name',
+        'bank_account_holder',
+        'bank_account_number',
+        'mobile_money_provider',
+        'mobile_money_phone',
+        'mobile_money_account_holder',
+        'application_submitted_at',
+        'application_reviewed_by',
+        'approved_by',
+        'approved_at',
+        'rejection_reason',
+        'correction_request',
+        'correction_requested_at',
         'email',
         'phone',
         'status',
@@ -30,10 +49,27 @@ class Vendor extends Model
     ];
 
     protected $casts = [
+        'bank_account_number' => 'encrypted',
+        'bank_account_holder' => 'encrypted',
+        'mobile_money_phone' => 'encrypted',
+        'mobile_money_account_holder' => 'encrypted',
+        'application_submitted_at' => 'datetime',
+        'approved_at' => 'datetime',
+        'correction_requested_at' => 'datetime',
         'public_branding_approved' => 'boolean',
         'show_as_partner' => 'boolean',
         'display_order' => 'integer',
         'notification_preferences' => 'array',
+    ];
+
+    protected $hidden = [
+        'registration_certificate_path',
+        'bank_account_number',
+        'bank_account_holder',
+        'mobile_money_phone',
+        'mobile_money_account_holder',
+        'rejection_reason',
+        'correction_request',
     ];
 
     public function users(): HasMany
@@ -125,6 +161,18 @@ class Vendor extends Model
             'inactive' => 'Inactive',
             null, '' => 'Unknown',
             default => 'Unknown ('.$this->status.')',
+        };
+    }
+
+    public function applicationStatusLabel(): string
+    {
+        return match ($this->application_status) {
+            'pending' => 'Pending Review',
+            'correction_requested' => 'Correction Requested',
+            'approved' => 'Approved',
+            'rejected' => 'Rejected',
+            null, '' => 'Not Applicable',
+            default => 'Unknown ('.$this->application_status.')',
         };
     }
 

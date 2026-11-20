@@ -10,6 +10,7 @@ use App\Http\Controllers\Marketplace\ProductReviewAdminController;
 use App\Http\Controllers\Marketplace\ProductReviewController;
 use App\Http\Controllers\Marketplace\StorefrontCommerceController;
 use App\Http\Controllers\Marketplace\VendorAdminController;
+use App\Http\Controllers\Marketplace\VendorApplicationAdminController;
 use App\Http\Controllers\Marketplace\VendorWorkspaceController;
 use Illuminate\Support\Facades\Route;
 
@@ -144,6 +145,12 @@ Route::middleware($auth)->group(function () {
         Route::patch('/vendors/{vendor}/status', [VendorAdminController::class, 'status'])->name('vendors.status');
         Route::patch('/vendors/{vendor}/publication', [VendorAdminController::class, 'publication'])->name('vendors.publication');
         Route::post('/vendors/{vendor}/terminate', [VendorAdminController::class, 'terminate'])->name('vendors.terminate');
+
+        Route::get('/vendor-applications/{vendor}', [VendorApplicationAdminController::class, 'show'])->name('vendor-applications.show');
+        Route::get('/vendor-applications/{vendor}/certificate', [VendorApplicationAdminController::class, 'certificate'])->name('vendor-applications.certificate');
+        Route::post('/vendor-applications/{vendor}/approve', [VendorApplicationAdminController::class, 'approve'])->name('vendor-applications.approve');
+        Route::post('/vendor-applications/{vendor}/reject', [VendorApplicationAdminController::class, 'reject'])->name('vendor-applications.reject');
+        Route::post('/vendor-applications/{vendor}/request-correction', [VendorApplicationAdminController::class, 'requestCorrection'])->name('vendor-applications.correction');
 
         Route::get('/requests', [CommerceController::class, 'requests'])->name('requests.index');
         Route::get('/requests/{productRequest}', [CommerceController::class, 'showRequest'])->name('requests.show');

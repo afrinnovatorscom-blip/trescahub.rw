@@ -12,6 +12,8 @@ use App\Models\User;
 use App\Models\Vendor;
 use App\Notifications\MarketplaceNotification;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
+use Symfony\Component\Mailer\Exception\TransportExceptionInterface;
 
 class MarketplaceNotifier
 {
@@ -26,8 +28,15 @@ class MarketplaceNotifier
             ->get();
     }
 
-    public function send(User|Customer $user, string $title, string $body, ?string $url, string $dedupeKey, bool $internal = true): void
-    {
+    public function send(
+        User|Customer $user,
+        string $title,
+        string $body,
+        ?string $url,
+        string $dedupeKey,
+        bool $internal = true,
+        bool $sendEmail = true,
+    ): void {
         if ($dedupeKey !== '' && $user->notifications()
             ->where('data->dedupe_key', $dedupeKey)
             ->where('created_at', '>', now()->subHours(12))
@@ -35,7 +44,16 @@ class MarketplaceNotifier
             return;
         }
 
-        $user->notify(new MarketplaceNotification($title, $body, $url, $dedupeKey, $internal));
+        try {
+            $user->notify(new MarketplaceNotification($title, $body, $url, $dedupeKey, $internal, $sendEmail));
+        } catch (TransportExceptionInterface $exception) {
+            Log::warning('Marketplace notification email delivery failed.', [
+                'notification_title' => $title,
+                'notifiable_type' => $user::class,
+                'notifiable_id' => $user->getKey(),
+                'error' => $exception->getMessage(),
+            ]);
+        }
     }
 
     public function productSubmitted(ShopProduct $product): void
@@ -47,6 +65,78 @@ class MarketplaceNotifier
                 $product->product_name.' was submitted and needs a decision.',
                 route('marketplace.approvals.index'),
                 'product-submitted-'.$product->id,
+                sendEmail: false,
+            );
+        }
+    }
+
+    public function vendorApplicationSubmitted(Vendor $vendor): void
+    {
+        foreach ($this->staff('vendors.manage') as $user) {
+            $this->send(
+                $user,
+                'Vendor application awaiting review',
+                $vendor->business_name.' submitted an application to join the marketplace.',
+                route('marketplace.vendor-applications.show', $vendor),
+                'vendor-application-submitted-'.$vendor->id.'-'.$vendor->application_submitted_at?->timestamp,
+                sendEmail: false,
+            );
+        }
+    }
+
+    public function vendorApplicationResubmitted(Vendor $vendor): void
+    {
+        $vendor->loadMissing('users');
+        $dedupePrefix = 'vendor-application-'.$vendor->id.'-correction_requested-';
+
+        foreach ($vendor->users as $user) {
+            $user->unreadNotifications()
+                ->where('type', MarketplaceNotification::class)
+                ->where('data->dedupe_key', 'like', $dedupePrefix.'%')
+                ->update(['read_at' => now()]);
+        }
+
+        $this->vendorApplicationSubmitted($vendor);
+    }
+
+    public function vendorApplicationDecision(Vendor $vendor, string $decision, ?string $note = null): void
+    {
+        $vendor->loadMissing('users');
+        $messages = [
+            'approved' => [
+                'Vendor application approved',
+                'Your application for '.$vendor->business_name.' has been approved. You can now access your vendor dashboard and begin selling.',
+                route('vendor.dashboard'),
+            ],
+            'rejected' => [
+                'Vendor application not approved',
+                'Your application for '.$vendor->business_name.' was not approved. Reason: '.(string) $note,
+                null,
+            ],
+            'correction_requested' => [
+                'Vendor application needs correction',
+                'Please update and resubmit your application for '.$vendor->business_name.'. Requested correction: '.(string) $note,
+                route('vendor.application.correction'),
+            ],
+        ];
+
+        if (! isset($messages[$decision])) {
+            throw new \InvalidArgumentException('Unsupported vendor application decision.');
+        }
+
+        [$title, $body, $url] = $messages[$decision];
+        $dedupeKey = $decision === 'correction_requested'
+            ? 'vendor-application-'.$vendor->id.'-'.$decision.'-'.(string) \Illuminate\Support\Str::uuid()
+            : 'vendor-application-'.$vendor->id.'-'.$decision.'-'.$vendor->updated_at?->timestamp;
+
+        foreach ($vendor->users as $user) {
+            $this->send(
+                $user,
+                $title,
+                $body,
+                $url,
+                $dedupeKey,
+                false,
             );
         }
     }
@@ -80,6 +170,7 @@ class MarketplaceNotifier
                 trim($product->product_name.' is now '.$decision.'. '.($note ?? '')),
                 $url,
                 'product-'.$decision.'-'.$product->id.'-'.$product->updated_at?->timestamp,
+                sendEmail: false,
             );
         }
     }

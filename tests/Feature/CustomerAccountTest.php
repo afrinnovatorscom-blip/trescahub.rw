@@ -408,6 +408,61 @@ class CustomerAccountTest extends TestCase
         $this->assertSame('pending_confirmation', $otherOrder->fresh()->fulfillment_status);
     }
 
+    public function test_unpaid_and_failed_orders_hide_order_received_tracking_status(): void
+    {
+        $customer = $this->customer();
+
+        foreach (['pending', 'unpaid', 'failed'] as $paymentStatus) {
+            $order = $this->placeCustomerOrder($customer, 'KG 10 Street');
+            $order->update(['payment_status' => $paymentStatus]);
+            $order->histories()->create([
+                'user_id' => null,
+                'from_status' => 'pending_confirmation',
+                'to_status' => 'pending_confirmation',
+            ]);
+
+            $this->actingAs($customer, 'customers')
+                ->get(route('account.orders.show', $order->reference))
+                ->assertOk()
+                ->assertDontSee('Order received');
+
+            $tracking = $this->getJson(route('account.orders.tracking', $order->reference))
+                ->assertOk()
+                ->assertJsonPath('tracking.payment_status_label', 'Unpaid')
+                ->assertJsonPath('tracking.status_label', 'Awaiting payment')
+                ->assertJsonPath('tracking.message', 'Payment has not been confirmed.')
+                ->assertJsonPath('tracking.timeline.headline', 'Awaiting payment')
+                ->json('tracking');
+
+            $this->assertNotContains('order_received', array_column($tracking['timeline']['steps'], 'key'));
+            $this->assertNotContains('Order received', array_column($tracking['events'], 'label'));
+        }
+
+        $paidOrder = $this->placeCustomerOrder($customer, 'KN 4 Road');
+        $paidOrder->histories()->create([
+            'user_id' => null,
+            'from_status' => 'pending_confirmation',
+            'to_status' => 'pending_confirmation',
+        ]);
+        $paidOrder->payments()->create([
+            'amount' => number_format((float) $paidOrder->total, 2, '.', ''),
+            'type' => 'full',
+            'method' => 'bank_transfer',
+            'submission_key' => (string) Str::uuid(),
+        ]);
+        $paidOrder->update(['payment_status' => 'paid']);
+
+        $this->get(route('account.orders.show', $paidOrder->reference))
+            ->assertOk()
+            ->assertSee('Order received');
+
+        $this->getJson(route('account.orders.tracking', $paidOrder->reference))
+            ->assertOk()
+            ->assertJsonPath('tracking.status_label', 'Order received')
+            ->assertJsonPath('tracking.timeline.steps.0.label', 'Order received')
+            ->assertJsonFragment(['label' => 'Order received']);
+    }
+
     public function test_order_history_tracking_and_access_are_scoped_to_the_customer(): void
     {
         $owner = $this->customer();
@@ -457,8 +512,11 @@ class CustomerAccountTest extends TestCase
             ->assertSee('Home')
             ->assertSee('My Orders')
             ->assertSee('Track your order')
-            ->assertSee('Download Receipt')
-            ->assertSee(route('account.orders.receipt', $order->reference), false)
+            ->assertSee('Payment status')
+            ->assertSee('Partially paid')
+            ->assertSee('Pay Now')
+            ->assertDontSee('Download Receipt')
+            ->assertDontSee(route('account.orders.receipt', $order->reference), false)
             ->assertSee('Order progress')
             ->assertSee('aria-label="Order progress timeline"', false)
             ->assertSee('tabindex="0"', false)
@@ -478,6 +536,7 @@ class CustomerAccountTest extends TestCase
             ->assertOk()
             ->assertJsonPath('tracking.reference', $order->reference)
             ->assertJsonPath('tracking.payment_status', 'partially_paid')
+            ->assertJsonPath('tracking.payment_status_label', 'Partially paid')
             ->assertJsonPath('tracking.currency', 'RWF')
             ->assertJsonPath('tracking.items.0.name', $product->product_name)
             ->assertJsonPath('tracking.items.0.quantity', 2)
@@ -551,7 +610,7 @@ class CustomerAccountTest extends TestCase
             ->assertDontSee('Order received')
             ->assertDontSee('Order confirmed')
             ->assertSee(route('account.orders.show', $order->reference), false)
-            ->assertSee(route('account.orders.receipt', $order->reference), false)
+            ->assertDontSee(route('account.orders.receipt', $order->reference), false)
             ->assertSee(route('account.orders.receipt', $anotherOrder->reference), false)
             ->assertSee(route('account.orders.delivery-confirm', [
                 'reference' => $order->reference,
@@ -627,10 +686,11 @@ class CustomerAccountTest extends TestCase
             ->getJson(route('account.orders.tracking', $order->reference))
             ->assertOk()
             ->assertJsonPath('tracking.fulfillment_status', 'out_for_delivery')
-            ->assertJsonPath('tracking.timeline.steps.3.state', 'complete')
-            ->assertJsonPath('tracking.timeline.steps.4.state', 'current')
             ->assertJsonPath('tracking.deliveries.0.can_confirm', true);
-        $this->assertNotNull($trackingResponse->json('tracking.timeline.steps.4.occurred_at'));
+        $trackingSteps = collect($trackingResponse->json('tracking.timeline.steps'))->keyBy('key');
+        $this->assertSame('complete', $trackingSteps['dispatched']['state']);
+        $this->assertSame('current', $trackingSteps['out_for_delivery']['state']);
+        $this->assertNotNull($trackingSteps['out_for_delivery']['occurred_at']);
         $this->assertNull($inTransit->fresh()->dispatched_at);
         $this->get(route('account.orders.show', $order->reference))
             ->assertOk()
@@ -654,11 +714,12 @@ class CustomerAccountTest extends TestCase
             'from_status' => 'dispatched',
             'to_status' => 'delivered',
         ]);
-        $this->getJson(route('account.orders.tracking', $order->reference))
+        $deliveredTrackingResponse = $this->getJson(route('account.orders.tracking', $order->reference))
             ->assertOk()
             ->assertJsonPath('tracking.status_label', 'Delivered')
-            ->assertJsonPath('tracking.timeline.steps.5.state', 'current')
             ->assertJsonPath('tracking.deliveries.0.status', 'delivered');
+        $deliveredSteps = collect($deliveredTrackingResponse->json('tracking.timeline.steps'))->keyBy('key');
+        $this->assertSame('current', $deliveredSteps['delivered']['state']);
         $this->assertDatabaseHas('audit_logs', [
             'action' => 'delivery.completed',
             'auditable_type' => $inTransit->getMorphClass(),
@@ -685,7 +746,7 @@ class CustomerAccountTest extends TestCase
             ->count());
     }
 
-    public function test_customer_order_receipt_is_available_before_payment_and_uses_owned_order_data(): void
+    public function test_customer_order_receipt_requires_confirmed_payment_and_includes_payment_records(): void
     {
         $owner = $this->customer();
         $other = $this->customer();
@@ -693,9 +754,7 @@ class CustomerAccountTest extends TestCase
 
         $this->actingAs($owner, 'customers')
             ->get(route('account.orders.receipt', $order->reference))
-            ->assertOk()
-            ->assertHeader('content-type', 'application/pdf')
-            ->assertHeader('content-disposition', 'attachment; filename=receipt-'.$order->reference.'.pdf');
+            ->assertNotFound();
 
         $order->items()->create([
             'product_name' => 'Second receipt item',
@@ -706,7 +765,14 @@ class CustomerAccountTest extends TestCase
             'assignment_status' => 'unassigned',
         ]);
         $order->update(['total' => (float) $order->total + 500]);
-        $paymentStatus = $order->fresh()->payment_status;
+        $order->payments()->create([
+            'amount' => number_format((float) $order->total, 2, '.', ''),
+            'type' => 'full',
+            'method' => 'bank_transfer',
+            'submission_key' => (string) Str::uuid(),
+        ]);
+        $order->update(['payment_status' => 'paid']);
+        $this->assertTrue($order->fresh()->hasConfirmedPaidPayment());
         config(['app.url' => 'https://trescahub.rw']);
 
         $pdfContent = $this->get(route('account.orders.receipt', $order->reference))
@@ -717,14 +783,18 @@ class CustomerAccountTest extends TestCase
 
         $generatedAt = now();
         $receiptHtml = view('front.pages.account-order-receipt', [
-            'order' => $order->load('items'),
+            'order' => $order->load(['items', 'payments']),
             'websiteUrl' => parse_url((string) config('app.url'), PHP_URL_HOST),
             'generatedAt' => $generatedAt,
         ])->render();
         $this->assertStringContainsString('Dear '.$owner->name.',', $receiptHtml);
         $this->assertStringContainsString('<div class="document-title">ORDER RECEIPT</div>', $receiptHtml);
-        $this->assertStringNotContainsString('PAYMENT NOT CONFIRMED', $receiptHtml);
-        $this->assertStringNotContainsString('does not confirm that payment was received', $receiptHtml);
+        $this->assertStringContainsString('Payment confirmation', $receiptHtml);
+        $this->assertStringContainsString('Payment status', $receiptHtml);
+        $this->assertStringContainsString('Amount received', $receiptHtml);
+        $this->assertStringContainsString('RWF 1,500.00', $receiptHtml);
+        $this->assertStringContainsString('Confirmed payment records', $receiptHtml);
+        $this->assertStringContainsString('Bank Transfer', $receiptHtml);
         $this->assertStringContainsString('font-family: "Times New Roman", Times, serif;', $receiptHtml);
         $this->assertStringContainsString('Reference: '.$order->reference, $receiptHtml);
         $this->assertStringContainsString('<span class="brand-mark">T</span>', $receiptHtml);
@@ -739,18 +809,15 @@ class CustomerAccountTest extends TestCase
         $this->assertStringContainsString('Delivery fee', $receiptHtml);
         $this->assertStringContainsString('Total order amount', $receiptHtml);
         $this->assertStringContainsString('Not separately recorded', $receiptHtml);
-        $this->assertStringNotContainsString('PAYMENT RECEIPT', $receiptHtml);
-        $this->assertStringNotContainsString('PAID', $receiptHtml);
         $this->assertStringContainsString('Generated on '.$generatedAt->format('M j, Y g:i A'), $receiptHtml);
         $this->assertStringContainsString('trescahub.rw', $receiptHtml);
         $this->assertStringContainsString('<th class="product">Product</th>', $receiptHtml);
         $this->assertStringContainsString('<th class="quantity">Qty</th>', $receiptHtml);
         $this->assertSame(1, substr_count($receiptHtml, '<table class="items">'));
-        $this->assertStringNotContainsString('Recorded payments', $receiptHtml);
-        $this->assertStringNotContainsString('<strong>Payment:</strong>', $receiptHtml);
+        $this->assertSame(1, substr_count($receiptHtml, '<table class="items payment-items">'));
         $this->assertStringNotContainsString('Transaction Reference', $receiptHtml);
-        $this->assertSame($paymentStatus, $order->fresh()->payment_status);
-        $this->assertSame(0, $order->payments()->count());
+        $this->assertSame('paid', $order->fresh()->payment_status);
+        $this->assertSame(1, $order->payments()->count());
 
         $this->assertStringStartsWith('%PDF-', $pdfContent);
         $this->assertSame(1, preg_match_all('/\/Type\s*\/Page\b/', $pdfContent));
@@ -767,7 +834,7 @@ class CustomerAccountTest extends TestCase
             ->assertNotFound();
     }
 
-    public function test_order_receipt_is_available_for_every_payment_status_without_changing_payment_records(): void
+    public function test_order_receipt_is_available_only_for_fully_confirmed_payments(): void
     {
         $customer = $this->customer();
         $statuses = ['pending', 'partially_paid', 'failed', 'cancelled', 'refunded', 'unpaid', 'paid'];
@@ -786,13 +853,27 @@ class CustomerAccountTest extends TestCase
             'submission_key' => (string) Str::uuid(),
         ]);
         $orders->push($underpaid);
+        $confirmed = $this->placeCustomerOrder($customer, 'KG 5 Road');
+        $confirmed->payments()->create([
+            'amount' => number_format((float) $confirmed->total, 2, '.', ''),
+            'type' => 'full',
+            'method' => 'mtn_mobile_money',
+            'submission_key' => (string) Str::uuid(),
+        ]);
+        $confirmed->update(['payment_status' => 'paid']);
+        $orders->push($confirmed);
 
         $response = $this->actingAs($customer, 'customers')->get(route('account.orders'))->assertOk();
         foreach ($orders as $order) {
-            $response->assertSee(route('account.orders.receipt', $order->reference), false);
-            $this->get(route('account.orders.receipt', $order->reference))
-                ->assertOk()
-                ->assertHeader('content-type', 'application/pdf');
+            if ($order->fresh()->hasConfirmedPaidPayment()) {
+                $response->assertSee(route('account.orders.receipt', $order->reference), false);
+                $this->get(route('account.orders.receipt', $order->reference))
+                    ->assertOk()
+                    ->assertHeader('content-type', 'application/pdf');
+            } else {
+                $response->assertDontSee(route('account.orders.receipt', $order->reference), false);
+                $this->get(route('account.orders.receipt', $order->reference))->assertNotFound();
+            }
         }
     }
 

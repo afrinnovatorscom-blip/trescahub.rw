@@ -47,7 +47,7 @@
         @livewireScripts
 
         {{-- ── WhatsApp Floating Button ── --}}
-        <a href="https://wa.me/078690891?text={{ urlencode('Hello TRESCA, I want to talk about the product you are selling') }}"
+        <a href="https://wa.me/0786908916?text={{ urlencode('Hello TRESCA, I want to talk about the product you are selling') }}"
            target="_blank"
            rel="noopener noreferrer"
            title="Chat with us on WhatsApp"

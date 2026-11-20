@@ -59,12 +59,12 @@
             <tbody>
                 @forelse($bookings as $booking)
                     @php
-                        $paymentLabel = match ($booking->payment_status) {
+                        $paymentLabel = match ($booking->display_payment_status) {
                             'paid' => 'Paid',
                             'partially_paid' => 'Partially Paid',
                             default => 'Not Paid',
                         };
-                        $paymentClass = match ($booking->payment_status) {
+                        $paymentClass = match ($booking->display_payment_status) {
                             'paid' => 'paid',
                             'partially_paid' => 'partial',
                             default => 'not-paid',

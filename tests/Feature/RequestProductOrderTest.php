@@ -250,18 +250,22 @@ class RequestProductOrderTest extends TestCase
         $this->assertSame('mtn_mobile_money', $order->payment_method);
         $this->assertSame('+250780111222', $order->payment_phone);
         $this->assertSame('Call at the gate.', $order->delivery_notes);
-        $this->assertSame([$first->slug => 2, $second->slug => 3], session('marketplace.cart'));
-        $this->get(route('checkout'))
+        $this->assertSame([], session('marketplace.cart', []));
+        $this->assertNull(session('marketplace.checkout'));
+        $this->get(route('account.orders'))
             ->assertOk()
+            ->assertSee($order->reference)
             ->assertSee($first->product_name)
             ->assertSee($second->product_name);
+        $this->get(route('checkout'))->assertRedirect(route('cart'));
         $repeatResponse = $this->post(route('checkout.place'), [
             'payment_method' => 'mtn_mobile_money',
             'payment_phone' => '+250780111222',
-        ])->assertRedirect();
+        ])->assertRedirect(route('checkout'));
         $this->assertSame(1, Order::query()->count());
-        $latestTransaction = $order->paymentTransactions()->latest('id')->firstOrFail();
-        $repeatResponse->assertRedirect(route('checkout.payment.status', $latestTransaction));
+        $this->assertSame(1, $order->paymentTransactions()->count());
+        $this->assertSame($transaction->id, $order->paymentTransactions()->latest('id')->value('id'));
+        $repeatResponse->assertSessionHasErrors('checkout');
 
         $this->actingAs($this->admin, 'web')
             ->get(route('marketplace.orders.index', ['tab' => 'pending']))

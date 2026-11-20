@@ -5,7 +5,7 @@
 
 @section('content')
 @php
-    $paymentLabel = match ($serviceBooking->payment_status) {
+    $paymentLabel = match ($paymentStatus) {
         'paid' => 'Paid',
         'partially_paid' => 'Partially Paid',
         default => 'Not Paid',
@@ -78,7 +78,7 @@
                 <h2 id="confirmed-payment-heading">Payment information</h2>
                 <p>Record additional payments on this booking</p>
             </div>
-            <span class="confirmed-payment-badge {{ $serviceBooking->payment_status }}" id="confirmed-payment-status">{{ $paymentLabel }}</span>
+            <span class="confirmed-payment-badge {{ $paymentStatus }}" id="confirmed-payment-status">{{ $paymentLabel }}</span>
         </div>
 
         <div

@@ -144,4 +144,31 @@ class HomepageSectionsTest extends TestCase
             ->assertSee(route('shop'), false)
             ->assertDontSee(route('services.category', $category->slug), false);
     }
+ 
+    public function test_service_cards_in_a_category_link_to_the_public_service_details_route(): void
+    {
+        $category = Category::create([
+            'title' => 'Home Services',
+            'slug' => 'home-services',
+            'description' => 'Services for your home.',
+        ]);
+        $service = Service::create([
+            'title' => 'Home cleaning',
+            'slug' => 'home-cleaning',
+            'price' => 12000,
+            'classification_name' => $category->id,
+            'is_in_stock' => true,
+        ]);
+
+        $publicServiceUrl = route('service.show', $service->slug);
+        $adminServiceUrl = route('services.show', $service->slug);
+
+        $this->get(route('services.category', $category->slug))
+            ->assertOk()
+            ->assertSee('href="'.$publicServiceUrl.'" class="text-decoration-none"', false)
+            ->assertDontSee('href="'.$adminServiceUrl.'"', false)
+            ->assertSee('Order', false);
+
+        $this->get($publicServiceUrl)->assertOk();
+    }
 }

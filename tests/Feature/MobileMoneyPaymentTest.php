@@ -191,6 +191,12 @@ class MobileMoneyPaymentTest extends TestCase
         $this->assertSame('pending', $transaction->fresh()->status);
         $this->assertSame('pending', $transaction->order->fresh()->payment_status);
         $this->assertDatabaseHas('payment_logs', ['payment_transaction_id' => $transaction->id, 'type' => 'callback']);
+        $this->get(route('account.orders.show', $transaction->order->reference))
+            ->assertOk()
+            ->assertSee('Unpaid')
+            ->assertSee('Pay Now')
+            ->assertDontSee('Download Receipt');
+        $this->get(route('account.orders.receipt', $transaction->order->reference))->assertNotFound();
 
         $this->postJson('/api/intouchpay/callback', ['requesttransactionid' => 'unknown'])->assertOk();
         $this->assertDatabaseHas('payment_logs', ['request_transaction_id' => 'unknown', 'message' => 'Transaction not found']);
@@ -210,7 +216,18 @@ class MobileMoneyPaymentTest extends TestCase
             ->assertSee(route('account.orders.pay.submit', $transaction->order->reference), false);
 
         $order = $transaction->order;
-        $this->get(route('account.orders.show', $order->reference))->assertSee('Pay now');
+        $this->assertSame('pending', $order->payment_status);
+        $this->assertSame(2, $order->items()->firstOrFail()->quantity);
+        $this->assertSame([], session('marketplace.cart', []));
+        $this->assertNull(session('marketplace.checkout'));
+        $this->get(route('account.orders'))
+            ->assertOk()
+            ->assertSee($order->reference);
+        $this->get(route('account.orders.show', $order->reference))
+            ->assertSee('Unpaid')
+            ->assertSee('Pay Now')
+            ->assertDontSee('Download Receipt');
+        $this->get(route('account.orders.receipt', $order->reference))->assertNotFound();
 
         $this->requestAccepted = true;
         $this->post(route('account.orders.pay.submit', $order->reference), [
@@ -229,6 +246,26 @@ class MobileMoneyPaymentTest extends TestCase
             'payment_phone' => '0731234567',
         ])->assertRedirect(route('checkout.payment.status', $retry));
         $this->assertSame(2, $order->paymentTransactions()->count(), 'A double submit reuses the pending prompt.');
+
+        $this->intouchStatus = 'Successfull';
+        $this->getJson(route('checkout.payment.status', $retry))
+            ->assertOk()
+            ->assertJson(['status' => 'completed']);
+        $this->assertSame('paid', $order->fresh()->payment_status);
+        $this->assertTrue($order->fresh()->hasConfirmedPaidPayment());
+        $this->assertSame(1, Order::query()->count(), 'Retrying payment must retain the original order.');
+
+        $this->get(route('account.orders.show', $order->reference))
+            ->assertOk()
+            ->assertSee('Paid')
+            ->assertSee('Download Receipt')
+            ->assertDontSee('Pay Now');
+        $this->get(route('account.orders.show', $order->reference))
+            ->assertSee('Download Receipt')
+            ->assertDontSee('Pay Now');
+        $this->get(route('account.orders.receipt', $order->reference))
+            ->assertOk()
+            ->assertHeader('content-type', 'application/pdf');
     }
 
     public function test_rwf_100000_rejection_uses_the_payment_failure_card_and_stays_out_of_order_processing(): void
@@ -250,14 +287,21 @@ class MobileMoneyPaymentTest extends TestCase
             ->assertSee('Payment not completed')
             ->assertSee('Insufficient balance')
             ->assertSee('Pay RWF 100,000')
-            ->assertDontSee('View my order')
-            ->assertDontSee('href="'.route('account.orders.show', $order->reference).'"', false)
+            ->assertSee('View my order')
+            ->assertSee('href="'.route('account.orders.show', $order->reference).'"', false)
             ->assertDontSee('ViewException')
             ->assertDontSee('SQLSTATE');
-        $this->assertSame([$this->product->slug => 2], session('marketplace.cart'));
+        $this->assertSame([], session('marketplace.cart', []));
+        $this->assertNull(session('marketplace.checkout'));
         $this->get(route('checkout.payment.status', $transaction))->assertOk();
-        $this->get(route('checkout'))->assertOk()->assertSee($this->product->product_name);
-        $this->get(route('checkout.payment'))->assertOk()->assertSee('Pay for your order');
+        $this->get(route('checkout'))->assertRedirect(route('cart'));
+        $this->get(route('checkout.payment'))->assertRedirect(route('cart'));
+        $this->get(route('account.orders.show', $order->reference))
+            ->assertOk()
+            ->assertSee('Unpaid')
+            ->assertSee('Pay Now')
+            ->assertDontSee('Download Receipt');
+        $this->get(route('account.orders.receipt', $order->reference))->assertNotFound();
         $this->get(route('checkout.done', $order->reference))->assertNotFound();
 
         $admin = User::query()->where('email', 'admin@example.com')->firstOrFail();
@@ -372,8 +416,9 @@ class MobileMoneyPaymentTest extends TestCase
             ->assertDontSee('SQLSTATE');
         $this->assertSame('pending', $transaction->fresh()->status);
         $this->assertSame('pending', $transaction->order->fresh()->payment_status);
-        $this->assertSame([$this->product->slug => 2], session('marketplace.cart'));
-        $this->get(route('checkout'))->assertOk()->assertSee($this->product->product_name);
+        $this->assertSame([], session('marketplace.cart', []));
+        $this->assertNull(session('marketplace.checkout'));
+        $this->get(route('checkout'))->assertRedirect(route('cart'));
     }
 
     public function test_customers_cannot_see_other_customers_payments(): void

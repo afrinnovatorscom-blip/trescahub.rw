@@ -9,6 +9,9 @@ use App\Models\Shopcategory;
 use App\Notifications\MarketplaceNotification;
 use App\Services\MarketplaceNotifier;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Notification;
+use Symfony\Component\Mailer\Exception\TransportException;
 use Tests\TestCase;
 
 class VendorNotificationsTest extends TestCase
@@ -200,6 +203,84 @@ class VendorNotificationsTest extends TestCase
         $this->assertSame(1, $this->vendorUser->notifications()->where('data->title', 'Product approved')->count());
         $this->assertSame(0, $this->otherVendorUser->notifications()->count());
         $this->assertSame(0, $this->admin->notifications()->count());
+    }
+
+    public function test_product_workflow_notifications_skip_email_without_disabling_other_marketplace_emails(): void
+    {
+        config(['mail.default' => 'smtp']);
+        Notification::fake();
+
+        $category = Shopcategory::query()->create([
+            'name' => 'Email-free Product Notification Category',
+            'slug' => 'email-free-product-notification-category',
+            'active' => true,
+        ]);
+        $product = ShopProduct::query()->create([
+            'product_name' => 'Email-free workflow product',
+            'slug' => 'email-free-workflow-product',
+            'status' => 'in_stock',
+            'price' => 10000,
+            'working_days' => 1,
+            'shop_category_id' => $category->id,
+            'vendor_id' => $this->vendorUser->vendor_id,
+            'created_by' => $this->vendorUser->id,
+            'submitted_by' => $this->vendorUser->id,
+        ]);
+
+        $notifier = app(MarketplaceNotifier::class);
+        $notifier->productSubmitted($product);
+        $notifier->productDecision($product, 'approved', null);
+
+        Notification::assertSentTo(
+            $this->admin,
+            MarketplaceNotification::class,
+            fn (MarketplaceNotification $notification, array $channels): bool => ! $notification->sendEmail
+                && $channels === ['database'],
+        );
+        Notification::assertSentTo(
+            $this->vendorUser,
+            MarketplaceNotification::class,
+            fn (MarketplaceNotification $notification, array $channels): bool => ! $notification->sendEmail
+                && $channels === ['database'],
+        );
+
+        $this->assertSame(
+            ['database', 'mail'],
+            (new MarketplaceNotification('Order received', 'Your order is ready.'))->via($this->vendorUser),
+        );
+    }
+
+    public function test_mail_transport_failure_is_logged_without_interrupting_database_notification(): void
+    {
+        config(['mail.default' => 'smtp']);
+        Notification::extend('mail', fn ($app) => new class
+        {
+            public function send(object $notifiable, object $notification): void
+            {
+                throw new TransportException('535 Incorrect authentication data');
+            }
+        });
+        Log::spy();
+
+        app(MarketplaceNotifier::class)->send(
+            $this->admin,
+            'Order received',
+            'Order MAIL-ERROR-100 is ready.',
+            null,
+            'mail-error-test',
+        );
+
+        $this->assertSame(
+            1,
+            $this->admin->notifications()->where('data->dedupe_key', 'mail-error-test')->count(),
+        );
+        Log::shouldHaveReceived('warning')
+            ->once()
+            ->with('Marketplace notification email delivery failed.', \Mockery::on(
+                fn (array $context): bool => $context['notifiable_id'] === $this->admin->id
+                    && $context['notification_title'] === 'Order received'
+                    && $context['error'] === '535 Incorrect authentication data',
+            ));
     }
 
     private function createVendorUser(string $businessName): User
